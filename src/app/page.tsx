@@ -4,6 +4,7 @@ import { AccountMenu } from "@/components/account-menu";
 import { Brand } from "@/components/brand";
 import { CreateRoomForm } from "@/components/create-room-form";
 import { LandingNoirBackground } from "@/components/landing-noir-background";
+import { LegalFooter } from "@/components/legal-footer";
 import { RoomList } from "@/components/room-list";
 import { listAvailableRooms } from "@/lib/rooms";
 
@@ -29,6 +30,7 @@ export default async function HomePage() {
           </section>
           <CreateRoomForm />
         </div>
+        <LegalFooter />
       </main>
     );
   }
@@ -46,6 +48,7 @@ export default async function HomePage() {
           <small className="login-note">Pedimos apenas sua identidade básica do Discord.</small>
         </div>
       </section>
+      <LegalFooter />
     </main>
   );
 }
