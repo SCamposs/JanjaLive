@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { WebAnalytics } from "@/components/web-analytics";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,7 +16,7 @@ export const viewport: Viewport = { themeColor: "#050505", colorScheme: "dark" }
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>{children}<WebAnalytics /></body>
     </html>
   );
 }

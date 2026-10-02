@@ -50,6 +50,10 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
     if (realtime.membershipRevision > 0) router.refresh();
   }, [realtime.membershipRevision, router]);
 
+  useEffect(() => {
+    if (realtime.roomUnavailable) router.replace("/");
+  }, [realtime.roomUnavailable, router]);
+
   const membersById = useMemo(
     () => new Map(snapshot.members.map((member) => [member.userId, member])),
     [snapshot.members],

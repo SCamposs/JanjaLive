@@ -79,7 +79,7 @@ The UI offers resolution, frame rate, and simple Auto/High/Custom quality. Inter
 - Directed signaling is restricted to active members of the same room.
 - Security headers disable framing, camera, and microphone access.
 - Logs redact keys associated with credentials, invitations, SDP, ICE, cookies, and IP addresses.
-- No analytics, trackers, recording, VOD, chat, or media storage are included.
+- Vercel Web Analytics records anonymous aggregate page views after sensitive route values are redacted. No custom analytics events, session replay, recording, VOD, chat, or media storage are included.
 
 WebRTC media transport is encrypted. P2P peers may still learn network-address information during ICE negotiation; JanjaLive is deliberately intended for small trusted groups.
 

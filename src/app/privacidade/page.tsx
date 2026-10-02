@@ -33,6 +33,12 @@ export default function PrivacyPage() {
       </section>
 
       <section>
+        <h2>Métricas de uso</h2>
+        <p>O site usa Vercel Web Analytics para contar visualizações de páginas e produzir estatísticas agregadas, como país, navegador, sistema operacional, tipo de dispositivo e página visitada. Segundo a Vercel, esse recurso não usa cookies nem associa os eventos a uma identidade pessoal; o identificador diário é descartado após 24 horas.</p>
+        <p>O JanjaLive não envia eventos personalizados. Parâmetros de URL, fragmentos, tokens de convite e identificadores de sala são removidos ou substituídos antes do envio. O Analytics não recebe conteúdo transmitido, nomes de usuários, códigos de sala ou mensagens de conexão.</p>
+      </section>
+
+      <section>
         <h2>Seus direitos</h2>
         <p>Você pode pedir confirmação do tratamento, acesso, correção ou exclusão dos seus dados quando aplicável, além de informações sobre compartilhamento. Como o JanjaLive é de acesso restrito, faça o pedido diretamente ao responsável que forneceu seu acesso ao serviço. Se esse canal mudar, esta página será atualizada.</p>
         <p>Informações gerais sobre os direitos previstos na LGPD estão disponíveis no <a href="https://www.gov.br/anpd/pt-br/assuntos/titular-de-dados" rel="noreferrer">portal da ANPD</a>.</p>

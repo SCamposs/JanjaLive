@@ -46,6 +46,12 @@ When TURN is configured and a direct route cannot be established, Cloudflare may
 - Vercel, Neon, Upstash, Cloudflare and Discord can observe the metadata necessary to provide their services. Their platform-level logging and retention must be reviewed in the production account.
 - Browser extensions, malware or a compromised operating system are outside the web application's security boundary.
 
+## Web analytics
+
+Vercel Web Analytics records anonymous aggregate page views without third-party cookies. Vercel may derive country, browser, operating system and device type for aggregate reports. The daily visitor hash is discarded after 24 hours according to Vercel's service documentation.
+
+JanjaLive strips query strings and fragments and replaces `/room/<invite>` and `/join/<public-id>` values before an event is sent. It does not configure custom events, session replay or analytics properties containing user, room, media or signaling data.
+
 ## Production checklist
 
 - Keep the GitHub repository, Neon database and Upstash database private.
@@ -54,5 +60,5 @@ When TURN is configured and a direct route cannot be established, Cloudflare may
 - Configure `AUTH_URL=https://janja.live` and the exact Discord callback `https://janja.live/api/auth/callback/discord`.
 - Enable MFA on GitHub, Vercel, Discord, Neon, Upstash and Cloudflare accounts.
 - Review provider access logs and retention settings before inviting real users.
-- Do not enable request-body logging, session replay, analytics pixels or error-reporting tools that capture application payloads.
+- Do not enable request-body logging, session replay, custom analytics containing application data or error-reporting tools that capture application payloads.
 - Run the manual two-browser privacy checklist in `docs/manual-webrtc-test.md` before production use.

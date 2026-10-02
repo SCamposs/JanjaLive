@@ -336,3 +336,9 @@ export async function closeRoom(roomId: string, ownerId: string) {
   if (!canManageRoom(member)) throw new Error("OWNER_REQUIRED");
   await getDb().update(rooms).set({ closedAt: new Date() }).where(eq(rooms.id, roomId));
 }
+
+export async function deleteRoom(roomId: string, ownerId: string) {
+  const { member } = await assertAuthorizedRoom(roomId, ownerId);
+  if (!canManageRoom(member)) throw new Error("OWNER_REQUIRED");
+  await getDb().delete(rooms).where(eq(rooms.id, roomId));
+}

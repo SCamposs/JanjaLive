@@ -45,6 +45,7 @@ export function useRoomMedia(roomId: string, userId: string) {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("reconnecting");
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [roomUnavailable, setRoomUnavailable] = useState(false);
   const [membershipRevision, setMembershipRevision] = useState(0);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
@@ -198,6 +199,11 @@ export function useRoomMedia(roomId: string, userId: string) {
         const response = await fetch(`/api/rooms/${roomId}/signals?since=${sinceRef.current}`, {
           cache: "no-store",
         });
+        if (response.status === 403 || response.status === 404) {
+          stoppedRef.current = true;
+          setRoomUnavailable(true);
+          return;
+        }
         if (!response.ok) throw new Error("POLL_FAILED");
         const data = (await response.json()) as PollResponse;
         failures = 0;
@@ -270,6 +276,7 @@ export function useRoomMedia(roomId: string, userId: string) {
     membershipRevision,
     onlineUserIds,
     remoteStreams,
+    roomUnavailable,
     startBroadcast,
     stopBroadcast,
     stopWatching,

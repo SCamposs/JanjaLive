@@ -71,7 +71,7 @@ O signaling não depende de uma Function específica continuar viva. Uma conexã
 
 ## Privacy model
 
-JanjaLive não armazena frames, áudio, screenshots, gravações, estatísticas históricas ou IPs. SDP e ICE candidates existem apenas no Redis efêmero para negociação e expiram em até 180 segundos; nunca são copiados para PostgreSQL nem para logs da aplicação. Não inclui Analytics, Sentry, pixels nem telemetria customizada.
+JanjaLive não armazena frames, áudio, screenshots, gravações, estatísticas de mídia ou IPs. SDP e ICE candidates existem apenas no Redis efêmero para negociação e expiram em até 180 segundos; nunca são copiados para PostgreSQL nem para logs da aplicação. Vercel Web Analytics registra somente page views agregadas e anônimas; rotas sensíveis são redigidas antes do envio. Não há Sentry, session replay, pixels externos nem telemetria customizada.
 
 O transporte de mídia WebRTC é criptografado. Como em qualquer conexão P2P, peers podem tecnicamente descobrir informações de endereço de rede durante ICE. Por isso o produto é destinado a pequenos grupos confiáveis.
 
