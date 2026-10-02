@@ -1,0 +1,31 @@
+appId: live.janja.desktop
+productName: JanjaLive
+asar: true
+directories:
+  output: dist
+files:
+  - out/**/*
+afterPack: scripts/after-pack.cjs
+protocols:
+  - name: JanjaLive
+    schemes:
+      - janjalive
+win:
+  icon: ../../public/janja-live.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: JanjaLive-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: false
+  createStartMenuShortcut: true
+  shortcutName: JanjaLive
+publish:
+  provider: github
+  owner: SCamposs
+  repo: JanjaLive
+  releaseType: release

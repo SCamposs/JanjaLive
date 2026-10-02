@@ -3,6 +3,7 @@
 import {
   Check,
   Copy,
+  DoorOpen,
   MonitorUp,
   Play,
   Settings,
@@ -190,12 +191,14 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
               </div>
             </details>
           )}
+          <button className="button secondary compact room-leave-button" type="button" onClick={() => void leaveRoom()}>
+            <DoorOpen size={16} /> Sair da sala
+          </button>
           <AccountMenu
             compact
             image={currentUser.image}
             name={currentUser.name ?? "Conta Discord"}
             signOutDisabled={isBroadcasting || Boolean(capture)}
-            onLeaveRoom={leaveRoom}
           />
         </div>
       </header>

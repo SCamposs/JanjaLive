@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, DoorOpen, LogOut } from "lucide-react";
+import { ChevronDown, LogOut } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { UserAvatar } from "./user-avatar";
 
@@ -9,13 +9,11 @@ export function AccountMenu({
   image,
   compact = false,
   signOutDisabled = false,
-  onLeaveRoom,
 }: {
   name: string;
   image?: string | null;
   compact?: boolean;
   signOutDisabled?: boolean;
-  onLeaveRoom?: () => void | Promise<void>;
 }) {
   return (
     <details className="account-menu">
@@ -28,11 +26,6 @@ export function AccountMenu({
       </summary>
       <div className="account-popover">
         <strong>{name}</strong>
-        {onLeaveRoom && (
-          <button type="button" onClick={() => void onLeaveRoom()}>
-            <DoorOpen size={15} aria-hidden="true" /> Sair da sala
-          </button>
-        )}
         <button
           type="button"
           disabled={signOutDisabled}

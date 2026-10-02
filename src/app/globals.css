@@ -161,6 +161,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .header-left, .header-actions, .room-identity { display: flex; align-items: center; }
 .header-left { gap: 17px; }
 .header-actions { gap: 8px; }
+.room-leave-button { color: var(--muted); }
 .header-divider { height: 22px; width: 1px; background: var(--border); }
 .room-identity { gap: 7px; }
 .room-identity strong { font-size: 13px; font-weight: 620; }
@@ -318,6 +319,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
   .room-delete-trigger { opacity: .72; }
   .wide-on-mobile { width: 100%; }
   .room-identity small, .header-divider { display: none; }
+  .room-leave-button { width: 34px; padding: 0; font-size: 0; }
   .room-grid { display: block; }
   .media-column { padding: 10px; }
   .app-header { padding: 0 10px; }
