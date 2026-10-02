@@ -27,9 +27,11 @@ Upstash is still an infrastructure provider that receives the signaling requests
 
 ## Screen capture
 
-The only capture API used by the application is `navigator.mediaDevices.getDisplayMedia()`. It is called after the user presses **Compartilhar tela**. The browser and operating system show their native picker, and JanjaLive receives only the `MediaStream` returned for the selected screen, window or tab.
+On the web, `navigator.mediaDevices.getDisplayMedia()` is called only after the user presses **Compartilhar tela**. The browser and operating system show their native picker, and JanjaLive receives only the `MediaStream` returned for the selected screen, window or tab.
 
-The application does not call `getUserMedia`, camera APIs, microphone APIs, file pickers, directory APIs, clipboard read APIs, process enumeration or native desktop capture APIs. The only clipboard operation is writing an invite link after an explicit user action. Camera and microphone permissions are disabled by the site Permissions Policy.
+On Windows desktop, Electron lists screens and application windows in JanjaLive's own picker. A choice creates a short-lived, one-use permission tied to that application window; only then can Chromium create the selected `MediaStream`. The Electron main process never receives video frames. Source IDs and window titles are not persisted or logged, and sharing is never restored after restart.
+
+Neither client calls `getUserMedia`, camera APIs, microphone APIs, file pickers, directory APIs or clipboard read APIs. The desktop client can write a newly generated invite link to the clipboard only after the room owner asks it to. Camera and microphone permissions are denied.
 
 System or tab audio is requested with the display picker and exists only when the browser returns an audio track. JanjaLive never captures microphone audio.
 
@@ -54,7 +56,7 @@ JanjaLive strips query strings and fragments and replaces `/room/<invite>` and `
 
 ## Production checklist
 
-- Keep the GitHub repository, Neon database and Upstash database private.
+- Keep the Neon and Upstash databases private. The public GitHub repository must never contain production credentials.
 - Use separate scoped credentials for production and preview, and rotate them after any suspected exposure.
 - Never place server secrets in variables prefixed with `NEXT_PUBLIC_`.
 - Configure `AUTH_URL=https://janja.live` and the exact Discord callback `https://janja.live/api/auth/callback/discord`.

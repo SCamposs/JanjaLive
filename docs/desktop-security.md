@@ -16,7 +16,7 @@ The renderer is assumed to be compromisable through a future UI bug. A renderer 
 - Every IPC handler checks the exact top-level renderer frame and validates payloads.
 - Production navigation and network requests are allowlisted. New windows are denied.
 - Camera, microphone, geolocation, notifications, MIDI, USB, serial and Bluetooth permissions are denied by default.
-- Production code is packaged in ASAR. Electron fuses disable RunAsNode, Node CLI inspection and `NODE_OPTIONS`, enable cookie encryption and ASAR integrity, and require loading from ASAR.
+- Production code is packaged in ASAR. Electron fuses disable RunAsNode, Node CLI inspection, `NODE_OPTIONS` and extra `file://` privileges; they enable cookie encryption and ASAR integrity and require loading from ASAR.
 
 ## Screen capture
 

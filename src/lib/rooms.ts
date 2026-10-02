@@ -174,6 +174,11 @@ export async function getRoomSnapshotByPublicId(publicId: string, userId: string
   return buildRoomSnapshot(room, userId, false);
 }
 
+export async function getAuthorizedRoomSnapshot(roomId: string, userId: string): Promise<RoomSnapshot> {
+  const { room } = await assertAuthorizedRoom(roomId, userId);
+  return buildRoomSnapshot(room, userId, false);
+}
+
 export async function resolveRoomCode(code: string): Promise<string | null> {
   const [room] = await getDb().select().from(rooms).where(eq(rooms.code, code)).limit(1);
   return room && isRoomActive(room) ? room.publicId : null;

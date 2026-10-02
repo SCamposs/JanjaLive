@@ -5,6 +5,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import {
   app,
   BrowserWindow,
+  clipboard,
   desktopCapturer,
   ipcMain,
   net,
@@ -19,20 +20,30 @@ import { autoUpdater } from "electron-updater";
 import {
   authExchangeResponseSchema,
   authStatusSchema,
+  clientSignalSchema,
   captureSelectionSchema,
+  iceServersSchema,
+  membershipActionSchema,
+  realtimePollSchema,
+  roomCreateInputSchema,
+  roomSnapshotSchema,
+  roomSummarySchema,
   updaterStatusSchema,
   type AuthStatus,
   type UpdaterStatus,
 } from "../shared/contracts";
 import { findDeepLink, type DesktopDeepLink } from "../shared/security";
+import { ExpiringGrantStore } from "../shared/expiring-grants";
 
 const APP_ORIGIN = "janja-app://bundle";
+const API_ORIGIN = "https://janja.live";
 const AUTH_START_URL = "https://janja.live/desktop/auth/start";
 const AUTH_EXCHANGE_URL = "https://janja.live/api/desktop/auth/exchange";
 const AUTH_SESSION_URL = "https://janja.live/api/desktop/auth/session";
 const AUTH_FLOW_TTL_MS = 10 * 60 * 1_000;
 const SOURCE_TOKEN_TTL_MS = 60_000;
 const SELECTION_TTL_MS = 30_000;
+const AUDIO_FALLBACK_TTL_MS = 5_000;
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const rendererDirectory = resolve(currentDirectory, "../renderer");
 
@@ -45,11 +56,13 @@ type PendingSelection = SourceGrant & { withSystemAudio: boolean };
 
 let mainWindow: BrowserWindow | null = null;
 let updaterStatus: UpdaterStatus = { state: "idle" };
+let updateRequired = false;
 let authStatus: AuthStatus = { state: "signed-out" };
 let sessionToken: string | null = null;
 let pendingAuth: { state: string; verifier: string; expiresAt: number } | null = null;
-const sourceGrants = new Map<string, SourceGrant>();
+const sourceGrants = new ExpiringGrantStore<DesktopCapturerSource>();
 const pendingSelections = new Map<number, PendingSelection>();
+const audioFallbackSelections = new Map<number, SourceGrant>();
 
 function rendererUrlIsTrusted(url: string) {
   if (url === `${APP_ORIGIN}/` || url.startsWith(`${APP_ORIGIN}/assets/`)) return true;
@@ -123,8 +136,16 @@ async function readStoredSession() {
 
 async function fetchAuthenticatedSession(token: string) {
   const response = await net.fetch(AUTH_SESSION_URL, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "X-JanjaLive-Desktop-Version": app.getVersion(),
+    },
   });
+  if (response.status === 426) {
+    updateRequired = true;
+    updateStatus({ state: "required" });
+  }
   if (!response.ok) return null;
   const payload = await response.json() as { user?: unknown };
   const parsed = authStatusSchema.safeParse({ state: "signed-in", user: payload.user });
@@ -183,6 +204,49 @@ function handleDeepLink(link: DesktopDeepLink | null) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("app:deep-link", link);
 }
 
+function assertRoomId(value: unknown) {
+  if (typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new Error("INVALID_ROOM_ID");
+  }
+  return value;
+}
+
+async function backendRequest(pathname: string, init: RequestInit = {}) {
+  if (!sessionToken) throw new Error("UNAUTHENTICATED");
+  const url = new URL(pathname, API_ORIGIN);
+  if (url.origin !== API_ORIGIN || !url.pathname.startsWith("/api/")) throw new Error("INVALID_API_PATH");
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${sessionToken}`);
+  headers.set("X-JanjaLive-Desktop-Version", app.getVersion());
+  headers.set("Accept", "application/json");
+  const response = await net.fetch(url.toString(), { ...init, headers });
+  if (response.status === 401) {
+    await clearStoredSession();
+    updateAuthStatus({ state: "signed-out" });
+  }
+  if (response.status === 426) {
+    updateRequired = true;
+    updateStatus({ state: "required" });
+  }
+  if (!response.ok) throw new Error(`API_${response.status}`);
+  return response;
+}
+
+async function getRoomSnapshot(roomId: string) {
+  const response = await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}`);
+  return roomSnapshotSchema.parse(await response.json());
+}
+
+async function openInvite(token: string) {
+  if (!/^[A-Za-z0-9_-]{8,256}$/.test(token)) throw new Error("INVALID_INVITE");
+  const response = await backendRequest("/api/rooms/invite", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  return roomSnapshotSchema.parse(await response.json());
+}
+
 function sanitizeSourceName(name: string) {
   return name.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 160) || "Sem título";
 }
@@ -201,12 +265,10 @@ function registerIpc() {
       fetchWindowIcons: false,
     });
     const now = Date.now();
-    for (const [token, grant] of sourceGrants) {
-      if (grant.ownerId === ownerId || grant.expiresAt <= now) sourceGrants.delete(token);
-    }
+    sourceGrants.clearOwner(ownerId, now);
     return sources.map((source) => {
       const token = randomUUID();
-      sourceGrants.set(token, { source, ownerId, expiresAt: now + SOURCE_TOKEN_TTL_MS });
+      sourceGrants.set(token, { value: source, ownerId, expiresAt: now + SOURCE_TOKEN_TTL_MS });
       return {
         token,
         name: sanitizeSourceName(source.name),
@@ -219,15 +281,15 @@ function registerIpc() {
   ipcMain.handle("capture:select-source", (event, payload: unknown) => {
     const ownerId = assertTrustedSender(event);
     const input = captureSelectionSchema.parse(payload);
-    const grant = sourceGrants.get(input.token);
-    sourceGrants.delete(input.token);
-    if (!grant || grant.ownerId !== ownerId || grant.expiresAt <= Date.now()) throw new Error("CAPTURE_SELECTION_EXPIRED");
-    pendingSelections.set(ownerId, { ...grant, withSystemAudio: input.withSystemAudio, expiresAt: Date.now() + SELECTION_TTL_MS });
+    const source = sourceGrants.take(input.token, ownerId);
+    if (!source) throw new Error("CAPTURE_SELECTION_EXPIRED");
+    pendingSelections.set(ownerId, { source, ownerId, withSystemAudio: input.withSystemAudio, expiresAt: Date.now() + SELECTION_TTL_MS });
   });
 
   ipcMain.handle("capture:cancel-selection", (event) => {
     const ownerId = assertTrustedSender(event);
     pendingSelections.delete(ownerId);
+    audioFallbackSelections.delete(ownerId);
   });
 
   ipcMain.handle("auth:start", async (event) => {
@@ -259,6 +321,104 @@ function registerIpc() {
     updateAuthStatus({ state: "signed-out" });
   });
 
+  ipcMain.handle("rooms:list", async (event) => {
+    assertTrustedSender(event);
+    const response = await backendRequest("/api/rooms");
+    const payload = await response.json() as { rooms?: unknown };
+    return roomSummarySchema.array().max(100).parse(payload.rooms);
+  });
+  ipcMain.handle("rooms:get", async (event, roomId: unknown) => {
+    assertTrustedSender(event);
+    return getRoomSnapshot(assertRoomId(roomId));
+  });
+  ipcMain.handle("rooms:get-public", async (event, publicId: unknown) => {
+    assertTrustedSender(event);
+    if (typeof publicId !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(publicId)) throw new Error("INVALID_PUBLIC_ID");
+    const response = await backendRequest(`/api/rooms/public/${encodeURIComponent(publicId)}`);
+    return roomSnapshotSchema.parse(await response.json());
+  });
+  ipcMain.handle("rooms:create", async (event, payload: unknown) => {
+    assertTrustedSender(event);
+    const input = roomCreateInputSchema.parse(payload);
+    const response = await backendRequest("/api/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const created = await response.json() as { invitePath?: unknown };
+    const token = typeof created.invitePath === "string" ? /^\/room\/([A-Za-z0-9_-]{8,256})$/.exec(created.invitePath)?.[1] : null;
+    if (!token) throw new Error("INVALID_API_RESPONSE");
+    return openInvite(token);
+  });
+  ipcMain.handle("rooms:join-code", async (event, code: unknown) => {
+    assertTrustedSender(event);
+    if (typeof code !== "string" || !/^[2-9A-HJ-NP-Z]{7}$/.test(code)) throw new Error("INVALID_ROOM_CODE");
+    const response = await backendRequest("/api/rooms/code", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    const resolved = await response.json() as { joinPath?: unknown };
+    const publicId = typeof resolved.joinPath === "string" ? /^\/join\/([A-Za-z0-9_-]{8,64})$/.exec(resolved.joinPath)?.[1] : null;
+    if (!publicId) throw new Error("INVALID_API_RESPONSE");
+    const snapshotResponse = await backendRequest(`/api/rooms/public/${encodeURIComponent(publicId)}`);
+    return roomSnapshotSchema.parse(await snapshotResponse.json());
+  });
+  ipcMain.handle("rooms:open-invite", async (event, token: unknown) => {
+    assertTrustedSender(event);
+    if (typeof token !== "string") throw new Error("INVALID_INVITE");
+    return openInvite(token);
+  });
+  ipcMain.handle("rooms:request-access", async (event, roomId: unknown) => {
+    assertTrustedSender(event);
+    await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}/request`, { method: "POST" });
+  });
+  ipcMain.handle("rooms:manage-member", async (event, roomId: unknown, payload: unknown) => {
+    assertTrustedSender(event);
+    const safeRoomId = assertRoomId(roomId);
+    const input = membershipActionSchema.parse(payload);
+    await backendRequest(`/api/rooms/${encodeURIComponent(safeRoomId)}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    return getRoomSnapshot(safeRoomId);
+  });
+  ipcMain.handle("rooms:copy-invite", async (event, roomId: unknown) => {
+    assertTrustedSender(event);
+    const response = await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}/invite`, {
+      method: "POST",
+    });
+    const payload = await response.json() as { invitePath?: unknown };
+    const token = typeof payload.invitePath === "string" ? /^\/room\/([A-Za-z0-9_-]{8,256})$/.exec(payload.invitePath)?.[1] : null;
+    if (!token) throw new Error("INVALID_API_RESPONSE");
+    clipboard.writeText(`${API_ORIGIN}/room/${token}`);
+  });
+  ipcMain.handle("rooms:delete", async (event, roomId: unknown) => {
+    assertTrustedSender(event);
+    await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}`, { method: "DELETE" });
+  });
+  ipcMain.handle("realtime:poll", async (event, roomId: unknown, since: unknown) => {
+    assertTrustedSender(event);
+    if (typeof since !== "number" || !Number.isSafeInteger(since) || since < 0) throw new Error("INVALID_CURSOR");
+    const response = await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}/signals?since=${since}`);
+    return realtimePollSchema.parse(await response.json());
+  });
+  ipcMain.handle("realtime:send", async (event, roomId: unknown, payload: unknown) => {
+    assertTrustedSender(event);
+    const signal = clientSignalSchema.parse(payload);
+    await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}/signals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(signal),
+    });
+  });
+  ipcMain.handle("realtime:ice-servers", async (event, roomId: unknown) => {
+    assertTrustedSender(event);
+    const response = await backendRequest(`/api/ice-servers?roomId=${encodeURIComponent(assertRoomId(roomId))}`);
+    return iceServersSchema.parse(await response.json()).iceServers;
+  });
+
   ipcMain.handle("updater:get-status", (event) => {
     assertTrustedSender(event);
     return updaterStatus;
@@ -285,7 +445,21 @@ function configureSession() {
     if (!window || request.frame !== window.webContents.mainFrame || !rendererUrlIsTrusted(request.frame.url)) return callback({});
     const selection = pendingSelections.get(window.webContents.id);
     pendingSelections.delete(window.webContents.id);
-    if (!selection || selection.expiresAt <= Date.now()) return callback({});
+    if (!selection || selection.expiresAt <= Date.now()) {
+      const fallback = audioFallbackSelections.get(window.webContents.id);
+      audioFallbackSelections.delete(window.webContents.id);
+      if (!fallback || fallback.expiresAt <= Date.now()) return callback({});
+      return callback({ video: fallback.source });
+    }
+    if (selection.withSystemAudio) {
+      audioFallbackSelections.set(window.webContents.id, {
+        source: selection.source,
+        ownerId: selection.ownerId,
+        expiresAt: Date.now() + AUDIO_FALLBACK_TTL_MS,
+      });
+    } else {
+      audioFallbackSelections.delete(window.webContents.id);
+    }
     callback({ video: selection.source, ...(selection.withSystemAudio ? { audio: "loopback" as const } : {}) });
   });
 
@@ -356,11 +530,13 @@ function createWindow() {
 function configureUpdater() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.allowPrerelease = false;
+  autoUpdater.disableWebInstaller = true;
   autoUpdater.on("checking-for-update", () => updateStatus({ state: "checking" }));
-  autoUpdater.on("update-not-available", () => updateStatus({ state: "up-to-date" }));
+  autoUpdater.on("update-not-available", () => updateStatus(updateRequired ? { state: "required" } : { state: "up-to-date" }));
   autoUpdater.on("download-progress", ({ percent }) => updateStatus({ state: "downloading", percent: Math.max(0, Math.min(100, percent)) }));
   autoUpdater.on("update-downloaded", ({ version }) => updateStatus({ state: "ready", version }));
-  autoUpdater.on("error", () => updateStatus({ state: "error" }));
+  autoUpdater.on("error", () => updateStatus(updateRequired ? { state: "required" } : { state: "error" }));
 }
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();

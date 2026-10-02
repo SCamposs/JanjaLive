@@ -1,11 +1,11 @@
 # JanjaLive architecture
 
-JanjaLive is a private control plane around browser-native WebRTC. Persistent authorization lives in PostgreSQL; presence and signaling are ephemeral; media stays between participating browsers.
+JanjaLive is a private control plane around Chromium WebRTC. Persistent authorization lives in PostgreSQL; presence and signaling are ephemeral; media stays between participating clients. The web and Windows desktop applications are two clients of the same rooms, permissions and protocol.
 
 ```mermaid
 flowchart LR
-  A[Browser A] -->|HTTPS: auth, rooms, signaling| V[Next.js on Vercel]
-  B[Browser B] -->|HTTPS: auth, rooms, signaling| V
+  A[Web client] -->|HTTPS: auth, rooms, signaling| V[Next.js on Vercel]
+  B[Electron desktop] -->|HTTPS: auth, rooms, signaling| V
   V --> N[(Neon PostgreSQL)]
   V --> R[(Upstash Redis: ephemeral)]
   A <-->|WebRTC media - never through Vercel| B
@@ -14,6 +14,8 @@ flowchart LR
 ## 1. Authentication
 
 Auth.js uses Discord OAuth with only the `identify` scope. Discord is an identity provider, not a media transport. The stable Discord account ID is mapped to an internal user record. Cookies and OAuth protections are handled by Auth.js; every room and signaling endpoint derives the user from the server-side session.
+
+The desktop client opens this same login in the system browser. A state- and PKCE-bound, five-minute, single-use handoff returns through `janjalive://auth/callback`. The backend stores only hashes of the handoff and desktop session secrets. The reusable desktop token stays in Electron's main process and is encrypted at rest with `safeStorage`; the renderer receives only the signed-in user profile.
 
 ## 2. Persistent data
 
@@ -63,6 +65,8 @@ Screen video and optional system audio travel through WebRTC. Vercel, Neon, and 
 
 Capture begins only after the user clicks **Compartilhar tela**. The browser-native picker is authoritative. JanjaLive shows the returned `MediaStream` in a large local preview, then applies best-effort constraints only after confirmation. Canceling stops every track. The native stop button is observed through `track.onended`.
 
+On desktop, `desktopCapturer` stays in the main process. The renderer receives sanitized names, thumbnails and opaque expiring tokens—not Electron source IDs. Selecting one token creates a one-use grant for the top-level JanjaLive frame. `setDisplayMediaRequestHandler` consumes that grant and returns the selected source, with Windows loopback audio only when requested. Raw frames remain in Chromium and never cross IPC.
+
 ## 9. Audio
 
 `getDisplayMedia({ audio: true })` requests system/source audio. The UI reports a track only when the browser actually returns one. No microphone or camera is requested. Windows Chrome/Edge is the primary target; source and browser restrictions are expected elsewhere.
@@ -94,3 +98,9 @@ Each viewer creates an extra outbound encoding path at the broadcaster. At 10 Mb
 ## 14. Optional TURN path
 
 The default ICE configuration is `stun:stun.cloudflare.com:3478`. When Cloudflare TURN server credentials are configured, a server route exchanges the long-term secret for short-lived ICE credentials and returns only those temporary credentials to the browser. TURN is optional and never silently required for the core deployment.
+
+## 15. Desktop isolation and updates
+
+The packaged renderer is served from the private `janja-app://` scheme with Node integration disabled, context isolation, Chromium sandboxing, restrictive CSP, denied navigation/new windows and a narrow preload API. All privileged IPC handlers validate the exact main frame and parse their payloads.
+
+The updater is fixed to the official GitHub Releases repository. Version tags trigger a Windows-only release workflow after frozen-lockfile installation, full web/desktop checks and a full-history Gitleaks scan. Electron-builder 26 generates SHA-512 update metadata; Windows artifacts remain unsigned until a real Authenticode certificate is available. Signed Ed25519 manifests will be adopted when the stable electron-builder line supports them.

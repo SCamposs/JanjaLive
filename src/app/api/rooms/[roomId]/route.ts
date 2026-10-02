@@ -1,5 +1,16 @@
 import { apiError, requireUser } from "@/lib/api";
-import { deleteRoom } from "@/lib/rooms";
+import { deleteRoom, getAuthorizedRoomSnapshot } from "@/lib/rooms";
+
+export async function GET(request: Request, context: { params: Promise<{ roomId: string }> }) {
+  try {
+    const user = await requireUser(request);
+    const { roomId } = await context.params;
+    const snapshot = await getAuthorizedRoomSnapshot(roomId, user.id);
+    return Response.json(snapshot, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    return apiError(error);
+  }
+}
 
 export async function DELETE(request: Request, context: { params: Promise<{ roomId: string }> }) {
   try {

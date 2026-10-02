@@ -1,6 +1,17 @@
 import { createRoomSchema } from "@/lib/schemas";
 import { apiError, requireUser } from "@/lib/api";
-import { createRoom } from "@/lib/rooms";
+import { createRoom, listAvailableRooms } from "@/lib/rooms";
+
+export async function GET(request: Request) {
+  try {
+    const user = await requireUser(request);
+    return Response.json({ rooms: await listAvailableRooms(user.id) }, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch (error) {
+    return apiError(error);
+  }
+}
 
 export async function POST(request: Request) {
   try {

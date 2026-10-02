@@ -17,8 +17,9 @@ export default function PrivacyPage() {
 
       <section>
         <h2>Tela e áudio</h2>
-        <p>A captura só começa após você escolher uma tela, janela ou guia no seletor do navegador. O JanjaLive recebe apenas a fonte selecionada e nunca solicita câmera, microfone, arquivos, área de transferência ou acesso geral ao computador.</p>
-        <p>A mídia segue diretamente entre os navegadores por WebRTC. JanjaLive não grava nem armazena imagem ou áudio. Pessoas autorizadas que assistem ainda podem gravar o conteúdo por meios próprios.</p>
+        <p>A captura só começa após você escolher uma tela, janela, aplicação ou guia. No site, essa escolha acontece no seletor do navegador. No aplicativo para Windows, ela acontece no seletor do JanjaLive e vale uma única vez; compartilhar novamente exige uma nova escolha.</p>
+        <p>O JanjaLive recebe somente a fonte selecionada e não solicita câmera, microfone, arquivos, leitura da área de transferência ou acesso geral ao computador. O aplicativo pode escrever um link de convite na área de transferência apenas quando o dono da sala pede.</p>
+        <p>A mídia segue por WebRTC entre quem transmite e quem escolheu assistir, diretamente ou por retransmissão TURN quando necessária. JanjaLive não grava nem armazena imagem ou áudio. Pessoas autorizadas que assistem ainda podem gravar o conteúdo por meios próprios.</p>
       </section>
 
       <section>
