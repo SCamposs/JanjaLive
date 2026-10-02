@@ -134,6 +134,7 @@ Abra `http://localhost:3000` e registre `http://localhost:3000/api/auth/callback
 | `AUTH_DISCORD_ID` | Yes | Discord OAuth application ID |
 | `AUTH_DISCORD_SECRET` | Yes | Discord OAuth client secret |
 | `AUTH_URL` | Yes | Canonical Auth.js URL (`https://janja.live`) |
+| `CRON_SECRET` | Yes | Random secret used by Vercel Cron to authorize room cleanup |
 | `UPSTASH_REDIS_REST_URL` or `KV_REST_API_URL` | Yes | Ephemeral signaling/presence store |
 | `UPSTASH_REDIS_REST_TOKEN` or `KV_REST_API_TOKEN` | Yes | Upstash REST credential |
 | `CLOUDFLARE_TURN_KEY_ID` | No | Optional TURN key ID |
@@ -157,9 +158,16 @@ Presence e WebRTC sessions nunca devem ser movidos para PostgreSQL.
 3. Defina `AUTH_URL=https://janja.live`.
 4. Vincule `janja.live` e aplique os registros DNS mostrados pela Vercel.
 5. Registre `https://janja.live/api/auth/callback/discord` no Discord OAuth2.
-6. Faça o deploy. A migration é aplicada antes do build quando `DATABASE_URL` está disponível na Vercel.
+6. Gere um valor aleatório para `CRON_SECRET`; a Vercel o envia automaticamente ao cron de limpeza como Bearer token.
+7. Faça o deploy. A migration é aplicada antes do build quando `DATABASE_URL` está disponível na Vercel.
 
 Vercel recebe somente app, API, auth e signaling; nunca a mídia da tela.
+
+## Room lifecycle
+
+Uma sala expira após três dias sem atividade. Entrar na sala e permanecer nela renovam esse prazo; a renovação persistente é limitada para evitar escrita desnecessária no banco. Salas ocupadas nunca são removidas pelo processo automático.
+
+Após expirar, a sala deixa de aceitar acesso e some da lista. A exclusão física acontece somente depois de mais 30 dias, em uma limpeza diária protegida por `CRON_SECRET`. Se a presença no Redis não puder ser verificada, a limpeza falha de forma segura e não exclui nenhuma candidata.
 
 ## GitHub repository setup
 

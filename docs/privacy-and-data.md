@@ -11,7 +11,7 @@ Neon PostgreSQL stores only data needed for authentication and room authorizatio
 | Discord profile | Internal user ID, Discord ID, username, display name, avatar URL | Identify people in a room |
 | Account link | Provider name and Discord account ID | Reconnect the same Discord account |
 | Session | Opaque session token, user ID, expiration | Keep the user signed in |
-| Room | Internal/public IDs, short code, invite hash, owner, optional name, access mode and lifecycle timestamps | Resolve rooms and enforce access |
+| Room | Internal/public IDs, short code, invite hash, owner, optional name, access mode and lifecycle timestamps | Resolve rooms, enforce access and expire inactive rooms |
 | Membership | Room/user IDs, owner/member role, approval and revocation timestamps | Keep permission independent from online presence |
 | Join request | Room/user IDs, status and resolution timestamps | Let the owner approve or reject access |
 

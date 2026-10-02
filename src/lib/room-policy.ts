@@ -1,6 +1,6 @@
 export type RoomState = {
   closedAt: Date | null;
-  expiresAt: Date | null;
+  expiresAt: Date;
 };
 
 export type MembershipState = {
@@ -9,7 +9,7 @@ export type MembershipState = {
 };
 
 export function isRoomActive(room: RoomState, now = new Date()): boolean {
-  return room.closedAt === null && (room.expiresAt === null || room.expiresAt > now);
+  return room.closedAt === null && room.expiresAt > now;
 }
 
 export function isAuthorizedMember(member: MembershipState | null | undefined): boolean {

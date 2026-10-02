@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb } from "@/db";
 import { joinRequests, roomMembers, rooms, users, type Room } from "@/db/schema";
 import { createInviteToken, createRoomCode, hashInviteToken } from "./crypto";
 import { canAutoJoinInvite, canManageRoom, isAuthorizedMember, isRoomActive } from "./room-policy";
 import { assertCanTargetMember, getMembershipTransition } from "./membership";
+import { getRealtimeStore, hasActiveRoomPresence, shouldRefreshRoomActivity } from "./realtime";
+
+export const ROOM_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1_000;
+export const ROOM_PURGE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
 
 export type RoomSnapshot = {
   room: {
@@ -30,14 +34,12 @@ export async function createRoom(input: {
   userId: string;
   name?: string;
   accessMode: "APPROVAL" | "INVITE";
-  expiresInHours?: number;
 }) {
   const db = getDb();
   const id = randomUUID();
   const inviteToken = createInviteToken();
-  const expiresAt = input.expiresInHours
-    ? new Date(Date.now() + input.expiresInHours * 60 * 60 * 1_000)
-    : null;
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + ROOM_INACTIVITY_MS);
 
   await db.batch([
     db.insert(rooms).values({
@@ -48,12 +50,91 @@ export async function createRoom(input: {
       inviteHash: hashInviteToken(inviteToken),
       name: input.name,
       accessMode: input.accessMode,
+      lastActiveAt: now,
       expiresAt,
     }),
     db.insert(roomMembers).values({ roomId: id, userId: input.userId, role: "OWNER" }),
   ]);
 
   return { id, inviteToken };
+}
+
+export type AvailableRoom = {
+  id: string;
+  publicId: string;
+  name: string;
+  role: "OWNER" | "MEMBER";
+  expiresAt: Date;
+  expiresInMs: number;
+};
+
+export async function listAvailableRooms(userId: string): Promise<AvailableRoom[]> {
+  const now = new Date();
+  const rows = await getDb()
+    .select({
+      id: rooms.id,
+      publicId: rooms.publicId,
+      name: rooms.name,
+      role: roomMembers.role,
+      expiresAt: rooms.expiresAt,
+    })
+    .from(roomMembers)
+    .innerJoin(rooms, eq(roomMembers.roomId, rooms.id))
+    .where(and(
+      eq(roomMembers.userId, userId),
+      isNull(roomMembers.revokedAt),
+      isNull(rooms.closedAt),
+      gt(rooms.expiresAt, now),
+    ))
+    .orderBy(desc(rooms.lastActiveAt));
+
+  const renderedAt = Date.now();
+  return rows.map((room) => ({
+    ...room,
+    name: room.name || "Sala sem nome",
+    expiresInMs: Math.max(0, room.expiresAt.getTime() - renderedAt),
+  }));
+}
+
+export async function refreshRoomActivity(roomId: string, force = false) {
+  let shouldRefresh = force;
+  if (!force) {
+    try {
+      shouldRefresh = await shouldRefreshRoomActivity(roomId);
+    } catch {
+      shouldRefresh = true;
+    }
+  }
+  if (!shouldRefresh) return;
+
+  const now = new Date();
+  await getDb()
+    .update(rooms)
+    .set({ lastActiveAt: now, expiresAt: new Date(now.getTime() + ROOM_INACTIVITY_MS) })
+    .where(and(eq(rooms.id, roomId), isNull(rooms.closedAt), gt(rooms.expiresAt, now)));
+}
+
+export async function purgeStaleRooms(now = new Date()) {
+  const cutoff = new Date(now.getTime() - ROOM_PURGE_DELAY_MS);
+  const candidates = await getDb()
+    .select({ id: rooms.id })
+    .from(rooms)
+    .where(or(lt(rooms.expiresAt, cutoff), lt(rooms.closedAt, cutoff)))
+    .limit(100);
+
+  if (!candidates.length) return 0;
+
+  // Establish the Redis connection before any delete. If presence cannot be
+  // checked, cleanup fails closed and no room is removed.
+  getRealtimeStore();
+  const presence = await Promise.all(
+    candidates.map(async ({ id }) => ({ id, active: await hasActiveRoomPresence(id, now.getTime()) })),
+  );
+  const removableIds = presence.filter(({ active }) => !active).map(({ id }) => id);
+  if (!removableIds.length) return 0;
+
+  const removed = await getDb().delete(rooms).where(inArray(rooms.id, removableIds)).returning({ id: rooms.id });
+  return removed.length;
 }
 
 async function getMember(roomId: string, userId: string) {
@@ -123,6 +204,8 @@ async function buildRoomSnapshot(room: Room, userId: string, allowInviteAutoJoin
       : request?.status === "REJECTED"
         ? "rejected"
         : "invited";
+
+  if (access === "authorized") await refreshRoomActivity(room.id, true);
 
   const memberRows = isAuthorizedMember(member)
     ? await db

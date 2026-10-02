@@ -6,6 +6,10 @@ describe("boundary schemas", () => {
     expect(createRoomSchema.parse({})).toEqual({ accessMode: "APPROVAL" });
   });
 
+  it("keeps room expiration under server control", () => {
+    expect(createRoomSchema.safeParse({ expiresInHours: 168 }).success).toBe(false);
+  });
+
   it("accepts a valid stream announcement", () => {
     expect(signalingEventSchema.safeParse({
       type: "stream:start",

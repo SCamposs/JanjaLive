@@ -4,6 +4,8 @@ import { AccountMenu } from "@/components/account-menu";
 import { Brand } from "@/components/brand";
 import { CreateRoomForm } from "@/components/create-room-form";
 import { LandingNoirBackground } from "@/components/landing-noir-background";
+import { RoomList } from "@/components/room-list";
+import { listAvailableRooms } from "@/lib/rooms";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +13,7 @@ export default async function HomePage() {
   const session = await auth();
   if (session?.user) {
     const displayName = session.user.name?.split(" ")[0] ?? "Conta Discord";
+    const availableRooms = session.user.id ? await listAvailableRooms(session.user.id) : [];
 
     return (
       <main className="home-shell signed-in-home">
@@ -18,7 +21,14 @@ export default async function HomePage() {
           <Brand />
           <AccountMenu image={session.user.image} name={displayName} />
         </header>
-        <div className="home-content"><section className="home-intro"><h1>Salas</h1><p>Crie uma sala ou entre com um código.</p></section><CreateRoomForm /></div>
+        <div className="home-content">
+          <section className="home-intro">
+            <h1>Salas</h1>
+            <p>Crie uma sala ou entre com um código.</p>
+            <RoomList rooms={availableRooms} />
+          </section>
+          <CreateRoomForm />
+        </div>
       </main>
     );
   }

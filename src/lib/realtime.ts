@@ -50,6 +50,20 @@ function presenceKey(roomId: string) {
   return `janjalive:room:${roomId}:presence`;
 }
 
+export function roomActivityThrottleKey(roomId: string) {
+  return `janjalive:room:${roomId}:activity-write`;
+}
+
+export async function shouldRefreshRoomActivity(roomId: string) {
+  const result = await getRealtimeStore().set(roomActivityThrottleKey(roomId), "1", { nx: true, ex: 3_600 });
+  return result === "OK";
+}
+
+export async function hasActiveRoomPresence(roomId: string, now = Date.now()) {
+  const presence = await getRealtimeStore().hgetall<Record<string, number>>(presenceKey(roomId));
+  return Object.values(presence ?? {}).some((lastSeen) => now - Number(lastSeen) < 45_000);
+}
+
 function streamsKey(roomId: string) {
   return `janjalive:room:${roomId}:streams`;
 }

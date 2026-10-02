@@ -36,6 +36,7 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
   const [quality, setQuality] = useState<"auto" | "high" | "custom">("auto");
   const [customBitrate, setCustomBitrate] = useState(10);
   const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.srcObject = stream;
@@ -46,7 +47,7 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
   const bitrate = quality === "custom" ? clampCustomBitrate(customBitrate) : quality === "high" ? Math.min(25_000_000, profile.bitrate * 1.35) : profile.bitrate;
   const videoTrack = stream?.getVideoTracks()[0];
   const settings = videoTrack?.getSettings();
-  const hasAudio = Boolean(stream?.getAudioTracks().length);
+  const hasAudio = Boolean(stream?.getAudioTracks().some((track) => track.readyState === "live"));
 
   const summary = useMemo(() => {
     const width = settings?.width ?? profile.width;
@@ -58,12 +59,14 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
   async function handleStart() {
     if (!stream || !videoTrack) return;
     setStarting(true);
+    setStartError(null);
     try {
       const constraints = getCaptureConstraints(preset);
       if (resolution === "source") constraints.frameRate = { ideal: frameRate, max: frameRate };
       await videoTrack.applyConstraints(constraints).catch(() => undefined);
-      if ("contentHint" in videoTrack) videoTrack.contentHint = "motion";
       await onStart({ stream, preset, bitrate, frameRate });
+    } catch {
+      setStartError("Não foi possível iniciar a transmissão. Tente selecionar a fonte novamente.");
     } finally {
       setStarting(false);
     }
@@ -141,7 +144,7 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
               {hasAudio ? <Volume2 size={17} /> : <VolumeX size={17} />}
               <div>
                 <strong>Áudio do sistema</strong>
-                <span>{hasAudio ? "Ativo para esta fonte" : "Esta fonte ou navegador não forneceu áudio"}</span>
+                <span>{hasAudio ? "Ativo para esta fonte" : "Para compartilhar áudio, prefira uma guia ou a tela inteira"}</span>
               </div>
             </div>
           </div>
@@ -155,6 +158,7 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
               Apenas a tela, janela ou aba que você escolher será compartilhada.
             </span>
           </p>
+          {startError && <p className="form-error share-start-error" role="alert">{startError}</p>}
 
           <div className="dialog-actions">
             <button type="button" className="button ghost" onClick={onCancel}>Cancelar</button>

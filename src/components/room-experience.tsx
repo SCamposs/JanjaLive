@@ -4,7 +4,7 @@ import {
   Check,
   Copy,
   MonitorUp,
-  Radio,
+  Play,
   Settings,
   UsersRound,
   X,
@@ -18,11 +18,17 @@ import { AccountMenu } from "./account-menu";
 import { Brand } from "./brand";
 import { ScreenShareDialog } from "./screen-share-dialog";
 import { StreamPlayer } from "./stream-player";
+import { UserAvatar } from "./user-avatar";
 import { useRoomMedia } from "@/hooks/use-room-media";
 
 type Props = {
   snapshot: RoomSnapshot;
   currentUser: { id: string; name?: string | null; image?: string | null };
+};
+
+type DisplayCaptureOptions = DisplayMediaStreamOptions & {
+  systemAudio?: "include" | "exclude";
+  windowAudio?: "exclude" | "window" | "system";
 };
 
 export function RoomExperience({ snapshot, currentUser }: Props) {
@@ -48,6 +54,15 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
     () => new Map(snapshot.members.map((member) => [member.userId, member])),
     [snapshot.members],
   );
+  const onlineUserIds = useMemo(() => new Set(realtime.onlineUserIds), [realtime.onlineUserIds]);
+  const streamingUserIds = useMemo(
+    () => new Set(realtime.activeStreams.map((stream) => stream.streamerUserId)),
+    [realtime.activeStreams],
+  );
+  const remoteActiveStreams = useMemo(
+    () => realtime.activeStreams.filter((stream) => stream.streamerUserId !== currentUser.id),
+    [currentUser.id, realtime.activeStreams],
+  );
   const isWatchingOwnStream = selectedStreamer === currentUser.id && Boolean(localStream);
   const selectedStream = selectedStreamer && !isWatchingOwnStream ? realtime.remoteStreams[selectedStreamer] : undefined;
 
@@ -66,9 +81,18 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
+      const captureOptions: DisplayCaptureOptions = {
         video: { displaySurface: "window" },
         audio: true,
+        systemAudio: "include",
+        windowAudio: "system",
+      };
+      const stream = await navigator.mediaDevices.getDisplayMedia(captureOptions);
+      stream.getAudioTracks().forEach((track) => {
+        if (track.readyState !== "live") {
+          stream.removeTrack(track);
+          track.stop();
+        }
       });
       const [videoTrack] = stream.getVideoTracks();
       videoTrack.onended = () => {
@@ -80,8 +104,12 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
       };
       setCapture(stream);
     } catch (error) {
-      if (error instanceof DOMException && error.name === "NotAllowedError") return;
-      setCaptureError("Não foi possível abrir o seletor de tela.");
+      if (error instanceof DOMException && ["NotAllowedError", "AbortError"].includes(error.name)) return;
+      setCaptureError(
+        error instanceof DOMException && error.name === "NotReadableError"
+          ? "O navegador não conseguiu capturar essa fonte. Para compartilhar áudio, tente uma guia ou a tela inteira."
+          : "Não foi possível iniciar a captura de tela.",
+      );
     }
   }
 
@@ -170,39 +198,20 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
 
       <div className="room-grid">
         <section className="media-column">
-          <div className="stream-bar">
-            <div className="stream-list">
-              {realtime.activeStreams.map((stream) => {
-                const member = membersById.get(stream.streamerUserId);
-                const isWatching = selectedStreamer === stream.streamerUserId;
-                return (
-                  <article className="stream-card" key={stream.streamerUserId}>
-                    <span className="live-avatar"><Radio size={15} /></span>
-                    <div className="stream-details"><strong>{member?.name ?? "Amigo"}</strong><span><b>LIVE</b> {QUALITY_PROFILES[stream.preset].label} {stream.hasAudio ? "· Áudio" : ""}</span></div>
-                    <button type="button" onClick={() => {
-                      setSelectedStreamer(stream.streamerUserId);
-                      void realtime.watch(stream.streamerUserId);
-                    }} disabled={isWatching}>{isWatching ? "Assistindo" : "Assistir"}</button>
-                  </article>
-                );
-              })}
-              {isBroadcasting && (
-                <article className="stream-card own-stream">
-                  <span className="live-avatar"><MonitorUp size={15} /></span>
-                  <div className="stream-details"><strong>Você</strong><span><b>LIVE</b> Compartilhando</span></div>
-                  <div className="stream-card-actions">
-                    <button type="button" disabled={isWatchingOwnStream} onClick={() => setSelectedStreamer(currentUser.id)}>{isWatchingOwnStream ? "Vendo" : "Ver"}</button>
-                    <button type="button" className="danger-text" onClick={() => void stopSharing()}>Encerrar</button>
-                  </div>
-                </article>
-              )}
-            </div>
-            {!isBroadcasting && selectedStreamer && (
+          {(isBroadcasting || (!isBroadcasting && selectedStreamer)) && (
+            <div className="media-toolbar">
+              {isBroadcasting ? (
+                <>
+                  <button className="button secondary compact" type="button" onClick={() => setSelectedStreamer(currentUser.id)} disabled={isWatchingOwnStream}>Minha transmissão</button>
+                  <button className="button ghost compact danger-text" type="button" onClick={() => void stopSharing()}>Encerrar</button>
+                </>
+              ) : (
               <button className="button primary compact" type="button" onClick={beginCapture} disabled={!canShare}>
                 <MonitorUp size={16} /> Compartilhar
               </button>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           <section className="stage">
             {isWatchingOwnStream && localStream ? (
@@ -223,11 +232,41 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                   setSelectedStreamer(null);
                 }}
               />
+            ) : remoteActiveStreams.length > 0 ? (
+              <div className="stream-picker">
+                <div className="stream-picker-heading">
+                  <div><h1>Transmissões</h1><p>Escolha uma tela para assistir.</p></div>
+                  {!isBroadcasting && canShare && (
+                    <button type="button" className="button secondary compact" onClick={beginCapture}><MonitorUp size={16} /> Compartilhar</button>
+                  )}
+                </div>
+                <div className="stream-choices">
+                  {remoteActiveStreams.map((stream) => {
+                    const member = membersById.get(stream.streamerUserId);
+                    const name = member?.name ?? "Amigo";
+                    return (
+                      <button
+                        className="stream-choice"
+                        type="button"
+                        key={stream.streamerUserId}
+                        onClick={() => {
+                          setSelectedStreamer(stream.streamerUserId);
+                          void realtime.watch(stream.streamerUserId);
+                        }}
+                      >
+                        <UserAvatar className="stream-choice-avatar" image={member?.image} name={name} size={48} />
+                        <span className="stream-choice-copy"><strong>{name}</strong><span><b>AO VIVO</b> {QUALITY_PROFILES[stream.preset].label}{stream.hasAudio ? " · Áudio" : ""}</span></span>
+                        <span className="stream-choice-action"><Play size={14} fill="currentColor" /> Assistir</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ) : (
               <div className="empty-stage">
                 <span className="empty-stage-icon"><MonitorUp size={28} /></span>
-                <h1>{realtime.activeStreams.length ? "Escolha uma transmissão" : "Nenhuma transmissão ativa"}</h1>
-                <p>{realtime.activeStreams.length ? "Você só recebe a tela que decidir assistir." : "Compartilhe sua tela ou aguarde um amigo começar."}</p>
+                <h1>Nenhuma transmissão ativa</h1>
+                <p>Compartilhe sua tela ou aguarde um amigo começar.</p>
                 {!isBroadcasting && canShare && <button type="button" className="button primary" onClick={beginCapture}><MonitorUp size={17} /> Compartilhar minha tela</button>}
               </div>
             )}
@@ -250,9 +289,9 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
             </section>
           )}
           <section className="member-section">
-            <h3>Online <span>{snapshot.members.filter((member) => realtime.onlineUserIds.includes(member.userId)).length}</span></h3>
-            {snapshot.members.filter((member) => realtime.onlineUserIds.includes(member.userId)).map((person) => (
-              <MemberRow key={person.userId} person={person} online isOwner={snapshot.room.isOwner} onRevoke={handleMember} />
+            <h3>Online <span>{snapshot.members.filter((member) => onlineUserIds.has(member.userId)).length}</span></h3>
+            {snapshot.members.filter((member) => onlineUserIds.has(member.userId)).map((person) => (
+              <MemberRow key={person.userId} person={person} online streaming={streamingUserIds.has(person.userId)} isOwner={snapshot.room.isOwner} onRevoke={handleMember} />
             ))}
           </section>
           <section className="member-section">
@@ -261,7 +300,8 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
               <MemberRow
                 key={person.userId}
                 person={person}
-                online={realtime.onlineUserIds.includes(person.userId)}
+                online={onlineUserIds.has(person.userId)}
+                streaming={streamingUserIds.has(person.userId)}
                 isOwner={snapshot.room.isOwner}
                 onRevoke={handleMember}
               />
@@ -309,16 +349,17 @@ function MemberAvatar({ person }: { person: { name: string; image: string | null
   return person.image ? <Image className="member-avatar" src={person.image} alt="" width={32} height={32} /> : <span className="member-avatar fallback">{person.name.slice(0, 1).toUpperCase()}</span>;
 }
 
-function MemberRow({ person, online, isOwner, onRevoke }: {
+function MemberRow({ person, online, streaming, isOwner, onRevoke }: {
   person: RoomSnapshot["members"][number];
   online: boolean;
+  streaming: boolean;
   isOwner: boolean;
   onRevoke: (userId: string, action: "approve" | "reject" | "revoke") => Promise<void>;
 }) {
   return (
     <div className="member-row">
       <div className="avatar-wrap"><MemberAvatar person={person} /><span data-online={online} /></div>
-      <div><strong>{person.name}</strong><span>{person.role === "OWNER" ? "Dono" : online ? "Online" : "Offline"}</span></div>
+      <div><strong>{person.name}</strong><span>{streaming ? `${person.role === "OWNER" ? "Dono · " : ""}Transmitindo` : person.role === "OWNER" ? "Dono" : online ? "Online" : "Offline"}</span></div>
       {isOwner && person.role !== "OWNER" && <button className="member-menu" type="button" onClick={() => onRevoke(person.userId, "revoke")} aria-label={`Remover ${person.name}`}><X size={15} /></button>}
     </div>
   );

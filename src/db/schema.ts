@@ -91,10 +91,15 @@ export const rooms = pgTable(
     accessMode: accessModeEnum("access_mode").default("APPROVAL").notNull(),
     inviteVersion: integer("invite_version").default(1).notNull(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    lastActiveAt: timestamp("last_active_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     closedAt: timestamp("closed_at", { mode: "date", withTimezone: true }),
-    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
   },
-  (table) => [index("rooms_owner_id_idx").on(table.ownerId), index("rooms_code_idx").on(table.code)],
+  (table) => [
+    index("rooms_owner_id_idx").on(table.ownerId),
+    index("rooms_code_idx").on(table.code),
+    index("rooms_expiration_idx").on(table.expiresAt),
+  ],
 );
 
 export const roomMembers = pgTable(

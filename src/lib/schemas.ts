@@ -4,8 +4,7 @@ import { qualityPresetSchema } from "./quality";
 export const createRoomSchema = z.object({
   name: z.string().trim().max(60).optional().transform((value) => value || undefined),
   accessMode: z.enum(["APPROVAL", "INVITE"]).default("APPROVAL"),
-  expiresInHours: z.number().int().min(1).max(168).optional(),
-});
+}).strict();
 
 export const roomCodeSchema = z.object({
   code: z.string().trim().toUpperCase().regex(/^[2-9A-HJ-NP-Z]{7}$/),

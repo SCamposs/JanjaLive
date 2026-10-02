@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { apiError, requireUser } from "@/lib/api";
-import { assertAuthorizedRoom } from "@/lib/rooms";
+import { assertAuthorizedRoom, refreshRoomActivity } from "@/lib/rooms";
 import { clientSignalingEventSchema, signalEnvelopeSchema } from "@/lib/schemas";
 import { enforceRateLimit, publishSignal, readRoomRealtime } from "@/lib/realtime";
 
@@ -11,6 +11,7 @@ export async function GET(request: Request, context: { params: Promise<{ roomId:
     const user = await requireUser();
     const { roomId } = await context.params;
     await assertAuthorizedRoom(roomId, user.id);
+    await refreshRoomActivity(roomId);
     const since = sinceSchema.parse(new URL(request.url).searchParams.get("since"));
     return Response.json(await readRoomRealtime(roomId, user.id, since), {
       headers: { "Cache-Control": "no-store" },

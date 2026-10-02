@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Clock3, LoaderCircle, ShieldCheck } from "lucide-react";
+import { Clock3, LoaderCircle, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -32,26 +32,25 @@ export function AccessGate({ roomId, roomName, state }: { roomId: string; roomNa
   return (
     <main className="centered-page">
       <div className="access-card">
-        <span className="large-icon"><ShieldCheck size={26} /></span>
-        <p className="section-kicker">Convite privado</p>
-        <h1>{roomName}</h1>
+        <header className="access-heading">
+          <span className="large-icon">{requested ? <Clock3 size={24} /> : <ShieldCheck size={24} />}</span>
+          <div><span>Convite para</span><h1>{roomName}</h1></div>
+        </header>
         {requested ? (
-          <>
-            <Clock3 className="status-illustration" size={36} />
+          <section className="access-body">
             <h2>Aguardando aprovação</h2>
-            <p>O dono da sala recebeu sua solicitação. Esta página entra automaticamente assim que você for aprovado.</p>
+            <p>Você entrará automaticamente quando o dono aprovar.</p>
             <button className="button secondary" type="button" onClick={() => router.refresh()}>Verificar novamente</button>
-          </>
+          </section>
         ) : (
-          <>
-            <CheckCircle2 className="status-illustration" size={36} />
-            <h2>Você foi convidado</h2>
-            <p>Solicite acesso usando a sua conta do Discord. O dono decide quem pode entrar.</p>
+          <section className="access-body">
+            <h2>Entrar na sala</h2>
+            <p>O dono precisa aprovar sua entrada.</p>
             <button className="button primary wide" type="button" onClick={requestAccess} disabled={loading}>
               {loading ? <LoaderCircle className="spin" size={18} /> : null}
               {loading ? "Enviando…" : "Solicitar acesso"}
             </button>
-          </>
+          </section>
         )}
         {error && <p className="form-error" role="alert">{error}</p>}
       </div>

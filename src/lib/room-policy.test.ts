@@ -23,14 +23,14 @@ describe("room authorization", () => {
   });
 
   it("rejects closed and expired rooms", () => {
-    expect(isRoomActive({ closedAt: new Date(), expiresAt: null })).toBe(false);
+    expect(isRoomActive({ closedAt: new Date(), expiresAt: new Date(Date.now() + 60_000) })).toBe(false);
     expect(isRoomActive({ closedAt: null, expiresAt: new Date(Date.now() - 1) })).toBe(false);
-    expect(() => assertRoomAccess({ closedAt: new Date(), expiresAt: null }, owner)).toThrow("ROOM_UNAVAILABLE");
+    expect(() => assertRoomAccess({ closedAt: new Date(), expiresAt: new Date(Date.now() + 60_000) }, owner)).toThrow("ROOM_UNAVAILABLE");
   });
 
   it("rejects revoked users and signaling to outsiders", () => {
     const revoked = { ...member, revokedAt: new Date() };
-    expect(() => assertRoomAccess({ closedAt: null, expiresAt: null }, revoked)).toThrow("ROOM_FORBIDDEN");
+    expect(() => assertRoomAccess({ closedAt: null, expiresAt: new Date(Date.now() + 60_000) }, revoked)).toThrow("ROOM_FORBIDDEN");
     expect(canSignalToMember(member, member)).toBe(true);
     expect(canSignalToMember(member, revoked)).toBe(false);
   });
