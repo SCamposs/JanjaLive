@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CaptureSource, UpdaterStatus } from "../../shared/contracts";
+import type { AuthStatus, CaptureSource, UpdaterStatus } from "../../shared/contracts";
 
 type Resolution = "720p" | "1080p" | "1440p" | "source";
 type Quality = "auto" | "high" | "custom";
@@ -16,12 +16,16 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState("0.1.0");
   const [update, setUpdate] = useState<UpdaterStatus>({ state: "idle" });
+  const [auth, setAuth] = useState<AuthStatus>({ state: "signed-out" });
   const previewRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     void window.janja.app.getVersion().then(setVersion);
     void window.janja.updater.getStatus().then(setUpdate);
-    return window.janja.updater.onStatus(setUpdate);
+    void window.janja.auth.getStatus().then(setAuth);
+    const removeUpdaterListener = window.janja.updater.onStatus(setUpdate);
+    const removeAuthListener = window.janja.auth.onStatus(setAuth);
+    return () => { removeUpdaterListener(); removeAuthListener(); };
   }, []);
 
   useEffect(() => {
@@ -70,7 +74,17 @@ export function App() {
           <button className="quiet-button" type="button" onClick={() => void window.janja.updater.check()}>
             {update.state === "checking" ? "Verificando…" : "Buscar atualização"}
           </button>
-          <button className="account-button" type="button" onClick={() => void window.janja.auth.start()}>Entrar com Discord</button>
+          {auth.state === "signed-in" ? (
+            <button className="account-button" type="button" onClick={() => void window.janja.auth.logout()}>
+              {auth.user.image && <img src={auth.user.image} alt="" />}
+              <span>{auth.user.name}</span>
+              <small>Sair</small>
+            </button>
+          ) : (
+            <button className="account-button" type="button" disabled={auth.state === "connecting"} onClick={() => void window.janja.auth.start()}>
+              {auth.state === "connecting" ? "Conectando…" : "Entrar com Discord"}
+            </button>
+          )}
         </div>
       </header>
 
@@ -114,6 +128,7 @@ export function App() {
       )}
 
       {error && <div className="error-toast" role="alert">{error}<button type="button" onClick={() => setError(null)}>×</button></div>}
+      {auth.state === "error" && <div className="error-toast" role="alert">{auth.message}<button type="button" onClick={() => setAuth({ state: "signed-out" })}>×</button></div>}
     </main>
   );
 }

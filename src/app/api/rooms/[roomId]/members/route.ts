@@ -5,7 +5,7 @@ import { publishSignal } from "@/lib/realtime";
 
 export async function POST(request: Request, context: { params: Promise<{ roomId: string }> }) {
   try {
-    const owner = await requireUser();
+    const owner = await requireUser(request);
     const { roomId } = await context.params;
     const input = membershipActionSchema.parse(await request.json());
     await manageRoomMember({ roomId, ownerId: owner.id, ...input });

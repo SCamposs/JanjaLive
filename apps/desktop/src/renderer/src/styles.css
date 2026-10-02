@@ -13,6 +13,9 @@ button:focus-visible { outline: 2px solid #a62639; outline-offset: 2px; }
 .version { color: #8b8882; font-size: 11px; }
 .quiet-button, .account-button, .primary-button, .stop-button { min-height: 35px; padding: 0 13px; border: 1px solid #292929; border-radius: 7px; background: #151515; cursor: pointer; }
 .account-button, .primary-button { border-color: #8c1d2c; background: #8c1d2c; font-weight: 650; }
+.account-button { display: flex; align-items: center; gap: 7px; }
+.account-button img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+.account-button small { color: #e6e3dc; opacity: .72; }
 .quiet-button:hover { background: #1b1b1b; }
 .account-button:hover, .primary-button:hover { background: #a62639; }
 .update-bar { min-height: 44px; padding: 0 20px; display: flex; align-items: center; justify-content: center; gap: 14px; background: #15100f; border-bottom: 1px solid #541019; font-size: 12px; }

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { JanjaDesktopApi, UpdaterStatus } from "../shared/contracts";
+import type { AuthStatus, JanjaDesktopApi, UpdaterStatus } from "../shared/contracts";
 
 const api: JanjaDesktopApi = {
   app: { getVersion: () => ipcRenderer.invoke("app:get-version") },
@@ -8,7 +8,16 @@ const api: JanjaDesktopApi = {
     selectSource: (input) => ipcRenderer.invoke("capture:select-source", input),
     cancelSelection: () => ipcRenderer.invoke("capture:cancel-selection"),
   },
-  auth: { start: () => ipcRenderer.invoke("auth:start") },
+  auth: {
+    start: () => ipcRenderer.invoke("auth:start"),
+    getStatus: () => ipcRenderer.invoke("auth:get-status"),
+    logout: () => ipcRenderer.invoke("auth:logout"),
+    onStatus(listener) {
+      const handler = (_event: Electron.IpcRendererEvent, status: AuthStatus) => listener(status);
+      ipcRenderer.on("auth:status", handler);
+      return () => ipcRenderer.removeListener("auth:status", handler);
+    },
+  },
   updater: {
     check: () => ipcRenderer.invoke("updater:check"),
     getStatus: () => ipcRenderer.invoke("updater:get-status"),

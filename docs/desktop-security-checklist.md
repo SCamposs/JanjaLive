@@ -18,8 +18,8 @@ Checked items are implemented in source. All items must be checked again against
 - [x] the renderer cannot submit an Electron source ID
 - [x] video frames never cross IPC
 - [x] updater provider is fixed and cannot be overridden by the renderer
-- [ ] desktop OAuth handoff is single-use, short-lived, state-bound and PKCE-bound
-- [ ] desktop credential is encrypted with `safeStorage`
+- [x] desktop OAuth handoff is single-use, short-lived, state-bound and PKCE-bound
+- [x] desktop credential is encrypted with `safeStorage` without plaintext fallback
 - [ ] logout clears local credential, media and peers
 - [ ] no backend or Discord secret exists in the bundle
 - [ ] no GitHub token exists in the bundle

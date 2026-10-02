@@ -3,9 +3,9 @@ import { assertAuthorizedRoom, closeRoom } from "@/lib/rooms";
 import { canManageRoom } from "@/lib/room-policy";
 import { publishSignal } from "@/lib/realtime";
 
-export async function POST(_request: Request, context: { params: Promise<{ roomId: string }> }) {
+export async function POST(request: Request, context: { params: Promise<{ roomId: string }> }) {
   try {
-    const owner = await requireUser();
+    const owner = await requireUser(request);
     const { roomId } = await context.params;
     const { member } = await assertAuthorizedRoom(roomId, owner.id);
     if (!canManageRoom(member)) throw new Error("OWNER_REQUIRED");

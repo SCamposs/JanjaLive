@@ -77,6 +77,42 @@ export const verificationTokens = pgTable(
   (table) => [primaryKey({ columns: [table.identifier, table.token] })],
 );
 
+export const desktopAuthGrants = pgTable(
+  "desktop_auth_grants",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    stateHash: text("state_hash").notNull(),
+    codeChallenge: text("code_challenge").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { mode: "date", withTimezone: true }),
+  },
+  (table) => [index("desktop_auth_grants_expires_at_idx").on(table.expiresAt)],
+);
+
+export const desktopSessions = pgTable(
+  "desktop_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tokenHash: text("token_hash").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    revokedAt: timestamp("revoked_at", { mode: "date", withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("desktop_sessions_token_hash_unique").on(table.tokenHash),
+    index("desktop_sessions_user_id_idx").on(table.userId),
+    index("desktop_sessions_expires_at_idx").on(table.expiresAt),
+  ],
+);
+
 export const rooms = pgTable(
   "rooms",
   {

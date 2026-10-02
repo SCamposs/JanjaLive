@@ -15,6 +15,13 @@
       "when": 1790948482470,
       "tag": "0001_short_shiver_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790952396455,
+      "tag": "0002_common_venus",
+      "breakpoints": true
     }
   ]
 }

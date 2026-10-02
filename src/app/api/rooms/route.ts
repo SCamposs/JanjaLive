@@ -4,7 +4,7 @@ import { createRoom } from "@/lib/rooms";
 
 export async function POST(request: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireUser(request);
     const input = createRoomSchema.parse(await request.json());
     const room = await createRoom({ userId: user.id, ...input });
     return Response.json({

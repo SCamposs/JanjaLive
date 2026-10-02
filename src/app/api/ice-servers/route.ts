@@ -7,7 +7,7 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.cloudflare.com:3
 
 export async function GET(request: Request) {
   try {
-    const user = await requireUser();
+    const user = await requireUser(request);
     const roomId = z.string().uuid().parse(new URL(request.url).searchParams.get("roomId"));
     await assertAuthorizedRoom(roomId, user.id);
     await enforceRateLimit(`turn:${roomId}:${user.id}`, 60, 3_600);

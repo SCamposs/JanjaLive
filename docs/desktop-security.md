@@ -35,9 +35,9 @@ The parser rejects unknown hosts, paths, parameters, fragments, credentials, por
 
 ## Authentication boundary
 
-Discord OAuth remains on `https://janja.live` in the system browser. No Discord client secret or backend secret belongs in the application. The planned handoff uses a short-lived single-use code, state and PKCE; the permanent desktop credential stays in the main process and is encrypted with Electron `safeStorage`. The renderer receives only authentication state and user display data.
+Discord OAuth remains on `https://janja.live` in the system browser. No Discord client secret or backend secret belongs in the application. The handoff uses a five-minute single-use code, state and PKCE. The code, state and desktop credential are stored only as SHA-256 hashes by the backend. The permanent desktop credential stays in the main process and is encrypted with Electron `safeStorage`; the app refuses a plaintext fallback. The renderer receives only authentication state and user display data.
 
-This handoff is not complete until replay, expiry and concurrent-exchange tests pass. Do not publish a desktop release before then.
+The backend consumes a grant with a conditional update before creating the session, so concurrent replay has a single winner. Expired and consumed grants, expired sessions and revoked sessions are removed by the authenticated maintenance job. End-to-end browser-to-app and concurrent-exchange tests remain release gates.
 
 ## Updater trust
 
@@ -55,7 +55,7 @@ Electron-builder 26.15.3 is the current stable `latest` release used here. Signe
 | Malicious deep link | Strict parser, one-instance forwarding, state and PKCE design | OS protocol-handler interception must be considered during auth testing |
 | Malicious external URL | Fixed destinations only; OAuth URL is constructed by the backend | A compromised system browser is outside the app boundary |
 | Forged IPC | Exact sender/frame checks and strict schemas | Electron vulnerabilities are upstream risk |
-| Leaked or replayed auth code | Short expiry, hash-at-rest, atomic single use, state and PKCE design | Backend implementation and tests are still required |
+| Leaked or replayed auth code | Short expiry, hash-at-rest, atomic single use, state and PKCE | End-to-end concurrent exchange remains to be exercised against staging |
 | Tampered update or artifact | Fixed provider, HTTPS, SHA-512, future signed manifest and Authenticode | Stable builder currently lacks signed manifests; unsigned Windows builds show Unknown Publisher |
 | Dependency compromise | Exact versions, pnpm lockfile, limited build-script allowlist, CI audit and secret scan | Registry or maintainer compromise before review |
 | Accidental capture | Explicit source choice, preview, one-use grant, no persistence | The user can still select a sensitive window |

@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { purgeStaleRooms } from "@/lib/rooms";
+import { purgeDesktopAuthArtifacts } from "@/lib/desktop-auth";
 
 function isAuthorized(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -19,6 +20,9 @@ export async function GET(request: Request) {
     return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const removed = await purgeStaleRooms();
-  return Response.json({ removed });
+  const [removed, desktopAuth] = await Promise.all([
+    purgeStaleRooms(),
+    purgeDesktopAuthArtifacts(),
+  ]);
+  return Response.json({ removed, desktopAuth });
 }

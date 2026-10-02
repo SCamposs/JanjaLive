@@ -8,7 +8,7 @@ const sinceSchema = z.coerce.number().int().nonnegative().catch(0);
 
 export async function GET(request: Request, context: { params: Promise<{ roomId: string }> }) {
   try {
-    const user = await requireUser();
+    const user = await requireUser(request);
     const { roomId } = await context.params;
     await assertAuthorizedRoom(roomId, user.id);
     await refreshRoomActivity(roomId);
@@ -23,7 +23,7 @@ export async function GET(request: Request, context: { params: Promise<{ roomId:
 
 export async function POST(request: Request, context: { params: Promise<{ roomId: string }> }) {
   try {
-    const user = await requireUser();
+    const user = await requireUser(request);
     const { roomId } = await context.params;
     const input = signalEnvelopeSchema.parse({ ...(await request.json()), roomId });
     await assertAuthorizedRoom(roomId, user.id);
