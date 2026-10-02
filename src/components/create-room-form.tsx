@@ -3,6 +3,7 @@
 import { ArrowRight, LoaderCircle, LockKeyhole, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { Toast } from "./toast";
 
 const ROOM_CODE_LENGTH = 7;
 
@@ -123,7 +124,7 @@ export function CreateRoomForm() {
           {joining && <LoaderCircle className="code-entry-loader spin" size={18} aria-hidden="true" />}
         </label>
       </form>
-      {joinError && <p className="form-error join-error" role="alert">{joinError}</p>}
+      {joinError && <Toast message={joinError} onDismiss={() => setJoinError(null)} />}
     </section>
   );
 }
