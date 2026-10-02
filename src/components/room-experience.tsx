@@ -3,21 +3,19 @@
 import {
   Check,
   Copy,
-  LogOut,
   MonitorUp,
   MoreHorizontal,
   Radio,
   Settings,
-  UserRound,
   UsersRound,
   X,
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { signOut } from "next-auth/react";
 import type { RoomSnapshot } from "@/lib/rooms";
 import { QUALITY_PROFILES } from "@/lib/quality";
+import { AccountMenu } from "./account-menu";
 import { Brand } from "./brand";
 import { ScreenShareDialog } from "./screen-share-dialog";
 import { StreamPlayer } from "./stream-player";
@@ -134,9 +132,12 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
               </div>
             </details>
           )}
-          <button className="avatar-button" type="button" onClick={() => signOut({ callbackUrl: "/" })} aria-label="Sair">
-            {currentUser.image ? <Image src={currentUser.image} alt="" width={30} height={30} /> : <UserRound size={17} />}
-          </button>
+          <AccountMenu
+            compact
+            image={currentUser.image}
+            name={currentUser.name ?? "Conta Discord"}
+            signOutDisabled={isBroadcasting || Boolean(capture)}
+          />
         </div>
       </header>
 
@@ -232,7 +233,6 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
             ))}
           </section>
           <div className="room-code"><span>Código da sala</span><strong>{snapshot.room.code}</strong><small>Compartilhe apenas com amigos.</small></div>
-          <button className="sign-out-link" type="button" onClick={() => signOut({ callbackUrl: "/" })}><LogOut size={15} /> Sair da conta</button>
         </aside>
       </div>
 

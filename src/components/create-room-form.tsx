@@ -2,19 +2,28 @@
 
 import { ArrowRight, LoaderCircle, LockKeyhole, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+
+const ROOM_CODE_LENGTH = 7;
+
+function normalizeRoomCode(value: string) {
+  return (value.toUpperCase().match(/[2-9A-HJ-NP-Z]/g) ?? []).join("").slice(0, ROOM_CODE_LENGTH);
+}
 
 export function CreateRoomForm() {
   const router = useRouter();
+  const codeInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [accessMode, setAccessMode] = useState<"APPROVAL" | "INVITE">("APPROVAL");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
   const [code, setCode] = useState("");
 
   async function createRoom() {
-    setLoading(true);
-    setError(null);
+    setCreating(true);
+    setCreateError(null);
     try {
       const response = await fetch("/api/rooms", {
         method: "POST",
@@ -25,34 +34,48 @@ export function CreateRoomForm() {
       const data = (await response.json()) as { invitePath: string };
       router.push(data.invitePath);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível criar a sala.");
-      setLoading(false);
+      setCreateError(cause instanceof Error ? cause.message : "Não foi possível criar a sala.");
+      setCreating(false);
     }
   }
 
-  async function joinRoom() {
-    setLoading(true);
-    setError(null);
+  async function joinRoom(roomCode: string) {
+    if (joining || roomCode.length !== ROOM_CODE_LENGTH) return;
+
+    setJoining(true);
+    setJoinError(null);
     try {
       const response = await fetch("/api/rooms/code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code: roomCode }),
       });
       if (!response.ok) throw new Error("Sala não encontrada ou código inválido.");
       const data = (await response.json()) as { joinPath: string };
       router.push(data.joinPath);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Não foi possível entrar.");
-      setLoading(false);
+      setJoinError(cause instanceof Error ? cause.message : "Não foi possível entrar.");
+      setJoining(false);
+      window.requestAnimationFrame(() => {
+        codeInputRef.current?.focus();
+        codeInputRef.current?.select();
+      });
     }
+  }
+
+  function updateCode(value: string) {
+    const nextCode = normalizeRoomCode(value);
+    setCode(nextCode);
+    setJoinError(null);
+
+    if (nextCode.length === ROOM_CODE_LENGTH) void joinRoom(nextCode);
   }
 
   return (
     <section className="create-room-card">
       <h2>Nova sala</h2>
       <label className="field-label" htmlFor="room-name">Nome da sala <span>opcional</span></label>
-      <input id="room-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} maxLength={60} placeholder="Noite de jogo" />
+      <input id="room-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} maxLength={60} />
       <fieldset className="access-options">
         <legend>Quem pode entrar?</legend>
         <button type="button" data-active={accessMode === "APPROVAL"} onClick={() => setAccessMode("APPROVAL")}>
@@ -64,16 +87,43 @@ export function CreateRoomForm() {
           <span><strong>Quem tiver o convite</strong><small>A conta Discord continua sendo obrigatória.</small></span>
         </button>
       </fieldset>
-      {error && <p className="form-error" role="alert">{error}</p>}
-      <button type="button" className="button primary wide" onClick={createRoom} disabled={loading}>
-        {loading ? <LoaderCircle className="spin" size={18} /> : <ArrowRight size={18} />}
-        {loading ? "Criando…" : "Criar sala"}
+      {createError && <p className="form-error" role="alert">{createError}</p>}
+      <button type="button" className="button primary wide" onClick={createRoom} disabled={creating || joining}>
+        {creating ? <LoaderCircle className="spin" size={18} /> : <ArrowRight size={18} />}
+        {creating ? "Criando…" : "Criar sala"}
       </button>
       <div className="join-divider"><span /> ou entre com código <span /></div>
-      <div className="join-code-row">
-        <input className="text-input" aria-label="Código da sala" value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} maxLength={7} placeholder="7 CARACTERES" />
-        <button type="button" className="button secondary" onClick={joinRoom} disabled={loading || code.length !== 7}>Entrar</button>
-      </div>
+      <form onSubmit={(event) => { event.preventDefault(); void joinRoom(code); }}>
+        <label className="code-entry" data-loading={joining} htmlFor="room-code">
+          <input
+            ref={codeInputRef}
+            id="room-code"
+            className="code-entry-input"
+            aria-label="Código da sala, 7 caracteres"
+            autoCapitalize="characters"
+            autoComplete="off"
+            disabled={creating || joining}
+            inputMode="text"
+            onChange={(event) => updateCode(event.target.value)}
+            spellCheck={false}
+            value={code}
+          />
+          <span className="code-slots" aria-hidden="true">
+            {Array.from({ length: ROOM_CODE_LENGTH }, (_, index) => (
+              <span
+                className="code-slot"
+                data-active={!joining && index === code.length}
+                data-filled={Boolean(code[index])}
+                key={index}
+              >
+                {code[index] ?? ""}
+              </span>
+            ))}
+          </span>
+          {joining && <LoaderCircle className="code-entry-loader spin" size={18} aria-hidden="true" />}
+        </label>
+      </form>
+      {joinError && <p className="form-error join-error" role="alert">{joinError}</p>}
     </section>
   );
 }

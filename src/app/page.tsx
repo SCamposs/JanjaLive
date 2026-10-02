@@ -1,5 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import { auth, signIn } from "@/auth";
+import { AccountMenu } from "@/components/account-menu";
 import { Brand } from "@/components/brand";
 import { CreateRoomForm } from "@/components/create-room-form";
 import { LandingNoirBackground } from "@/components/landing-noir-background";
@@ -9,9 +10,14 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const session = await auth();
   if (session?.user) {
+    const displayName = session.user.name?.split(" ")[0] ?? "Conta Discord";
+
     return (
       <main className="home-shell signed-in-home">
-        <header className="landing-header"><Brand /><div className="signed-user">{session.user.name?.split(" ")[0] ?? "Conta Discord"}</div></header>
+        <header className="landing-header">
+          <Brand />
+          <AccountMenu image={session.user.image} name={displayName} />
+        </header>
         <div className="home-content"><section className="home-intro"><h1>Salas</h1><p>Crie uma sala ou entre com um código.</p></section><CreateRoomForm /></div>
       </main>
     );
