@@ -2,6 +2,7 @@ import { ArrowRight } from "lucide-react";
 import { auth, signIn } from "@/auth";
 import { Brand } from "@/components/brand";
 import { CreateRoomForm } from "@/components/create-room-form";
+import { LandingNoirBackground } from "@/components/landing-noir-background";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function HomePage() {
   }
   return (
     <main className="landing-page">
+      <LandingNoirBackground />
       <header className="landing-header"><Brand /></header>
       <section className="login-shell">
         <div className="login-card">

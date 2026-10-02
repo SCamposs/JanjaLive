@@ -47,14 +47,21 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .button.wide { width: 100%; }
 .section-kicker { color: var(--accent-strong); font-size: 12px; font-weight: 730; letter-spacing: .1em; text-transform: uppercase; display: flex; align-items: center; gap: 7px; }
 .landing-page, .home-shell { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
-.landing-header { width: min(1180px, calc(100% - 48px)); height: 64px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-soft); }
-.login-shell { width: min(1180px, calc(100% - 48px)); flex: 1; margin: 0 auto; padding: 12vh 0 80px; display: grid; grid-template-columns: minmax(280px, 430px) 1fr; align-items: start; }
+.landing-page { position: relative; isolation: isolate; overflow: hidden; }
+.landing-header { position: relative; z-index: 2; width: min(1180px, calc(100% - 48px)); height: 64px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-soft); }
+.login-shell { position: relative; z-index: 2; width: min(1180px, calc(100% - 48px)); flex: 1; margin: 0 auto; padding: 12vh 0 80px; display: grid; grid-template-columns: minmax(280px, 430px) 1fr; align-items: start; }
 .login-card { grid-column: 1; padding: 38px 0; }
 .login-card h1 { margin: 0 0 13px; font-size: 38px; line-height: 1.08; letter-spacing: -.035em; font-weight: 650; text-wrap: balance; }
 .login-card > p:not(.section-kicker) { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 24px; text-wrap: pretty; }
 .home-intro h1 { margin: 0 0 10px; font-size: 36px; line-height: 1.1; letter-spacing: -.035em; font-weight: 620; text-wrap: balance; }
 .home-intro > p { color: var(--muted); line-height: 1.6; max-width: 540px; font-size: 14px; margin: 0; }
 .login-note { display: block; margin: 12px 0 0 3px; color: var(--muted-2); font-size: 11px; }
+.landing-noir { position: absolute; z-index: 0; inset: 64px 0 0 31%; overflow: hidden; pointer-events: none; opacity: .92; -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,.22) 13%, #000 34%); mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,.22) 13%, #000 34%); }
+.landing-noir::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(13,13,16,.02), rgba(13,13,16,.25)), linear-gradient(to right, rgba(13,13,16,.3), transparent 42%); }
+.landing-noir-static, .landing-noir-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.landing-noir-static { background: center / cover no-repeat url("/janja-live-noir.png"); }
+.landing-noir-canvas { display: block; opacity: 0; transition: opacity .4s ease-out; }
+.landing-noir-canvas.is-ready { opacity: 1; }
 .signed-user { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13px; }
 .home-content { width: min(1180px, calc(100% - 48px)); flex: 1; margin: 0 auto; padding: 11vh 0 100px; display: grid; grid-template-columns: minmax(240px, 1fr) 420px; gap: clamp(56px, 10vw, 150px); align-items: start; }
 .create-room-card { background: var(--surface); border: 1px solid var(--border); border-radius: 13px; padding: 28px; }
@@ -210,6 +217,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 @media (max-width: 900px) {
   .home-content { grid-template-columns: 1fr; gap: 42px; }
   .login-shell { grid-template-columns: 1fr; }
+  .landing-noir { inset: 64px -18% 0 18%; opacity: .58; -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 36%); mask-image: linear-gradient(to right, transparent 0%, #000 36%); }
   .room-grid { grid-template-columns: 1fr; }
   .members-panel { border-left: 0; border-top: 1px solid var(--border-soft); }
   .stage { min-height: 55vh; }
@@ -219,7 +227,9 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 
 @media (max-width: 620px) {
   .landing-header, .login-shell, .home-content { width: min(100% - 28px, 1120px); }
-  .login-card { padding: 54px 0; }
+  .login-card { max-width: 430px; padding: 54px 0; }
+  .landing-noir { inset: 64px -46% 0 -8%; opacity: .38; -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 21%, #000 76%, transparent 100%); mask-image: linear-gradient(to bottom, transparent 0%, #000 21%, #000 76%, transparent 100%); }
+  .landing-noir::after { background: rgba(13,13,16,.34); }
   .login-card h1 { font-size: 28px; }
   .home-intro h1 { font-size: 44px; }
   .wide-on-mobile { width: 100%; }
@@ -249,4 +259,5 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
   }
 
   .button:hover:not(:disabled) { transform: none; }
+  .landing-noir-canvas { display: none; }
 }
