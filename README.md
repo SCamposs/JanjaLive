@@ -134,8 +134,8 @@ Abra `http://localhost:3000` e registre `http://localhost:3000/api/auth/callback
 | `AUTH_DISCORD_ID` | Yes | Discord OAuth application ID |
 | `AUTH_DISCORD_SECRET` | Yes | Discord OAuth client secret |
 | `AUTH_URL` | Yes | Canonical Auth.js URL (`https://janja.live`) |
-| `UPSTASH_REDIS_REST_URL` | Yes | Ephemeral signaling/presence store |
-| `UPSTASH_REDIS_REST_TOKEN` | Yes | Upstash REST credential |
+| `UPSTASH_REDIS_REST_URL` or `KV_REST_API_URL` | Yes | Ephemeral signaling/presence store |
+| `UPSTASH_REDIS_REST_TOKEN` or `KV_REST_API_TOKEN` | Yes | Upstash REST credential |
 | `CLOUDFLARE_TURN_KEY_ID` | No | Optional TURN key ID |
 | `CLOUDFLARE_TURN_API_TOKEN` | No | Optional TURN API secret |
 
@@ -146,18 +146,18 @@ Never commit real values. `.env.local` is ignored by Git.
 1. Crie um projeto PostgreSQL no Neon ou conecte Neon pelo Vercel Marketplace.
 2. Adicione a pooled connection string como `DATABASE_URL`.
 3. Gere mudanças com `pnpm db:generate`.
-4. Aplique migrations com `pnpm db:migrate`.
+4. Aplique migrations localmente com `pnpm db:migrate`. Na Vercel, o build de produção aplica as migrations versionadas automaticamente antes de compilar.
 
 Presence e WebRTC sessions nunca devem ser movidos para PostgreSQL.
 
 ## Vercel deployment
 
 1. Importe o repositório privado na conta pessoal da Vercel.
-2. Adicione as variáveis obrigatórias em Production e Preview.
+2. Adicione as variáveis obrigatórias em Production. Use recursos separados antes de habilitá-las em Preview.
 3. Defina `AUTH_URL=https://janja.live`.
 4. Vincule `janja.live` e aplique os registros DNS mostrados pela Vercel.
 5. Registre `https://janja.live/api/auth/callback/discord` no Discord OAuth2.
-6. Aplique a migration e faça o deploy.
+6. Faça o deploy. A migration é aplicada antes do build quando `DATABASE_URL` está disponível na Vercel.
 
 Vercel recebe somente app, API, auth e signaling; nunca a mídia da tela.
 

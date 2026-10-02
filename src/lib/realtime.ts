@@ -17,10 +17,18 @@ export type StoredSignal = {
 
 let redis: Redis | undefined;
 
+export function getRealtimeCredentials(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+) {
+  return {
+    url: environment.UPSTASH_REDIS_REST_URL ?? environment.KV_REST_API_URL,
+    token: environment.UPSTASH_REDIS_REST_TOKEN ?? environment.KV_REST_API_TOKEN,
+  };
+}
+
 export function getRealtimeStore(): Redis {
   if (redis) return redis;
-  const url = process.env.UPSTASH_REDIS_REST_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const { url, token } = getRealtimeCredentials();
   if (!url || !token) throw new Error("REALTIME_NOT_CONFIGURED");
   redis = new Redis({ url, token });
   return redis;

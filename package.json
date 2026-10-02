@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "tsx src/db/migrate-on-deploy.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
@@ -11,7 +12,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx src/db/migrate.ts",
+    "db:migrate": "tsx src/db/migrate-cli.ts",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
