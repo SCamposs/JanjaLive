@@ -4,7 +4,6 @@ import {
   Check,
   Copy,
   MonitorUp,
-  MoreHorizontal,
   Radio,
   Settings,
   UsersRound,
@@ -30,6 +29,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
   const router = useRouter();
   const realtime = useRoomMedia(snapshot.room.id, currentUser.id);
   const [capture, setCapture] = useState<MediaStream | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [selectedStreamer, setSelectedStreamer] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -48,7 +48,16 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
     () => new Map(snapshot.members.map((member) => [member.userId, member])),
     [snapshot.members],
   );
-  const selectedStream = selectedStreamer ? realtime.remoteStreams[selectedStreamer] : undefined;
+  const isWatchingOwnStream = selectedStreamer === currentUser.id && Boolean(localStream);
+  const selectedStream = selectedStreamer && !isWatchingOwnStream ? realtime.remoteStreams[selectedStreamer] : undefined;
+
+  async function stopSharing() {
+    localStream?.getVideoTracks().forEach((track) => { track.onended = null; });
+    await realtime.stopBroadcast();
+    setLocalStream(null);
+    setIsBroadcasting(false);
+    setSelectedStreamer((selected) => selected === currentUser.id ? null : selected);
+  }
 
   async function beginCapture() {
     setCaptureError(null);
@@ -57,12 +66,17 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: "window" },
+        audio: true,
+      });
       const [videoTrack] = stream.getVideoTracks();
       videoTrack.onended = () => {
         void realtime.stopBroadcast();
         setCapture(null);
+        setLocalStream(null);
         setIsBroadcasting(false);
+        setSelectedStreamer((selected) => selected === currentUser.id ? null : selected);
       };
       setCapture(stream);
     } catch (error) {
@@ -72,6 +86,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
   }
 
   function cancelCapture() {
+    capture?.getVideoTracks().forEach((track) => { track.onended = null; });
     capture?.getTracks().forEach((track) => track.stop());
     setCapture(null);
   }
@@ -101,7 +116,17 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
   }
 
   async function closeRoom() {
+    if (isBroadcasting) await stopSharing();
     await fetch(`/api/rooms/${snapshot.room.id}/close`, { method: "POST" });
+    router.push("/");
+  }
+
+  async function leaveRoom() {
+    if (capture) cancelCapture();
+    if (isBroadcasting) await stopSharing();
+    if (selectedStreamer && selectedStreamer !== currentUser.id) {
+      await realtime.stopWatching(selectedStreamer);
+    }
     router.push("/");
   }
 
@@ -113,8 +138,9 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
           <span className="header-divider" />
           <div className="room-identity">
             <strong>{snapshot.room.name}</strong>
-            <span className={`connection-dot ${realtime.connectionStatus}`} />
-            <small>{realtime.connectionStatus === "good" ? "Conectado" : realtime.connectionStatus === "unstable" ? "Instável" : "Reconectando"}</small>
+            {realtime.connectionStatus !== "good" && (
+              <><span className={`connection-dot ${realtime.connectionStatus}`} /><small>{realtime.connectionStatus === "unstable" ? "Instável" : "Reconectando"}</small></>
+            )}
           </div>
         </div>
         <div className="header-actions">
@@ -137,6 +163,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
             image={currentUser.image}
             name={currentUser.name ?? "Conta Discord"}
             signOutDisabled={isBroadcasting || Boolean(capture)}
+            onLeaveRoom={leaveRoom}
           />
         </div>
       </header>
@@ -151,7 +178,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                 return (
                   <article className="stream-card" key={stream.streamerUserId}>
                     <span className="live-avatar"><Radio size={15} /></span>
-                    <div><strong>{member?.name ?? "Amigo"}</strong><span><b>LIVE</b> {QUALITY_PROFILES[stream.preset].label} {stream.hasAudio ? "· Áudio" : ""}</span></div>
+                    <div className="stream-details"><strong>{member?.name ?? "Amigo"}</strong><span><b>LIVE</b> {QUALITY_PROFILES[stream.preset].label} {stream.hasAudio ? "· Áudio" : ""}</span></div>
                     <button type="button" onClick={() => {
                       setSelectedStreamer(stream.streamerUserId);
                       void realtime.watch(stream.streamerUserId);
@@ -162,23 +189,31 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
               {isBroadcasting && (
                 <article className="stream-card own-stream">
                   <span className="live-avatar"><MonitorUp size={15} /></span>
-                  <div><strong>Você</strong><span><b>LIVE</b> Compartilhando</span></div>
-                  <button type="button" onClick={() => {
-                    void realtime.stopBroadcast();
-                    setIsBroadcasting(false);
-                  }}>Encerrar</button>
+                  <div className="stream-details"><strong>Você</strong><span><b>LIVE</b> Compartilhando</span></div>
+                  <div className="stream-card-actions">
+                    <button type="button" disabled={isWatchingOwnStream} onClick={() => setSelectedStreamer(currentUser.id)}>{isWatchingOwnStream ? "Vendo" : "Ver"}</button>
+                    <button type="button" className="danger-text" onClick={() => void stopSharing()}>Encerrar</button>
+                  </div>
                 </article>
               )}
             </div>
-            {!isBroadcasting && (
+            {!isBroadcasting && selectedStreamer && (
               <button className="button primary compact" type="button" onClick={beginCapture} disabled={!canShare}>
-                <MonitorUp size={16} /> Compartilhar tela
+                <MonitorUp size={16} /> Compartilhar
               </button>
             )}
           </div>
 
           <section className="stage">
-            {selectedStream && selectedStreamer ? (
+            {isWatchingOwnStream && localStream ? (
+              <StreamPlayer
+                stream={localStream}
+                streamerName="Sua transmissão"
+                status={realtime.connectionStatus}
+                mode="local"
+                onStop={() => void stopSharing()}
+              />
+            ) : selectedStream && selectedStreamer ? (
               <StreamPlayer
                 stream={selectedStream}
                 streamerName={membersById.get(selectedStreamer)?.name ?? "Amigo"}
@@ -201,7 +236,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
         </section>
 
         <aside className="members-panel">
-          <div className="panel-title"><div><UsersRound size={18} /><h2>Membros</h2><span>{snapshot.members.length}</span></div><MoreHorizontal size={18} /></div>
+          <div className="panel-title"><div><UsersRound size={18} /><h2>Membros</h2><span>{snapshot.members.length}</span></div></div>
           {snapshot.pending.length > 0 && (
             <section className="member-section pending-section">
               <h3>Solicitações</h3>
@@ -232,7 +267,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
               />
             ))}
           </section>
-          <div className="room-code"><span>Código da sala</span><strong>{snapshot.room.code}</strong><small>Compartilhe apenas com amigos.</small></div>
+          <div className="room-code"><span>Código da sala</span><strong>{snapshot.room.code}</strong></div>
         </aside>
       </div>
 
@@ -248,8 +283,10 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
             frameRate: settings?.frameRate ?? frameRate,
             hasAudio: stream.getAudioTracks().length > 0,
           }, bitrate);
+          setLocalStream(stream);
           setCapture(null);
           setIsBroadcasting(true);
+          setSelectedStreamer(currentUser.id);
         }}
       />
     </main>

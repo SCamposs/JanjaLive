@@ -8,12 +8,13 @@ type Props = {
   streamerName: string;
   status: "good" | "unstable" | "reconnecting";
   onStop: () => void;
+  mode?: "remote" | "local";
 };
 
-export function StreamPlayer({ stream, streamerName, status, onStop }: Props) {
+export function StreamPlayer({ stream, streamerName, status, onStop, mode = "remote" }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(mode === "local");
   const [volume, setVolume] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -41,29 +42,34 @@ export function StreamPlayer({ stream, streamerName, status, onStop }: Props) {
 
   return (
     <div className="player-shell" ref={containerRef}>
-      <video ref={videoRef} autoPlay playsInline muted={muted} onDoubleClick={toggleFullscreen} />
+      <video ref={videoRef} autoPlay playsInline muted={mode === "local" || muted} onDoubleClick={toggleFullscreen} />
       <div className="player-label">
         <strong>{streamerName}</strong>
-        <span className={`connection-dot ${status}`} />
-        <span>{status === "good" ? "Boa" : status === "unstable" ? "Instável" : "Reconectando"}</span>
+        {mode === "remote" && status !== "good" && (
+          <><span className={`connection-dot ${status}`} /><span>{status === "unstable" ? "Instável" : "Reconectando"}</span></>
+        )}
       </div>
       <div className="player-controls">
-        <button className="icon-button" type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? "Ativar som" : "Silenciar"}>
-          {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-        </button>
-        <input
-          aria-label="Volume"
-          type="range"
-          min="0"
-          max="1"
-          step="0.05"
-          value={volume}
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            setVolume(next);
-            if (videoRef.current) videoRef.current.volume = next;
-          }}
-        />
+        {mode === "remote" && (
+          <>
+            <button className="icon-button" type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? "Ativar som" : "Silenciar"}>
+              {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+            <input
+              aria-label="Volume"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={volume}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setVolume(next);
+                if (videoRef.current) videoRef.current.volume = next;
+              }}
+            />
+          </>
+        )}
         <span className="control-spacer" />
         <button className="icon-button" type="button" onClick={togglePictureInPicture} aria-label="Picture in Picture">
           <PictureInPicture2 size={18} />
@@ -72,7 +78,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop }: Props) {
           {isFullscreen ? <Minimize2 size={18} /> : <Maximize size={18} />}
         </button>
         <button className="stop-button" type="button" onClick={onStop}>
-          <X size={16} /> Parar de assistir
+          <X size={16} /> {mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}
         </button>
       </div>
     </div>
