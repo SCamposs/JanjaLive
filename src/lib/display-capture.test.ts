@@ -9,4 +9,12 @@ describe("getWebDisplayCaptureOptions", () => {
       systemAudio: "include",
     });
   });
+
+  it("can explicitly request a video-only fallback", () => {
+    expect(getWebDisplayCaptureOptions(false)).toEqual({
+      video: true,
+      audio: false,
+      systemAudio: "exclude",
+    });
+  });
 });

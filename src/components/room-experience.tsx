@@ -21,6 +21,7 @@ import { Brand } from "./brand";
 import { NoirInterference } from "./noir-interference";
 import { ScreenShareDialog } from "./screen-share-dialog";
 import { StreamPlayer } from "./stream-player";
+import { Toast } from "./toast";
 import { UserAvatar } from "./user-avatar";
 import { useRoomMedia } from "@/hooks/use-room-media";
 
@@ -38,6 +39,8 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
   const [selectedStreamer, setSelectedStreamer] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
+  const [captureFallbackAvailable, setCaptureFallbackAvailable] = useState(false);
+  const [dismissedConnectionError, setDismissedConnectionError] = useState<string | null>(null);
   const canShare = useSyncExternalStore(
     subscribeToBrowserCapabilities,
     getDisplayCaptureSupport,
@@ -67,6 +70,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
   );
   const isWatchingOwnStream = selectedStreamer === currentUser.id && Boolean(localStream);
   const selectedStream = selectedStreamer && !isWatchingOwnStream ? realtime.remoteStreams[selectedStreamer] : undefined;
+  const connectionError = realtime.connectionError === dismissedConnectionError ? null : realtime.connectionError;
 
   async function stopSharing() {
     localStream?.getVideoTracks().forEach((track) => { track.onended = null; });
@@ -76,14 +80,15 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
     setSelectedStreamer((selected) => selected === currentUser.id ? null : selected);
   }
 
-  async function beginCapture() {
+  async function beginCapture(includeSystemAudio = true) {
     setCaptureError(null);
+    setCaptureFallbackAvailable(false);
     if (!canShare) {
       setCaptureError("Este navegador pode assistir, mas não oferece compartilhamento de tela.");
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia(getWebDisplayCaptureOptions());
+      const stream = await navigator.mediaDevices.getDisplayMedia(getWebDisplayCaptureOptions(includeSystemAudio));
       stream.getAudioTracks().forEach((track) => {
         if (track.readyState !== "live") {
           stream.removeTrack(track);
@@ -101,9 +106,14 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
       setCapture(stream);
     } catch (error) {
       if (error instanceof DOMException && ["NotAllowedError", "AbortError"].includes(error.name)) return;
+      if (includeSystemAudio && error instanceof DOMException && error.name === "NotReadableError") {
+        setCaptureError("O navegador não conseguiu capturar esta fonte com áudio.");
+        setCaptureFallbackAvailable(true);
+        return;
+      }
       setCaptureError(
         error instanceof DOMException && error.name === "NotReadableError"
-          ? "O navegador não conseguiu capturar essa fonte. Para compartilhar áudio, tente uma guia ou a tela inteira."
+          ? "O navegador não conseguiu capturar essa fonte."
           : "Não foi possível iniciar a captura de tela.",
       );
     }
@@ -204,7 +214,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                   <button className="button ghost compact danger-text" type="button" onClick={() => void stopSharing()}>Encerrar</button>
                 </>
               ) : (
-              <button className="button primary compact" type="button" onClick={beginCapture} disabled={!canShare}>
+              <button className="button primary compact" type="button" onClick={() => void beginCapture()} disabled={!canShare}>
                 <MonitorUp size={16} /> Compartilhar
               </button>
               )}
@@ -235,7 +245,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                 <div className="stream-picker-heading">
                   <div><h1>Transmissões</h1><p>Escolha uma tela para assistir.</p></div>
                   {!isBroadcasting && canShare && (
-                    <button type="button" className="button secondary compact" onClick={beginCapture}><MonitorUp size={16} /> Compartilhar</button>
+                    <button type="button" className="button secondary compact" onClick={() => void beginCapture()}><MonitorUp size={16} /> Compartilhar</button>
                   )}
                 </div>
                 <div className="stream-choices">
@@ -265,12 +275,11 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                 <div className="empty-stage">
                   <h1>Nenhuma transmissão ativa</h1>
                   <p>Compartilhe sua tela ou aguarde um amigo começar.</p>
-                  {!isBroadcasting && canShare && <button type="button" className="button primary" onClick={beginCapture}><MonitorUp size={17} /> Compartilhar minha tela</button>}
+                  {!isBroadcasting && canShare && <button type="button" className="button primary" onClick={() => void beginCapture()}><MonitorUp size={17} /> Compartilhar minha tela</button>}
                 </div>
               </NoirInterference>
             )}
           </section>
-          {(captureError || realtime.connectionError) && <p className="inline-alert" role="alert">{captureError || realtime.connectionError}</p>}
         </section>
 
         <aside className="members-panel">
@@ -328,6 +337,23 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
           setSelectedStreamer(currentUser.id);
         }}
       />
+      {(captureError || connectionError) && (
+        <Toast
+          message={captureError || connectionError || "Não foi possível conectar."}
+          onDismiss={() => {
+            if (captureError) {
+              setCaptureError(null);
+              setCaptureFallbackAvailable(false);
+            } else if (connectionError) {
+              setDismissedConnectionError(connectionError);
+            }
+          }}
+          action={captureFallbackAvailable ? {
+            label: "Tentar sem áudio",
+            onClick: () => void beginCapture(false),
+          } : undefined}
+        />
+      )}
     </main>
   );
 }
