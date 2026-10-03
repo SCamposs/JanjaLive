@@ -99,6 +99,10 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .room-delete-confirmation .confirm { color: var(--danger); background: var(--danger-surface); }
 .room-delete-confirmation button:disabled { cursor: wait; opacity: .45; }
 .room-list-empty { margin-top: 28px !important; padding-top: 19px; border-top: 1px solid var(--border-soft); color: var(--muted-2) !important; font-size: 12px !important; }
+.home-noir-documentary { height: 250px; margin-top: 34px; border-top: 1px solid var(--border-soft); opacity: .46; -webkit-mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 82%, transparent); mask-image: linear-gradient(to bottom, transparent, #000 22%, #000 82%, transparent); }
+.home-noir-documentary .noir-interference-image::after { background: linear-gradient(90deg, rgba(5,5,5,.22), rgba(5,5,5,.18)), linear-gradient(0deg, rgba(5,5,5,.62), transparent 50%, rgba(5,5,5,.38)); }
+.home-noir-documentary .noir-interference-content { padding: 22px; }
+.home-noir-documentary .noir-quote { top: 48px; right: 18px; width: min(330px, 62%); font-size: clamp(15px, 1.55vw, 20px); }
 .login-note { display: block; margin: 12px 0 0 3px; color: var(--muted-2); font-size: 11px; }
 .landing-noir { position: absolute; z-index: 0; inset: 64px 0 0 31%; overflow: hidden; pointer-events: none; opacity: .92; -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,.22) 13%, #000 34%); mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,.22) 13%, #000 34%); }
 .landing-noir::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(5,5,5,.02), rgba(5,5,5,.25)), linear-gradient(to right, rgba(5,5,5,.3), transparent 42%); }
@@ -381,6 +385,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
   .home-content { padding: 48px 0 64px; gap: 34px; }
   .home-intro h1 { font-size: 32px; }
   .create-room-card { padding: 20px; }
+  .home-noir-documentary { height: 190px; margin-top: 24px; opacity: .34; }
+  .home-noir-documentary .noir-quote { top: 34px; width: calc(100% - 36px); font-size: 15px; }
   .room-expiry { display: none; }
   .room-delete-trigger { opacity: .72; }
   .wide-on-mobile { width: 100%; }

@@ -34,6 +34,7 @@ import {
 } from "../shared/contracts";
 import { findDeepLink, type DesktopDeepLink } from "../shared/security";
 import { ExpiringGrantStore } from "../shared/expiring-grants";
+import { getProtocolRegistration } from "../shared/protocol-registration";
 
 const { autoUpdater } = electronUpdater;
 
@@ -188,7 +189,10 @@ async function restoreSession() {
 }
 
 async function attemptAuthExchange(flow: PendingAuth, code?: string) {
-  if (authExchangeInFlight) return authExchangeInFlight;
+  if (authExchangeInFlight) {
+    const inFlightResult = await authExchangeInFlight;
+    if (inFlightResult === "complete" || !code) return inFlightResult;
+  }
   const attempt = (async (): Promise<"pending" | "complete"> => {
     if (pendingAuth !== flow || flow.expiresAt <= Date.now()) return "pending";
     const response = await net.fetch(code ? AUTH_EXCHANGE_URL : AUTH_POLL_URL, {
@@ -196,7 +200,10 @@ async function attemptAuthExchange(flow: PendingAuth, code?: string) {
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ ...(code ? { code } : {}), state: flow.state, verifier: flow.verifier }),
     });
-    if (!code && response.status === 202) return "pending";
+    if (!code && response.status === 202) {
+      await response.arrayBuffer().catch(() => undefined);
+      return "pending";
+    }
     if (!response.ok) throw new Error("AUTH_EXCHANGE_FAILED");
     const exchanged = authExchangeResponseSchema.parse(await response.json());
     if (pendingAuth !== flow) return "pending";
@@ -613,6 +620,18 @@ function configureUpdater() {
   autoUpdater.on("error", () => updateStatus(updateRequired ? { state: "required" } : { state: "error" }));
 }
 
+function configureDeepLinkProtocol() {
+  const registration = getProtocolRegistration({
+    isPackagedSmokeTest,
+    isDefaultApp: Boolean(process.defaultApp),
+    executable: process.execPath,
+    entryPath: process.argv[1] ? resolve(process.argv[1]) : undefined,
+  });
+  if (!registration) return;
+  const registered = app.setAsDefaultProtocolClient("janjalive", registration.executable, registration.args);
+  if (!registered) console.error("JANJALIVE_PROTOCOL_REGISTRATION_FAILED");
+}
+
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
@@ -624,8 +643,7 @@ if (!gotSingleInstanceLock) {
     mainWindow?.focus();
   });
 
-  if (process.defaultApp) app.setAsDefaultProtocolClient("janjalive", process.execPath, [resolve(process.argv[1] ?? "")]);
-  else app.setAsDefaultProtocolClient("janjalive");
+  configureDeepLinkProtocol();
 
   app.whenReady().then(async () => {
     await registerRendererProtocol();

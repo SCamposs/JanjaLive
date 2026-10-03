@@ -5,6 +5,7 @@ import { Brand } from "@/components/brand";
 import { CreateRoomForm } from "@/components/create-room-form";
 import { LandingNoirBackground } from "@/components/landing-noir-background";
 import { LegalFooter } from "@/components/legal-footer";
+import { NoirInterference } from "@/components/noir-interference";
 import { RoomList } from "@/components/room-list";
 import { listAvailableRooms } from "@/lib/rooms";
 
@@ -27,6 +28,7 @@ export default async function HomePage() {
             <h1>Salas</h1>
             <p>Crie uma sala ou entre com um código.</p>
             <RoomList rooms={availableRooms} />
+            <NoirInterference className="home-noir-documentary" />
           </section>
           <CreateRoomForm />
         </div>
