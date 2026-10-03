@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { Brand } from "./brand";
 import { LegalFooter } from "./legal-footer";
@@ -7,7 +6,7 @@ export function LegalPage({ title, updatedAt, children }: { title: string; updat
   return (
     <main className="legal-shell">
       <header className="landing-header">
-        <Link className="brand-link" href="/" aria-label="Voltar para o JanjaLive"><Brand /></Link>
+        <Brand />
       </header>
       <article className="legal-document">
         <header>

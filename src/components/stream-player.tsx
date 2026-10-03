@@ -19,8 +19,18 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = stream;
-  }, [stream]);
+    const video = videoRef.current;
+    if (!video) return;
+    video.srcObject = stream;
+    video.muted = mode === "local";
+    setMuted(mode === "local");
+    void video.play().catch(() => {
+      if (mode === "local") return;
+      video.muted = true;
+      setMuted(true);
+      void video.play().catch(() => undefined);
+    });
+  }, [mode, stream]);
 
   useEffect(() => {
     const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
@@ -77,8 +87,8 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
         <button className="icon-button" type="button" onClick={toggleFullscreen} aria-label="Tela cheia">
           {isFullscreen ? <Minimize2 size={18} /> : <Maximize size={18} />}
         </button>
-        <button className="stop-button" type="button" onClick={onStop}>
-          <X size={16} /> {mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}
+        <button className="stop-button" type="button" onClick={onStop} aria-label={mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}>
+          <X size={16} /> <span>{mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}</span>
         </button>
       </div>
     </div>

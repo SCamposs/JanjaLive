@@ -13,10 +13,12 @@ import {
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { getWebDisplayCaptureOptions } from "@/lib/display-capture";
 import type { RoomSnapshot } from "@/lib/rooms";
 import { QUALITY_PROFILES } from "@/lib/quality";
 import { AccountMenu } from "./account-menu";
 import { Brand } from "./brand";
+import { NoirInterference } from "./noir-interference";
 import { ScreenShareDialog } from "./screen-share-dialog";
 import { StreamPlayer } from "./stream-player";
 import { UserAvatar } from "./user-avatar";
@@ -25,11 +27,6 @@ import { useRoomMedia } from "@/hooks/use-room-media";
 type Props = {
   snapshot: RoomSnapshot;
   currentUser: { id: string; name?: string | null; image?: string | null };
-};
-
-type DisplayCaptureOptions = DisplayMediaStreamOptions & {
-  systemAudio?: "include" | "exclude";
-  windowAudio?: "exclude" | "window" | "system";
 };
 
 export function RoomExperience({ snapshot, currentUser }: Props) {
@@ -86,13 +83,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
       return;
     }
     try {
-      const captureOptions: DisplayCaptureOptions = {
-        video: { displaySurface: "window" },
-        audio: true,
-        systemAudio: "include",
-        windowAudio: "system",
-      };
-      const stream = await navigator.mediaDevices.getDisplayMedia(captureOptions);
+      const stream = await navigator.mediaDevices.getDisplayMedia(getWebDisplayCaptureOptions());
       stream.getAudioTracks().forEach((track) => {
         if (track.readyState !== "live") {
           stream.removeTrack(track);
@@ -270,12 +261,13 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                 </div>
               </div>
             ) : (
-              <div className="empty-stage">
-                <span className="empty-stage-icon"><MonitorUp size={28} /></span>
-                <h1>Nenhuma transmissão ativa</h1>
-                <p>Compartilhe sua tela ou aguarde um amigo começar.</p>
-                {!isBroadcasting && canShare && <button type="button" className="button primary" onClick={beginCapture}><MonitorUp size={17} /> Compartilhar minha tela</button>}
-              </div>
+              <NoirInterference className="empty-stage-noir">
+                <div className="empty-stage">
+                  <h1>Nenhuma transmissão ativa</h1>
+                  <p>Compartilhe sua tela ou aguarde um amigo começar.</p>
+                  {!isBroadcasting && canShare && <button type="button" className="button primary" onClick={beginCapture}><MonitorUp size={17} /> Compartilhar minha tela</button>}
+                </div>
+              </NoirInterference>
             )}
           </section>
           {(captureError || realtime.connectionError) && <p className="inline-alert" role="alert">{captureError || realtime.connectionError}</p>}

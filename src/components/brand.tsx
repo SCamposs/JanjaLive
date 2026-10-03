@@ -1,9 +1,10 @@
 import Image from "next/image";
+import Link from "next/link";
 import { cn } from "@/lib/cn";
 
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="brand" aria-label="JanjaLive">
+    <Link className="brand brand-link" href="/" aria-label="Voltar ao início do JanjaLive">
       <Image
         className={cn("brand-mark", compact && "brand-mark-compact")}
         src="/janja-live.png"
@@ -13,6 +14,6 @@ export function Brand({ compact = false }: { compact?: boolean }) {
         priority
       />
       <span className={cn("brand-name", compact && "brand-name-compact")}>JanjaLive</span>
-    </div>
+    </Link>
   );
 }
