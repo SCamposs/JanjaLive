@@ -15,7 +15,7 @@ flowchart LR
 
 Auth.js uses Discord OAuth with only the `identify` scope. Discord is an identity provider, not a media transport. The stable Discord account ID is mapped to an internal user record. Cookies and OAuth protections are handled by Auth.js; every room and signaling endpoint derives the user from the server-side session.
 
-The desktop client opens this same login in the system browser. A state- and PKCE-bound, five-minute, single-use handoff returns through `janjalive://auth/callback`. The backend stores only hashes of the handoff and desktop session secrets. The reusable desktop token stays in Electron's main process and is encrypted at rest with `safeStorage`; the renderer receives only the signed-in user profile.
+The desktop client opens this same login in the system browser. A state- and PKCE-bound, five-minute, single-use handoff can return immediately through `janjalive://auth/callback`; while that browser flow is pending, the app also polls the fixed JanjaLive endpoint with the same state and desktop-held PKCE verifier so login still completes when a browser blocks external protocol launching. Both paths atomically consume the same grant. The backend stores only hashes of the handoff and desktop session secrets. The reusable desktop token stays in Electron's main process and is encrypted at rest with `safeStorage`; the renderer receives only the signed-in user profile.
 
 ## 2. Persistent data
 

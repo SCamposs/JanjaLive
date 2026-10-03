@@ -31,9 +31,8 @@ export default async function DesktopAuthStartPage({
       <main className="legal-shell desktop-auth-shell">
         <header className="landing-header"><Brand /></header>
         <section className="legal-card desktop-auth-card">
-          <p className="eyebrow">Aplicativo para Windows</p>
-          <h1>Conectar ao Discord</h1>
-          <p>Entre com a mesma conta usada nas suas salas.</p>
+          <h1>Entrar no JanjaLive</h1>
+          <p>Use sua conta do Discord para continuar.</p>
           <form action={async () => { "use server"; await signIn("discord", { redirectTo }); }}>
             <button className="button discord wide" type="submit">Entrar com Discord</button>
           </form>
@@ -54,11 +53,9 @@ export default async function DesktopAuthStartPage({
     <main className="legal-shell desktop-auth-shell">
       <header className="landing-header"><Brand /></header>
       <section className="legal-card desktop-auth-card">
-        <p className="eyebrow">Aplicativo para Windows</p>
         <h1>Conta conectada</h1>
-        <p>O JanjaLive deve abrir automaticamente. Se não abrir, use o botão abaixo.</p>
+        <p>Você já pode voltar ao JanjaLive.</p>
         <DesktopAuthComplete deepLink={deepLink} />
-        <small>Este código expira em poucos minutos e só pode ser usado uma vez.</small>
       </section>
       <LegalFooter />
     </main>

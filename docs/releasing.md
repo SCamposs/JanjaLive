@@ -9,7 +9,8 @@ Windows releases are built only by `.github/workflows/release.yml` after a seman
 3. Run `pnpm audit --audit-level moderate` and review every result.
 4. Run a full-history Gitleaks scan plus a scan of current source and `apps/desktop/out`.
 5. Build `pnpm desktop:package` and verify the fuses, ASAR, installer hash and the checklist in `desktop-security-checklist.md`.
-6. Complete the manual interoperability matrix in `manual-webrtc-test.md`.
+6. Confirm the packaged-app smoke test reaches the mounted local renderer without an Electron error dialog.
+7. Complete the manual interoperability matrix in `manual-webrtc-test.md`.
 
 ## Publish
 

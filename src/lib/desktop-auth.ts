@@ -14,6 +14,9 @@ export type DesktopUser = {
   image: string | null;
 };
 
+type DesktopAuthResult = { token: string; expiresAt: string; user: DesktopUser };
+type DesktopAuthExchangeInput = { state: string; verifier: string; code?: string };
+
 export function hashDesktopSecret(value: string) {
   return createHash("sha256").update(value, "utf8").digest("base64url");
 }
@@ -51,32 +54,32 @@ export async function createDesktopAuthGrant(input: {
   return code;
 }
 
-export async function exchangeDesktopAuthGrant(input: {
-  code: string;
-  state: string;
-  verifier: string;
-}): Promise<{ token: string; expiresAt: string; user: DesktopUser }> {
-  if (![input.code, input.state, input.verifier].every((value) => BASE64URL_SECRET.test(value))) {
+export function exchangeDesktopAuthGrant(input: DesktopAuthExchangeInput & { code: string }): Promise<DesktopAuthResult>;
+export function exchangeDesktopAuthGrant(input: DesktopAuthExchangeInput & { code?: undefined }): Promise<DesktopAuthResult | null>;
+export async function exchangeDesktopAuthGrant(input: DesktopAuthExchangeInput): Promise<DesktopAuthResult | null> {
+  if (![input.state, input.verifier].every((value) => BASE64URL_SECRET.test(value)) || (input.code !== undefined && !BASE64URL_SECRET.test(input.code))) {
     throw new Error("INVALID_DESKTOP_AUTH");
   }
 
   const db = getDb();
-  const codeHash = hashDesktopSecret(input.code);
+  const grantSelector = input.code
+    ? eq(desktopAuthGrants.codeHash, hashDesktopSecret(input.code))
+    : eq(desktopAuthGrants.stateHash, hashDesktopSecret(input.state));
   const [grant] = await db
     .select()
     .from(desktopAuthGrants)
     .where(and(
-      eq(desktopAuthGrants.codeHash, codeHash),
+      grantSelector,
       isNull(desktopAuthGrants.usedAt),
       gt(desktopAuthGrants.expiresAt, new Date()),
     ))
     .limit(1);
 
-  if (
-    !grant ||
-    !desktopSecretsMatch(grant.stateHash, hashDesktopSecret(input.state)) ||
-    !desktopSecretsMatch(grant.codeChallenge, getPkceChallenge(input.verifier))
-  ) {
+  if (!grant) {
+    if (!input.code) return null;
+    throw new Error("INVALID_DESKTOP_AUTH");
+  }
+  if (!desktopSecretsMatch(grant.stateHash, hashDesktopSecret(input.state)) || !desktopSecretsMatch(grant.codeChallenge, getPkceChallenge(input.verifier))) {
     throw new Error("INVALID_DESKTOP_AUTH");
   }
 
@@ -84,7 +87,7 @@ export async function exchangeDesktopAuthGrant(input: {
   const consumed = await db
     .update(desktopAuthGrants)
     .set({ usedAt: now })
-    .where(and(eq(desktopAuthGrants.codeHash, codeHash), isNull(desktopAuthGrants.usedAt)))
+    .where(and(eq(desktopAuthGrants.codeHash, grant.codeHash), isNull(desktopAuthGrants.usedAt)))
     .returning({ userId: desktopAuthGrants.userId });
   if (consumed.length !== 1) throw new Error("INVALID_DESKTOP_AUTH");
 

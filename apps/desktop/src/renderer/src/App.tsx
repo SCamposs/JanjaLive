@@ -41,11 +41,17 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState("0.1.0");
   const [update, setUpdate] = useState<UpdaterStatus>({ state: "idle" });
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const previewRef = useRef<HTMLVideoElement>(null);
   const authRef = useRef<AuthStatus>(auth);
   const pendingInviteRef = useRef<string | null>(null);
   const handledMembershipRevisionRef = useRef(0);
   const realtime = useRoomMedia(room?.access === "authorized" ? room.room.id : null);
+
+  const handleUpdateStatus = useCallback((next: UpdaterStatus) => {
+    setUpdate(next);
+    if (next.state !== "ready") setUpdateDialogOpen(false);
+  }, []);
 
   const refreshRooms = useCallback(async () => {
     try {
@@ -78,17 +84,18 @@ export function App() {
   }, [openInvite, refreshRooms]);
 
   useEffect(() => {
+    document.title = "JanjaLive";
     void window.janja.app.getVersion().then(setVersion);
-    void window.janja.updater.getStatus().then(setUpdate);
+    void window.janja.updater.getStatus().then(handleUpdateStatus);
     void window.janja.auth.getStatus().then(handleAuthStatus);
-    const removeUpdater = window.janja.updater.onStatus(setUpdate);
+    const removeUpdater = window.janja.updater.onStatus(handleUpdateStatus);
     const removeAuth = window.janja.auth.onStatus(handleAuthStatus);
     const removeInvite = window.janja.app.onRoomInvite((token) => {
       if (authRef.current.state === "signed-in") void openInvite(token);
       else pendingInviteRef.current = token;
     });
     return () => { removeUpdater(); removeAuth(); removeInvite(); };
-  }, [handleAuthStatus, openInvite]);
+  }, [handleAuthStatus, handleUpdateStatus, openInvite]);
 
   useEffect(() => {
     if (previewRef.current) previewRef.current.srcObject = capture;
@@ -236,9 +243,8 @@ export function App() {
 
   return (
     <main className="desktop-shell">
-      <Header auth={auth} version={version} update={update} inRoom={Boolean(room)} canLogout={!sharing && !capture} onLeaveRoom={leaveRoom} onLogout={logout} />
+      <Header auth={auth} version={version} update={update} inRoom={Boolean(room)} canLogout={!sharing && !capture} onLeaveRoom={leaveRoom} onLogout={logout} onShowUpdate={() => setUpdateDialogOpen(true)} />
 
-      {update.state === "ready" && <aside className="update-bar"><span>JanjaLive v{update.version} está pronto.</span><button type="button" onClick={() => void window.janja.updater.restartAndInstall()}>Reiniciar e atualizar</button></aside>}
       {update.state === "required" && <aside className="update-bar required"><span>Esta versão precisa ser atualizada para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Verificar atualização</button></aside>}
 
       {auth.state !== "signed-in" ? <Login auth={auth} /> : room ? (
@@ -250,17 +256,29 @@ export function App() {
 
       {sources && <SourcePicker sources={groupedSources} systemAudio={systemAudio} onSystemAudio={setSystemAudio} onSelect={selectSource} onClose={() => { setSources(null); void window.janja.capture.cancelSelection(); }} />}
 
+      {update.state === "ready" && updateDialogOpen && <UpdateDialog version={update.version} onClose={() => setUpdateDialogOpen(false)} />}
+
       {(error || auth.state === "error" || realtime.connectionError) && <div className="error-toast" role="alert">{error || (auth.state === "error" ? auth.message : realtime.connectionError)}<button type="button" onClick={() => { setError(null); if (auth.state === "error") setAuth({ state: "signed-out" }); }}>×</button></div>}
     </main>
   );
 }
 
-function Header({ auth, version, update, inRoom, canLogout, onLeaveRoom, onLogout }: { auth: AuthStatus; version: string; update: UpdaterStatus; inRoom: boolean; canLogout: boolean; onLeaveRoom: () => void; onLogout: () => Promise<void> }) {
-  return <header className="app-header"><div className="brand"><img src="/janja-live.png" alt="" /><span>JanjaLive</span></div><div className="header-actions">{inRoom && <button className="quiet-button" type="button" onClick={onLeaveRoom}>Sair da sala</button>}<span className="version">v{version}</span><button className="quiet-button" type="button" onClick={() => void window.janja.updater.check()}>{update.state === "checking" ? "Verificando…" : "Atualizações"}</button>{auth.state === "signed-in" && <details className="desktop-account-menu"><summary className="account-button">{auth.user.image ? <img src={auth.user.image} alt="" /> : <span className="avatar-fallback">{auth.user.name[0]}</span>}<span>{auth.user.name}</span></summary><div><button type="button" disabled={!canLogout} onClick={() => void onLogout()}>Sair da conta</button></div></details>}</div></header>;
+function UpdateDialog({ version, onClose }: { version: string; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
+  return <dialog ref={ref} className="update-dialog" aria-labelledby="update-dialog-title" onCancel={onClose}><h2 id="update-dialog-title">Atualizar JanjaLive?</h2><p>A versão {version} já foi baixada. O aplicativo será reiniciado para concluir a instalação.</p><div><button className="quiet-button" type="button" onClick={onClose}>Agora não</button><button className="primary-button" type="button" onClick={() => void window.janja.updater.restartAndInstall()}>Reiniciar e atualizar</button></div></dialog>;
+}
+
+function Header({ auth, version, update, inRoom, canLogout, onLeaveRoom, onLogout, onShowUpdate }: { auth: AuthStatus; version: string; update: UpdaterStatus; inRoom: boolean; canLogout: boolean; onLeaveRoom: () => void; onLogout: () => Promise<void>; onShowUpdate: () => void }) {
+  return <header className="app-header"><div className="brand"><img src="/janja-live.png" alt="" /><span>JanjaLive</span></div><div className="header-actions">{inRoom && <button className="quiet-button" type="button" onClick={onLeaveRoom}>Sair da sala</button>}<span className="version">v{version}</span>{update.state === "ready" && <button className="update-indicator" type="button" onClick={onShowUpdate}><span />Nova versão</button>}{auth.state === "signed-in" && <details className="desktop-account-menu"><summary className="account-button">{auth.user.image ? <img src={auth.user.image} alt="" /> : <span className="avatar-fallback">{auth.user.name[0]}</span>}<span>{auth.user.name}</span></summary><div><button type="button" disabled={!canLogout} onClick={() => void onLogout()}>Sair da conta</button></div></details>}</div></header>;
 }
 
 function Login({ auth }: { auth: AuthStatus }) {
-  return <section className="desktop-login"><img src="/janja-live.png" alt="" /><h1>JanjaLive</h1><p>Entre para abrir suas salas.</p><button className="primary-button" type="button" disabled={auth.state === "connecting"} onClick={() => void window.janja.auth.start()}>{auth.state === "connecting" ? "Abrindo o navegador…" : "Entrar com Discord"}</button></section>;
+  return <section className="desktop-login desktop-noir-screen"><img src="/janja-live.png" alt="" /><h1>JanjaLive</h1><p>Entre para abrir suas salas.</p><button className="primary-button" type="button" disabled={auth.state === "connecting"} onClick={() => void window.janja.auth.start()}>{auth.state === "connecting" ? "Aguardando o navegador…" : "Entrar com Discord"}</button></section>;
 }
 
 function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary[]; onOpen: (id: string) => Promise<void>; onOpenSnapshot: (room: RoomSnapshot) => void; onRefresh: () => Promise<void> }) {
@@ -269,7 +287,7 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
   const [busy, setBusy] = useState(false);
   async function createRoom() { setBusy(true); try { onOpenSnapshot(await window.janja.rooms.create({ name: name || undefined, accessMode: "APPROVAL" })); } finally { setBusy(false); } }
   async function joinCode() { if (!/^[2-9A-HJ-NP-Z]{7}$/.test(code)) return; setBusy(true); try { onOpenSnapshot(await window.janja.rooms.joinCode(code)); } finally { setBusy(false); void onRefresh(); } }
-  return <section className="desktop-home"><div><p className="eyebrow">Suas salas</p><h1>Salas</h1><p>Abra uma sala e comece a compartilhar.</p></div><div className="desktop-room-grid"><div className="room-list-card">{rooms.length ? rooms.map((item) => <button type="button" key={item.id} onClick={() => void onOpen(item.id)}><span><strong>{item.name}</strong><small>{item.role === "OWNER" ? "Sua sala" : "Membro"} · {expiryLabel(item.expiresInMs)}</small></span><b>Abrir</b></button>) : <p>Nenhuma sala disponível.</p>}</div><div className="new-room-card"><h2>Nova sala</h2><input value={name} maxLength={60} placeholder="Nome opcional" onChange={(event) => setName(event.target.value)} /><button className="primary-button" type="button" disabled={busy} onClick={() => void createRoom()}>Criar sala</button><span>ou entre com código</span><input value={code} maxLength={7} placeholder="XXXXXXX" onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^2-9A-HJ-NP-Z]/g, ""))} onKeyDown={(event) => { if (event.key === "Enter") void joinCode(); }} /></div></div></section>;
+  return <section className="desktop-home desktop-noir-screen"><div><h1>Salas</h1><p>Crie uma sala ou entre com um código.</p></div><div className="desktop-room-grid"><div className="room-list-card">{rooms.length ? rooms.map((item) => <button type="button" key={item.id} onClick={() => void onOpen(item.id)}><span><strong>{item.name}</strong><small>{item.role === "OWNER" ? "Sua sala" : "Membro"} · {expiryLabel(item.expiresInMs)}</small></span><b>Abrir</b></button>) : <p>Nenhuma sala disponível.</p>}</div><div className="new-room-card"><h2>Nova sala</h2><input value={name} maxLength={60} placeholder="Nome opcional" onChange={(event) => setName(event.target.value)} /><button className="primary-button" type="button" disabled={busy} onClick={() => void createRoom()}>Criar sala</button><span>ou entre com código</span><input value={code} maxLength={7} placeholder="XXXXXXX" onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^2-9A-HJ-NP-Z]/g, ""))} onKeyDown={(event) => { if (event.key === "Enter") void joinCode(); }} /></div></div></section>;
 }
 
 function AccessGate({ room, onRequest, onUpdate }: { room: RoomSnapshot; onRequest: () => Promise<void>; onUpdate: (room: RoomSnapshot) => void }) {

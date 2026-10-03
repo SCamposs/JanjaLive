@@ -1,6 +1,6 @@
 {
   "name": "@janjalive/desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Cliente desktop seguro do JanjaLive para compartilhamento P2P de tela.",
   "author": "SCamposs",
   "private": true,
@@ -12,7 +12,8 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "package:win": "pnpm build && electron-builder --win nsis --x64 --publish never"
+    "package:win": "pnpm build && electron-builder --win nsis --x64 --publish never && pnpm smoke:packaged",
+    "smoke:packaged": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1"
   },
   "dependencies": {
     "@janjalive/webrtc": "workspace:*",

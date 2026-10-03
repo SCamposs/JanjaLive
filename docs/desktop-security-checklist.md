@@ -15,6 +15,7 @@ Checked items are implemented in source. All items must be checked again against
 - [x] Electron fuses are applied to the packaged executable
 - [x] ASAR integrity and load-only-from-ASAR fuses are enabled
 - [x] extra `file://` protocol privileges are disabled
+- [x] the packaged executable reaches the mounted local renderer in the release smoke test
 - [x] capture requires an explicit, expiring, one-use source selection
 - [x] the renderer cannot submit an Electron source ID
 - [x] video frames never cross IPC

@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import {
   app,
   BrowserWindow,
@@ -16,7 +16,7 @@ import {
   type DesktopCapturerSource,
   type IpcMainInvokeEvent,
 } from "electron";
-import { autoUpdater } from "electron-updater";
+import electronUpdater from "electron-updater";
 import {
   authExchangeResponseSchema,
   authStatusSchema,
@@ -35,15 +35,19 @@ import {
 import { findDeepLink, type DesktopDeepLink } from "../shared/security";
 import { ExpiringGrantStore } from "../shared/expiring-grants";
 
+const { autoUpdater } = electronUpdater;
+
 const APP_ORIGIN = "janja-app://bundle";
 const API_ORIGIN = "https://janja.live";
 const AUTH_START_URL = "https://janja.live/desktop/auth/start";
 const AUTH_EXCHANGE_URL = "https://janja.live/api/desktop/auth/exchange";
+const AUTH_POLL_URL = "https://janja.live/api/desktop/auth/poll";
 const AUTH_SESSION_URL = "https://janja.live/api/desktop/auth/session";
 const AUTH_FLOW_TTL_MS = 10 * 60 * 1_000;
 const SOURCE_TOKEN_TTL_MS = 60_000;
 const SELECTION_TTL_MS = 30_000;
 const AUDIO_FALLBACK_TTL_MS = 5_000;
+const isPackagedSmokeTest = process.argv.includes("--janjalive-smoke-test");
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const rendererDirectory = resolve(currentDirectory, "../renderer");
 
@@ -53,16 +57,30 @@ protocol.registerSchemesAsPrivileged([
 
 type SourceGrant = { source: DesktopCapturerSource; ownerId: number; expiresAt: number };
 type PendingSelection = SourceGrant & { withSystemAudio: boolean };
+type PendingAuth = { state: string; verifier: string; expiresAt: number };
 
 let mainWindow: BrowserWindow | null = null;
 let updaterStatus: UpdaterStatus = { state: "idle" };
 let updateRequired = false;
 let authStatus: AuthStatus = { state: "signed-out" };
 let sessionToken: string | null = null;
-let pendingAuth: { state: string; verifier: string; expiresAt: number } | null = null;
+let pendingAuth: PendingAuth | null = null;
+let authExchangeInFlight: Promise<"pending" | "complete"> | null = null;
 const sourceGrants = new ExpiringGrantStore<DesktopCapturerSource>();
 const pendingSelections = new Map<number, PendingSelection>();
 const audioFallbackSelections = new Map<number, SourceGrant>();
+
+const rendererContentTypes: Record<string, string> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".woff2": "font/woff2",
+};
 
 function rendererUrlIsTrusted(url: string) {
   if (url === `${APP_ORIGIN}/` || url.startsWith(`${APP_ORIGIN}/assets/`)) return true;
@@ -156,42 +174,69 @@ async function restoreSession() {
   const stored = await readStoredSession();
   if (!stored) {
     await clearStoredSession();
-    updateAuthStatus({ state: "signed-out" });
+    if (!pendingAuth) updateAuthStatus({ state: "signed-out" });
     return;
   }
   const restored = await fetchAuthenticatedSession(stored.token).catch(() => null);
   if (!restored) {
     await clearStoredSession();
-    updateAuthStatus({ state: "signed-out" });
+    if (!pendingAuth) updateAuthStatus({ state: "signed-out" });
     return;
   }
   sessionToken = stored.token;
   updateAuthStatus(restored);
 }
 
-async function exchangeAuthCode(link: Extract<DesktopDeepLink, { type: "auth" }>) {
-  const pending = pendingAuth;
-  pendingAuth = null;
-  if (!pending || pending.expiresAt <= Date.now() || !secretsMatch(pending.state, link.state)) {
-    updateAuthStatus({ state: "error", message: "Este login expirou. Tente entrar novamente." });
-    return;
-  }
-
-  updateAuthStatus({ state: "connecting" });
-  try {
-    const response = await net.fetch(AUTH_EXCHANGE_URL, {
+async function attemptAuthExchange(flow: PendingAuth, code?: string) {
+  if (authExchangeInFlight) return authExchangeInFlight;
+  const attempt = (async (): Promise<"pending" | "complete"> => {
+    if (pendingAuth !== flow || flow.expiresAt <= Date.now()) return "pending";
+    const response = await net.fetch(code ? AUTH_EXCHANGE_URL : AUTH_POLL_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ code: link.code, state: link.state, verifier: pending.verifier }),
+      body: JSON.stringify({ ...(code ? { code } : {}), state: flow.state, verifier: flow.verifier }),
     });
+    if (!code && response.status === 202) return "pending";
     if (!response.ok) throw new Error("AUTH_EXCHANGE_FAILED");
     const exchanged = authExchangeResponseSchema.parse(await response.json());
+    if (pendingAuth !== flow) return "pending";
     await persistSession(exchanged.token, exchanged.expiresAt);
+    pendingAuth = null;
     sessionToken = exchanged.token;
     updateAuthStatus({ state: "signed-in", user: exchanged.user });
+    return "complete";
+  })();
+  authExchangeInFlight = attempt;
+  try {
+    return await attempt;
+  } finally {
+    if (authExchangeInFlight === attempt) authExchangeInFlight = null;
+  }
+}
+
+async function pollAuthFlow(flow: PendingAuth) {
+  while (pendingAuth === flow && Date.now() < flow.expiresAt) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000));
+    if (pendingAuth !== flow) return;
+    try {
+      if (await attemptAuthExchange(flow) === "complete") return;
+    } catch {
+      // The browser may still be authenticating or the network may be temporarily unavailable.
+    }
+  }
+  if (pendingAuth === flow) {
+    pendingAuth = null;
+    updateAuthStatus({ state: "error", message: "Este login expirou. Tente entrar novamente." });
+  }
+}
+
+async function exchangeAuthCode(link: Extract<DesktopDeepLink, { type: "auth" }>) {
+  const flow = pendingAuth;
+  if (!flow || flow.expiresAt <= Date.now() || !secretsMatch(flow.state, link.state)) return;
+  try {
+    await attemptAuthExchange(flow, link.code);
   } catch {
-    await clearStoredSession();
-    updateAuthStatus({ state: "error", message: "Não foi possível conectar sua conta. Tente novamente." });
+    // Polling remains active as a fallback when a browser does not complete the deep-link handoff.
   }
 }
 
@@ -297,12 +342,14 @@ function registerIpc() {
     const state = randomBytes(32).toString("base64url");
     const verifier = randomBytes(48).toString("base64url");
     const challenge = createHash("sha256").update(verifier, "utf8").digest("base64url");
-    pendingAuth = { state, verifier, expiresAt: Date.now() + AUTH_FLOW_TTL_MS };
+    const flow = { state, verifier, expiresAt: Date.now() + AUTH_FLOW_TTL_MS };
+    pendingAuth = flow;
     updateAuthStatus({ state: "connecting" });
     const url = new URL(AUTH_START_URL);
     url.searchParams.set("state", state);
     url.searchParams.set("challenge", challenge);
     await shell.openExternal(url.toString());
+    void pollAuthFlow(flow);
   });
   ipcMain.handle("auth:get-status", (event) => {
     assertTrustedSender(event);
@@ -483,7 +530,7 @@ function configureSession() {
 }
 
 async function registerRendererProtocol() {
-  await protocol.handle("janja-app", (request) => {
+  await protocol.handle("janja-app", async (request) => {
     try {
       const url = new URL(request.url);
       if (url.hostname !== "bundle" || url.username || url.password || url.port || url.search || url.hash) return new Response("Not found", { status: 404 });
@@ -491,7 +538,10 @@ async function registerRendererProtocol() {
       const requestedPath = resolve(rendererDirectory, decodedPath === "/" ? "index.html" : decodedPath.slice(1));
       const relativePath = relative(rendererDirectory, requestedPath);
       if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath)) return new Response("Not found", { status: 404 });
-      return net.fetch(pathToFileURL(requestedPath).toString());
+      const contentType = rendererContentTypes[extname(requestedPath).toLowerCase()];
+      if (!contentType) return new Response("Not found", { status: 404 });
+      const body = await readFile(requestedPath);
+      return new Response(body, { headers: { "Content-Type": contentType } });
     } catch {
       return new Response("Not found", { status: 404 });
     }
@@ -508,7 +558,7 @@ function createWindow() {
     backgroundColor: "#050505",
     autoHideMenuBar: true,
     webPreferences: {
-      preload: resolve(currentDirectory, "../preload/index.mjs"),
+      preload: resolve(currentDirectory, "../preload/index.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -521,10 +571,34 @@ function createWindow() {
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (!rendererUrlIsTrusted(url)) event.preventDefault();
   });
+  if (isPackagedSmokeTest) {
+    mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
+      console.error(`JANJALIVE_SMOKE_LOAD_FAILED ${errorCode} ${errorDescription}`);
+    });
+    mainWindow.webContents.on("render-process-gone", (_event, details) => {
+      console.error(`JANJALIVE_SMOKE_RENDERER_GONE ${details.reason}`);
+    });
+    mainWindow.webContents.on("console-message", ({ level, message }) => {
+      if (level === "error") console.error(`JANJALIVE_SMOKE_CONSOLE_ERROR ${message}`);
+    });
+    mainWindow.webContents.once("did-finish-load", () => {
+      void mainWindow?.webContents.executeJavaScript(`Boolean(
+        window.janja &&
+        document.querySelector("#root > .desktop-shell") &&
+        document.body.innerText.includes("JanjaLive")
+      )`).then((ready) => {
+        console.log(ready ? "JANJALIVE_SMOKE_RENDERER_READY" : "JANJALIVE_SMOKE_RENDERER_NOT_READY");
+      }).catch((error: unknown) => {
+        console.error(`JANJALIVE_SMOKE_EVALUATION_FAILED ${error instanceof Error ? error.message : "unknown"}`);
+      });
+    });
+  }
   mainWindow.once("ready-to-show", () => mainWindow?.show());
   mainWindow.on("closed", () => { mainWindow = null; });
   const developmentUrl = process.env.ELECTRON_RENDERER_URL;
-  void mainWindow.loadURL(!app.isPackaged && developmentUrl ? developmentUrl : `${APP_ORIGIN}/`);
+  void mainWindow.loadURL(!app.isPackaged && developmentUrl ? developmentUrl : `${APP_ORIGIN}/`).catch((error: unknown) => {
+    if (isPackagedSmokeTest) console.error(`JANJALIVE_SMOKE_LOAD_REJECTED ${error instanceof Error ? error.message : "unknown"}`);
+  });
 }
 
 function configureUpdater() {

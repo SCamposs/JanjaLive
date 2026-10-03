@@ -11,6 +11,9 @@ button:focus-visible { outline: 2px solid #a62639; outline-offset: 2px; }
 .brand img { width: 32px; height: 32px; object-fit: contain; border-radius: 7px; }
 .header-actions { gap: 9px; }
 .version { color: #8b8882; font-size: 11px; }
+.update-indicator { min-height: 30px; padding: 0 9px; display: inline-flex; align-items: center; gap: 7px; border: 0; border-radius: 6px; color: #b5b1aa; background: transparent; cursor: pointer; font-size: 11px; }
+.update-indicator:hover { color: #e6e3dc; background: #1b1b1b; }
+.update-indicator > span { width: 7px; height: 7px; border-radius: 50%; background: #a62639; }
 .quiet-button, .account-button, .primary-button, .stop-button { min-height: 35px; padding: 0 13px; border: 1px solid #292929; border-radius: 7px; background: #151515; cursor: pointer; }
 .account-button, .primary-button { border-color: #8c1d2c; background: #8c1d2c; font-weight: 650; }
 .account-button { display: flex; align-items: center; gap: 7px; }
@@ -30,11 +33,16 @@ button:focus-visible { outline: 2px solid #a62639; outline-offset: 2px; }
 .update-bar button { border: 0; color: #e6e3dc; background: transparent; text-decoration: underline; cursor: pointer; }
 .desktop-content { width: min(1120px, calc(100% - 48px)); margin: 0 auto; padding: 9vh 0 72px; }
 .desktop-login { min-height: calc(100vh - 60px); display: grid; place-content: center; justify-items: center; text-align: center; }
+.desktop-noir-screen { position: relative; isolation: isolate; overflow: hidden; }
+.desktop-noir-screen::before { content: ""; position: absolute; z-index: -2; inset: 0 0 0 30%; background: center / cover no-repeat url("/janja-live-noir.png"); opacity: .64; -webkit-mask-image: linear-gradient(to right, transparent, #000 34%); mask-image: linear-gradient(to right, transparent, #000 34%); }
+.desktop-noir-screen::after { content: ""; position: absolute; z-index: -1; inset: 0; background: linear-gradient(to right, #050505 18%, rgba(5,5,5,.2) 72%), linear-gradient(to bottom, transparent 55%, rgba(5,5,5,.5)); pointer-events: none; }
+.desktop-noir-screen > * { position: relative; z-index: 1; }
+.desktop-login.desktop-noir-screen { place-content: center start; justify-items: start; padding: 0 max(48px, calc((100% - 1040px) / 2)); text-align: left; }
 .desktop-login > img { width: 72px; height: 72px; object-fit: contain; }
 .desktop-login h1 { margin: 14px 0 5px; font-size: 28px; }
 .desktop-login p { margin: 0 0 22px; color: #8b8882; }
-.desktop-home { width: min(1040px, calc(100% - 48px)); margin: 0 auto; padding: 70px 0; }
-.desktop-home > div:first-child h1 { margin: 7px 0 5px; font-size: 34px; }
+.desktop-home { width: 100%; min-height: calc(100vh - 60px); margin: 0 auto; padding: 70px max(24px, calc((100% - 1040px) / 2)); }
+.desktop-home > div:first-child h1 { margin: 0 0 5px; font-size: 34px; }
 .desktop-home > div:first-child > p:last-child { margin: 0; color: #8b8882; }
 .desktop-room-grid { margin-top: 28px; display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
 .room-list-card, .new-room-card { border: 1px solid #292929; border-radius: 10px; background: #0d0d0d; }
@@ -135,3 +143,12 @@ legend, .source-group h3 { margin-bottom: 7px; color: #8b8882; font-size: 10px; 
 .source-grid span { display: block; padding: 8px 2px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .error-toast { position: fixed; right: 18px; bottom: 18px; min-height: 48px; padding: 0 9px 0 14px; display: flex; align-items: center; gap: 12px; border: 1px solid #541019; border-radius: 8px; color: #d9a0a6; background: #1a1011; font-size: 12px; }
 .error-toast button { width: 28px; height: 28px; border: 0; color: #8b8882; background: transparent; cursor: pointer; font-size: 18px; }
+.update-dialog { width: min(420px, calc(100% - 40px)); padding: 22px; border: 1px solid #292929; border-radius: 11px; color: #e6e3dc; background: #0d0d0d; }
+.update-dialog::backdrop { background: rgba(5,5,5,.78); }
+.update-dialog h2 { margin: 0 0 8px; font-size: 18px; }
+.update-dialog p { margin: 0; color: #8b8882; font-size: 12px; line-height: 1.55; }
+.update-dialog > div { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

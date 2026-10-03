@@ -163,9 +163,11 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .header-actions { gap: 8px; }
 .room-leave-button { color: var(--muted); }
 .desktop-auth-shell { min-height: 100svh; display: grid; grid-template-rows: auto 1fr auto; }
-.desktop-auth-card { width: min(430px, calc(100% - 32px)); margin: auto; text-align: center; }
+.desktop-auth-card { width: min(390px, calc(100% - 32px)); margin: auto; padding: 32px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface); text-align: left; }
+.desktop-auth-card h1 { margin: 0 0 9px; font-size: 24px; font-weight: 620; letter-spacing: -.025em; }
+.desktop-auth-card > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .desktop-auth-card form { margin-top: 24px; }
-.desktop-auth-card > .button { margin-top: 24px; }
+.desktop-auth-card > .button { margin-top: 20px; }
 .desktop-auth-card small { display: block; margin-top: 16px; color: var(--muted); }
 .header-divider { height: 22px; width: 1px; background: var(--border); }
 .room-identity { gap: 7px; }

@@ -48,6 +48,9 @@ jobs:
       - run: pnpm check:all
       - name: Build Windows installer
         run: pnpm --filter @janjalive/desktop exec electron-builder --win nsis --x64 --publish never
+      - name: Smoke test packaged application
+        shell: pwsh
+        run: pnpm --filter @janjalive/desktop smoke:packaged
       - name: Publish GitHub release
         shell: pwsh
         run: |
