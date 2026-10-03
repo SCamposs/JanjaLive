@@ -39,6 +39,8 @@ Every event is checked against the Auth.js session, active room, sender membersh
 
 ## 6. WebRTC negotiation
 
+Web and desktop both use the workspace package `@janjalive/webrtc`. Platform adapters provide only signaling requests and ICE configuration; peer creation, offer/answer handling, candidate buffering, lifecycle cleanup, retry timing and stream state live in the shared core. Runtime Zod schemas on both boundaries are exercised against the same protocol fixtures so either client cannot silently drift from the other.
+
 When a viewer clicks **Assistir**, it sends `watch:request` to one broadcaster. Only then does the broadcaster create one `RTCPeerConnection`, attach its chosen screen stream, and exchange offer, answer, and ICE candidates through signaling. Other available streams consume no viewer bandwidth.
 
 ```mermaid
@@ -55,7 +57,7 @@ sequenceDiagram
   B-->>V: encrypted WebRTC media
 ```
 
-An established peer connection is not closed merely because signaling reconnects. Connections close on stop watching, broadcaster stop, native share end, revocation, room close, or component teardown.
+An established peer connection is not closed merely because signaling reconnects. Connections close on stop watching, broadcaster stop, native share end, revocation, room close, or component teardown. Room close, revocation, room exit and renderer teardown also stop every local capture track, preventing a capture from surviving its room context.
 
 ## 7. Media flow
 

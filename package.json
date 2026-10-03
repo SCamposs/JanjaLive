@@ -1,6 +1,6 @@
 {
   "name": "janjalive",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -21,6 +21,7 @@
     "check:all": "pnpm check && pnpm desktop:test && pnpm desktop:build"
   },
   "dependencies": {
+    "@janjalive/webrtc": "workspace:*",
     "@auth/drizzle-adapter": "^1.11.3",
     "@neondatabase/serverless": "^1.1.0",
     "@radix-ui/react-dialog": "^1.1.23",

@@ -34,7 +34,7 @@ Leia a [Política de Privacidade](https://janja.live/privacidade), os [Termos de
 
 O aplicativo oferece seletor próprio de telas e aplicações, áudio do sistema mais previsível, links de sala, atualização automática e acesso rápido às salas recorrentes.
 
-O instalador de desenvolvimento ainda não possui assinatura Authenticode e pode aparecer como “Editor desconhecido”. A primeira versão para amigos será publicada em [GitHub Releases](https://github.com/SCamposs/JanjaLive/releases).
+O instalador atual ainda não possui assinatura Authenticode e pode aparecer como “Editor desconhecido”. A versão mais recente está em [GitHub Releases](https://github.com/SCamposs/JanjaLive/releases/latest). Não desative proteções do Windows para instalá-lo.
 
 ## Navegadores
 

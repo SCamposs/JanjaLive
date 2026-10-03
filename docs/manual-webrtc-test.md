@@ -2,6 +2,10 @@
 
 Use Chrome or Edge on Windows first. Never paste production secrets into screenshots, bug reports, or browser logs.
 
+## Automated coverage before this plan
+
+CI verifies that web and desktop accept the same signaling fixtures, both consume the same shared WebRTC core, reconnect backoff is bounded, room close/revocation ends polling, and leaving a room stops all local capture tracks. These tests protect protocol and lifecycle behavior but do not replace the real devices, networks, browser pickers, system-audio paths and operating-system transitions below.
+
 ## Setup
 
 - Configure Discord OAuth, Neon, and Upstash variables.
