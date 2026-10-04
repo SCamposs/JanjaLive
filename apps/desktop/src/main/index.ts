@@ -501,18 +501,32 @@ function registerIpc() {
 
 function configureSession() {
   const activeSession = session.defaultSession;
-  activeSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => canGrantDesktopPermission({
-    permission,
-    isMainFrame: details.isMainFrame,
-    isMainWindow: Boolean(mainWindow && webContents && webContents.id === mainWindow.webContents.id),
-    isTrustedRenderer: Boolean(details.requestingUrl && rendererUrlIsTrusted(details.requestingUrl)),
-  }));
-  activeSession.setPermissionRequestHandler((webContents, permission, callback, details) => callback(canGrantDesktopPermission({
-    permission,
-    isMainFrame: details.isMainFrame,
-    isMainWindow: Boolean(mainWindow && webContents.id === mainWindow.webContents.id),
-    isTrustedRenderer: rendererUrlIsTrusted(details.requestingUrl),
-  })));
+  const hasCaptureGrant = (ownerId: number) => {
+    const now = Date.now();
+    const selection = pendingSelections.get(ownerId);
+    const fallback = audioFallbackSelections.get(ownerId);
+    return Boolean((selection && selection.expiresAt > now) || (fallback && fallback.expiresAt > now));
+  };
+  activeSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
+    const allowed = canGrantDesktopPermission({
+      hasCaptureGrant: Boolean(webContents && hasCaptureGrant(webContents.id)),
+      permission,
+      isMainFrame: details.isMainFrame,
+      isMainWindow: Boolean(mainWindow && webContents && webContents.id === mainWindow.webContents.id),
+      isTrustedRenderer: Boolean(details.requestingUrl && rendererUrlIsTrusted(details.requestingUrl)),
+    });
+    return allowed;
+  });
+  activeSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const allowed = canGrantDesktopPermission({
+      hasCaptureGrant: hasCaptureGrant(webContents.id),
+      permission,
+      isMainFrame: details.isMainFrame,
+      isMainWindow: Boolean(mainWindow && webContents.id === mainWindow.webContents.id),
+      isTrustedRenderer: rendererUrlIsTrusted(details.requestingUrl),
+    });
+    callback(allowed);
+  });
   activeSession.setDisplayMediaRequestHandler((request, callback) => {
     const window = mainWindow;
     if (!window || request.frame !== window.webContents.mainFrame || !rendererUrlIsTrusted(request.frame.url)) return callback({});

@@ -287,7 +287,21 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
   const [busy, setBusy] = useState(false);
   async function createRoom() { setBusy(true); try { onOpenSnapshot(await window.janja.rooms.create({ name: name || undefined, accessMode: "APPROVAL" })); } finally { setBusy(false); } }
   async function joinCode() { if (!/^[2-9A-HJ-NP-Z]{7}$/.test(code)) return; setBusy(true); try { onOpenSnapshot(await window.janja.rooms.joinCode(code)); } finally { setBusy(false); void onRefresh(); } }
-  return <section className="desktop-home desktop-noir-screen"><div><h1>Salas</h1><p>Crie uma sala ou entre com um código.</p></div><div className="desktop-room-grid"><div className="room-list-card">{rooms.length ? rooms.map((item) => <button type="button" key={item.id} onClick={() => void onOpen(item.id)}><span><strong>{item.name}</strong><small>{item.role === "OWNER" ? "Sua sala" : "Membro"} · {expiryLabel(item.expiresInMs)}</small></span><b>Abrir</b></button>) : <p>Nenhuma sala disponível.</p>}</div><div className="new-room-card"><h2>Nova sala</h2><input value={name} maxLength={60} placeholder="Nome opcional" onChange={(event) => setName(event.target.value)} /><button className="primary-button" type="button" disabled={busy} onClick={() => void createRoom()}>Criar sala</button><span>ou entre com código</span><input value={code} maxLength={7} placeholder="XXXXXXX" onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^2-9A-HJ-NP-Z]/g, ""))} onKeyDown={(event) => { if (event.key === "Enter") void joinCode(); }} /></div></div></section>;
+  return <section className="desktop-home desktop-noir-screen">
+    <div className="home-heading"><h1>Salas</h1><p>Crie uma sala ou entre com um código.</p></div>
+    <div className="desktop-room-grid">
+      <section className="room-list-card" aria-label="Salas disponíveis">
+        {rooms.length ? rooms.map((item) => <button type="button" key={item.id} onClick={() => void onOpen(item.id)}><span><strong>{item.name}</strong><small>{item.role === "OWNER" ? "Sua sala" : "Membro"} · {expiryLabel(item.expiresInMs)}</small></span><b>Abrir</b></button>) : <p>Nenhuma sala disponível.</p>}
+      </section>
+      <section className="new-room-card">
+        <h2>Nova sala</h2>
+        <label><span>Nome da sala</span><input value={name} maxLength={60} placeholder="Opcional" onChange={(event) => setName(event.target.value)} /></label>
+        <button className="primary-button" type="button" disabled={busy} onClick={() => void createRoom()}>Criar sala</button>
+        <span className="room-code-divider">ou entre com código</span>
+        <label><span>Código do convite</span><input className="room-code-input" value={code} maxLength={7} placeholder="XXXXXXX" onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^2-9A-HJ-NP-Z]/g, ""))} onKeyDown={(event) => { if (event.key === "Enter") void joinCode(); }} /></label>
+      </section>
+    </div>
+  </section>;
 }
 
 function AccessGate({ room, onRequest, onUpdate }: { room: RoomSnapshot; onRequest: () => Promise<void>; onUpdate: (room: RoomSnapshot) => void }) {
@@ -308,7 +322,11 @@ function RoomView({ room, currentUserId, sharing, localStream, selectedStreamer,
   const members = new Map(room.members.map((member) => [member.userId, member]));
   const showingLocal = selectedStreamer === currentUserId && localStream;
   const stream = showingLocal ? localStream : selectedRemoteStream;
-  return <div className="desktop-room-layout"><section className="desktop-stage-column"><div className="room-heading"><div><h1>{room.room.name}</h1>{connectionStatus !== "good" && <span>{connectionStatus === "unstable" ? "Conexão instável" : "Reconectando…"}</span>}</div>{!sharing && <button className="primary-button" type="button" onClick={() => void onShare()}>Compartilhar tela</button>}</div><div className="desktop-stage">{stream ? <Player stream={stream} label={showingLocal ? "Sua transmissão" : members.get(selectedStreamer ?? "")?.name ?? "Transmissão"} own={Boolean(showingLocal)} onStop={showingLocal ? () => void onStopSharing() : onStopWatching} /> : activeStreams.length ? <div className="desktop-stream-list"><h2>Transmissões</h2>{activeStreams.map((item) => <button type="button" key={item.streamerUserId} onClick={() => onSelectStreamer(item.streamerUserId)}><span className="live-dot" /><span><strong>{members.get(item.streamerUserId)?.name ?? "Amigo"}</strong><small>AO VIVO · {item.preset.replace(/(\d+p)(\d+)/, "$1 · $2 FPS")}{item.hasAudio ? " · Áudio" : ""}</small></span><b>Assistir</b></button>)}</div> : <div className="empty-room"><h2>Nenhuma transmissão ativa</h2><p>Compartilhe sua tela ou aguarde um amigo começar.</p></div>}</div></section><RoomMembers room={room} onlineUserIds={onlineUserIds} currentUserId={currentUserId} onRoomUpdate={onRoomUpdate} onRoomDeleted={onRoomDeleted} /></div>;
+  return <div className="desktop-room-layout"><section className="desktop-stage-column"><div className="room-heading"><div><h1>{room.room.name}</h1>{connectionStatus !== "good" && <span>{connectionStatus === "unstable" ? "Conexão instável" : "Reconectando…"}</span>}</div>{!sharing && <button className="primary-button" type="button" onClick={() => void onShare()}>Compartilhar tela</button>}</div><div className="desktop-stage">{stream ? <Player stream={stream} label={showingLocal ? "Sua transmissão" : members.get(selectedStreamer ?? "")?.name ?? "Transmissão"} own={Boolean(showingLocal)} onStop={showingLocal ? () => void onStopSharing() : onStopWatching} /> : activeStreams.length ? <div className="desktop-stream-list"><div className="desktop-stream-heading"><h2>Transmissões</h2><span>{activeStreams.length} {activeStreams.length === 1 ? "disponível" : "disponíveis"}</span></div>{activeStreams.map((item) => {
+    const member = members.get(item.streamerUserId);
+    const name = member?.name ?? "Amigo";
+    return <button type="button" key={item.streamerUserId} onClick={() => onSelectStreamer(item.streamerUserId)}>{member?.image ? <img src={member.image} alt="" /> : <span className="stream-avatar-fallback">{name[0]}</span>}<span><strong>{name}</strong><small><b>AO VIVO</b> {item.preset.replace(/(\d+p)(\d+)/, "$1 · $2 FPS")}{item.hasAudio ? " · Áudio" : ""}</small></span><span className="watch-action">Assistir</span></button>;
+  })}</div> : <div className="empty-room"><h2>Nenhuma transmissão ativa</h2><p>Compartilhe sua tela ou aguarde um amigo começar.</p></div>}</div></section><RoomMembers room={room} onlineUserIds={onlineUserIds} currentUserId={currentUserId} onRoomUpdate={onRoomUpdate} onRoomDeleted={onRoomDeleted} /></div>;
 }
 
 function RoomMembers({ room, onlineUserIds, currentUserId, onRoomUpdate, onRoomDeleted }: { room: RoomSnapshot; onlineUserIds: string[]; currentUserId: string; onRoomUpdate: (room: RoomSnapshot) => void; onRoomDeleted: () => void }) {

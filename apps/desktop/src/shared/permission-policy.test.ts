@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { canGrantDesktopPermission } from "./permission-policy";
 
 const trustedDisplayCapture = {
+  hasCaptureGrant: true,
   permission: "display-capture",
   isMainFrame: true,
   isMainWindow: true,
@@ -13,8 +14,14 @@ describe("desktop permission policy", () => {
     expect(canGrantDesktopPermission(trustedDisplayCapture)).toBe(true);
   });
 
+  it("allows Electron's media permission only while a capture grant is active", () => {
+    expect(canGrantDesktopPermission({ ...trustedDisplayCapture, permission: "media" })).toBe(true);
+    expect(canGrantDesktopPermission({ ...trustedDisplayCapture, permission: "media", hasCaptureGrant: false })).toBe(false);
+  });
+
   it.each([
-    ["camera and microphone", { permission: "media" }],
+    ["unrelated permissions", { permission: "geolocation" }],
+    ["capture requests without a grant", { hasCaptureGrant: false }],
     ["subframes", { isMainFrame: false }],
     ["other windows", { isMainWindow: false }],
     ["untrusted renderer URLs", { isTrustedRenderer: false }],
