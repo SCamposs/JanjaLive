@@ -35,6 +35,7 @@ import {
 import { findDeepLink, type DesktopDeepLink } from "../shared/security";
 import { ExpiringGrantStore } from "../shared/expiring-grants";
 import { getProtocolRegistration } from "../shared/protocol-registration";
+import { launchBrowserAuth } from "../shared/auth-launch";
 
 const { autoUpdater } = electronUpdater;
 
@@ -355,8 +356,11 @@ function registerIpc() {
     const url = new URL(AUTH_START_URL);
     url.searchParams.set("state", state);
     url.searchParams.set("challenge", challenge);
-    await shell.openExternal(url.toString());
-    void pollAuthFlow(flow);
+    launchBrowserAuth(() => void pollAuthFlow(flow), () => shell.openExternal(url.toString()), () => {
+      if (pendingAuth !== flow) return;
+      pendingAuth = null;
+      updateAuthStatus({ state: "error", message: "Não foi possível abrir o navegador. Tente novamente." });
+    });
   });
   ipcMain.handle("auth:get-status", (event) => {
     assertTrustedSender(event);
