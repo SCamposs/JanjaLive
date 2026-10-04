@@ -12,7 +12,7 @@ Checked items are implemented in source. All items must be checked again against
 - [x] IPC sender and top frame are validated
 - [x] IPC payload schemas reject unknown fields
 - [x] raw `ipcRenderer` is not exposed
-- [x] Electron fuses are applied to the packaged executable
+- [x] Electron fuses are applied and re-read from the packaged executable before release
 - [x] ASAR integrity and load-only-from-ASAR fuses are enabled
 - [x] extra `file://` protocol privileges are disabled
 - [x] the packaged executable reaches the mounted local renderer in the release smoke test

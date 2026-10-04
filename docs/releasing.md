@@ -8,7 +8,7 @@ Windows releases are built only by `.github/workflows/release.yml` after a seman
 2. Run `pnpm install --frozen-lockfile` and `pnpm check:all`.
 3. Run `pnpm audit --audit-level moderate` and review every result.
 4. Run a full-history Gitleaks scan plus a scan of current source and `apps/desktop/out`.
-5. Build `pnpm desktop:package` and verify the fuses, ASAR, installer hash and the checklist in `desktop-security-checklist.md`.
+5. Build `pnpm desktop:package`; it re-reads all Electron fuses from the packaged executable and fails if any required state differs. Then verify the ASAR, installer hash and the checklist in `desktop-security-checklist.md`.
 6. Confirm the packaged-app smoke test reaches the mounted local renderer without an Electron error dialog.
 7. Complete the manual interoperability matrix in `manual-webrtc-test.md`.
 
@@ -21,7 +21,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The tag workflow installs the frozen lockfile, scans the full history, runs all web and desktop checks, builds the x64 per-user NSIS installer, and publishes the installer, block map and updater metadata to the matching GitHub Release. Only the publishing job receives `contents: write`; it does not receive signing, package, action or OIDC permissions.
+The tag workflow installs the frozen lockfile, scans the full history, runs all web and desktop checks, builds the x64 per-user NSIS installer, verifies the fuse wire in the packaged executable, runs the packaged-app smoke test, and publishes the installer, block map and updater metadata to the matching GitHub Release. Only the publishing job receives `contents: write`; it does not receive signing, package, action or OIDC permissions.
 
 ## Update trust and signing
 
