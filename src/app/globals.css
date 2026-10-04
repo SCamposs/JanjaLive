@@ -144,6 +144,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .access-options button strong { font-size: 13px; }
 .access-options button small { color: var(--muted); font-size: 10px; line-height: 1.35; }
 .form-error, .inline-alert { color: var(--danger); background: var(--danger-surface); border: 1px solid oklch(35.5% .082 12.3); border-radius: 7px; padding: 9px 11px; font-size: 12px; }
+.create-room-submit { position: relative; }
+.create-room-submit > svg { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); }
 .join-divider { margin: 18px 0 11px; display: flex; align-items: center; gap: 9px; color: var(--muted-2); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .join-divider span { height: 1px; flex: 1; background: var(--border-soft); }
 .code-entry { position: relative; height: 49px; display: flex; align-items: center; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); cursor: text; transition: border-color .18s, background .18s; }
@@ -330,8 +332,10 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .access-body .button.secondary { width: 100%; }
 .access-card > .form-error { margin: 14px 0 0; }
 .spin { animation: spin 1s linear infinite; }
+.create-room-submit > svg.spin { animation-name: create-room-spin; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes create-room-spin { to { transform: translateY(-50%) rotate(360deg); } }
 @keyframes pulse { 50% { opacity: .35; } }
 @keyframes fadeIn { from { opacity: 0; } }
 @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } }

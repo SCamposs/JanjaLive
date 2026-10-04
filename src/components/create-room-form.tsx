@@ -89,9 +89,9 @@ export function CreateRoomForm() {
         </button>
       </fieldset>
       {createError && <p className="form-error" role="alert">{createError}</p>}
-      <button type="button" className="button primary wide" onClick={createRoom} disabled={creating || joining}>
-        {creating ? <LoaderCircle className="spin" size={18} /> : <ArrowRight size={18} />}
-        {creating ? "Criando…" : "Criar sala"}
+      <button type="button" className="button primary wide create-room-submit" onClick={createRoom} disabled={creating || joining}>
+        <span>{creating ? "Criando…" : "Criar sala"}</span>
+        {creating ? <LoaderCircle className="spin" size={17} aria-hidden="true" /> : <ArrowRight size={17} aria-hidden="true" />}
       </button>
       <div className="join-divider"><span /> ou entre com código <span /></div>
       <form onSubmit={(event) => { event.preventDefault(); void joinRoom(code); }}>
