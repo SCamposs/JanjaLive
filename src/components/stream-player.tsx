@@ -17,6 +17,8 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
   const [muted, setMuted] = useState(mode === "local");
   const [volume, setVolume] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackBlocked, setPlaybackBlocked] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -24,11 +26,13 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
     video.srcObject = stream;
     video.muted = mode === "local";
     setMuted(mode === "local");
+    setIsPlaying(false);
+    setPlaybackBlocked(false);
     void video.play().catch(() => {
       if (mode === "local") return;
       video.muted = true;
       setMuted(true);
-      void video.play().catch(() => undefined);
+      void video.play().catch(() => setPlaybackBlocked(true));
     });
   }, [mode, stream]);
 
@@ -52,7 +56,13 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
 
   return (
     <div className="player-shell" ref={containerRef}>
-      <video ref={videoRef} autoPlay playsInline muted={mode === "local" || muted} onDoubleClick={toggleFullscreen} />
+      <video ref={videoRef} autoPlay playsInline muted={mode === "local" || muted} onDoubleClick={toggleFullscreen} onPlaying={() => { setIsPlaying(true); setPlaybackBlocked(false); }} onWaiting={() => setIsPlaying(false)} />
+      {!isPlaying && (
+        <div className="player-waiting">
+          <span>{playbackBlocked ? "Toque para reproduzir" : "Conectando à transmissão…"}</span>
+          {playbackBlocked && <button type="button" onClick={() => void videoRef.current?.play()}>Reproduzir</button>}
+        </div>
+      )}
       <div className="player-label">
         <strong>{streamerName}</strong>
         {mode === "remote" && status !== "good" && (
@@ -62,7 +72,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
       <div className="player-controls">
         {mode === "remote" && (
           <>
-            <button className="icon-button" type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? "Ativar som" : "Silenciar"}>
+            <button className="icon-button" data-tooltip={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? "Ativar som" : "Silenciar"}>
               {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
             </button>
             <input
@@ -81,13 +91,13 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
           </>
         )}
         <span className="control-spacer" />
-        <button className="icon-button" type="button" onClick={togglePictureInPicture} aria-label="Picture in Picture">
+        <button className="icon-button" data-tooltip="Picture in Picture" type="button" onClick={togglePictureInPicture} aria-label="Picture in Picture">
           <PictureInPicture2 size={18} />
         </button>
-        <button className="icon-button" type="button" onClick={toggleFullscreen} aria-label="Tela cheia">
+        <button className="icon-button" data-tooltip={isFullscreen ? "Sair da tela cheia" : "Tela cheia"} type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}>
           {isFullscreen ? <Minimize2 size={18} /> : <Maximize size={18} />}
         </button>
-        <button className="stop-button" type="button" onClick={onStop} aria-label={mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}>
+        <button className="stop-button" data-tooltip={mode === "local" ? "Encerrar transmissão" : "Parar de assistir"} type="button" onClick={onStop} aria-label={mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}>
           <X size={16} /> <span>{mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}</span>
         </button>
       </div>

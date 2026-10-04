@@ -37,7 +37,7 @@ CI verifies that web and desktop accept the same signaling fixtures, both consum
 
 - Place one computer behind phone tethering and the other on a fixed network.
 - Test without TURN first. If a direct connection cannot be established, confirm the UI says so clearly.
-- Optionally configure TURN and repeat to validate fallback.
+- Configure TURN for the production test and repeat across different networks to validate fallback.
 
 ## Capture and quality checklist
 

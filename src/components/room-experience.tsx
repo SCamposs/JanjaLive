@@ -192,8 +192,8 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
               </div>
             </details>
           )}
-          <button className="button secondary compact room-leave-button" type="button" onClick={() => void leaveRoom()}>
-            <DoorOpen size={16} /> Sair da sala
+          <button className="button secondary compact room-leave-button" type="button" onClick={() => void leaveRoom()} aria-label="Sair da sala">
+            <DoorOpen size={16} /> <span>Sair da sala</span>
           </button>
           <AccountMenu
             compact
@@ -240,6 +240,11 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                   setSelectedStreamer(null);
                 }}
               />
+            ) : selectedStreamer ? (
+              <div className="stream-connecting" role="status">
+                <span>Conectando à transmissão…</span>
+                <button className="button secondary compact" type="button" onClick={() => { void realtime.stopWatching(selectedStreamer); setSelectedStreamer(null); }}>Cancelar</button>
+              </div>
             ) : remoteActiveStreams.length > 0 ? (
               <div className="stream-picker">
                 <div className="stream-picker-heading">

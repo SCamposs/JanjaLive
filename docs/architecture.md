@@ -97,9 +97,9 @@ Signaling polling backs off after failures and returns to the normal cadence aft
 
 Each viewer creates an extra outbound encoding path at the broadcaster. At 10 Mbps, three viewers target roughly 30 Mbps outbound. Eight people is a UX target, not a hard cap. SFU, MCU, transcoding, recording, and automatic multi-stream download are intentionally out of scope.
 
-## 14. Optional TURN path
+## 14. TURN fallback
 
-The default ICE configuration is `stun:stun.cloudflare.com:3478`. When Cloudflare TURN server credentials are configured, a server route exchanges the long-term secret for short-lived ICE credentials and returns only those temporary credentials to the browser. TURN is optional and never silently required for the core deployment.
+The default ICE configuration attempts direct media with Cloudflare STUN on ports `3478` and `53`. Production deployments should also configure `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_API_TOKEN`: authenticated room members can then request short-lived TURN credentials from `/api/ice-servers` when a direct path is blocked by mobile networks, NAT or an operating-system firewall. WebRTC still prefers a direct route when one is available; without TURN, an unreachable session fails cleanly instead of remaining indefinitely connected to a black player.
 
 ## 15. Desktop isolation and updates
 

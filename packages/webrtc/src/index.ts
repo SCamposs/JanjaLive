@@ -96,8 +96,15 @@ type UseRoomMediaOptions = {
 
 type ConnectionStatus = "good" | "unstable" | "reconnecting";
 
-const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.cloudflare.com:3478" }];
+const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"] }];
 const EMPTY_USER_IDS: string[] = [];
+const PEER_CONNECTION_TIMEOUT_MS = 20_000;
+
+export function getPeerConnectionStatus(states: RTCPeerConnectionState[]): ConnectionStatus {
+  if (states.length === 0 || states.some((state) => state === "connected")) return "good";
+  if (states.some((state) => state === "failed" || state === "disconnected")) return "unstable";
+  return "reconnecting";
+}
 
 export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: UseRoomMediaOptions) {
   const initialOnline = initialOnlineUserIds ?? EMPTY_USER_IDS;
@@ -109,7 +116,9 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   const [roomUnavailable, setRoomUnavailable] = useState(false);
   const [membershipRevision, setMembershipRevision] = useState(0);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
+  const peerTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
+  const remoteStreamRefs = useRef(new Map<string, MediaStream>());
   const localStreamRef = useRef<MediaStream | null>(null);
   const bitrateRef = useRef(10_000_000);
   const sinceRef = useRef(0);
@@ -120,9 +129,13 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   }, [roomId, transport]);
 
   const closePeer = useCallback((remoteUserId: string) => {
+    const timer = peerTimersRef.current.get(remoteUserId);
+    if (timer) clearTimeout(timer);
+    peerTimersRef.current.delete(remoteUserId);
     peersRef.current.get(remoteUserId)?.close();
     peersRef.current.delete(remoteUserId);
     pendingCandidatesRef.current.delete(remoteUserId);
+    remoteStreamRefs.current.delete(remoteUserId);
     setRemoteStreams((current) => {
       const next = { ...current };
       delete next[remoteUserId];
@@ -132,8 +145,11 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
 
   const closeAllPeers = useCallback(() => {
     for (const peer of peersRef.current.values()) peer.close();
+    for (const timer of peerTimersRef.current.values()) clearTimeout(timer);
     peersRef.current.clear();
+    peerTimersRef.current.clear();
     pendingCandidatesRef.current.clear();
+    remoteStreamRefs.current.clear();
     setRemoteStreams({});
   }, []);
 
@@ -158,6 +174,12 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     const iceServers = await transport.getIceServers(roomId).catch(() => FALLBACK_ICE_SERVERS);
     const peer = new RTCPeerConnection({ iceServers });
     peersRef.current.set(remoteUserId, peer);
+    peerTimersRef.current.set(remoteUserId, setTimeout(() => {
+      if (peersRef.current.get(remoteUserId) !== peer || peer.connectionState === "connected") return;
+      setConnectionStatus("unstable");
+      setConnectionError("Não foi possível conectar a esta transmissão. Tente novamente.");
+      closePeer(remoteUserId);
+    }, PEER_CONNECTION_TIMEOUT_MS));
     peer.onicecandidate = ({ candidate }) => {
       if (!candidate) return;
       const candidateInit = candidate.toJSON();
@@ -172,14 +194,28 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
         },
       }).catch(() => setConnectionStatus("reconnecting"));
     };
-    peer.ontrack = ({ streams }) => {
-      const [stream] = streams;
-      if (stream) setRemoteStreams((currentStreams) => ({ ...currentStreams, [remoteUserId]: stream }));
+    peer.ontrack = ({ track, streams }) => {
+      const incomingStream = streams[0];
+      const stream = remoteStreamRefs.current.get(remoteUserId) ?? incomingStream ?? new MediaStream();
+      remoteStreamRefs.current.set(remoteUserId, stream);
+      if (!stream.getTracks().some((currentTrack) => currentTrack.id === track.id)) stream.addTrack(track);
+      if (track.kind !== "video") return;
+      const publishStream = () => {
+        if (peersRef.current.get(remoteUserId) !== peer) return;
+        setRemoteStreams((currentStreams) => ({ ...currentStreams, [remoteUserId]: stream }));
+      };
+      if (track.muted) track.addEventListener("unmute", publishStream, { once: true });
+      else publishStream();
     };
     peer.onconnectionstatechange = () => {
       if (peer.connectionState === "connected") {
+        const timer = peerTimersRef.current.get(remoteUserId);
+        if (timer) clearTimeout(timer);
+        peerTimersRef.current.delete(remoteUserId);
         setConnectionStatus("good");
         setConnectionError(null);
+      } else if (peer.connectionState === "new" || peer.connectionState === "connecting") {
+        setConnectionStatus("reconnecting");
       } else if (peer.connectionState === "disconnected") {
         setConnectionStatus("unstable");
       } else if (peer.connectionState === "failed") {
@@ -280,7 +316,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       try {
         const data = await transport.poll(roomId, sinceRef.current);
         failures = 0;
-        setConnectionStatus((current) => current === "unstable" ? current : "good");
+        setConnectionStatus(getPeerConnectionStatus([...peersRef.current.values()].map((peer) => peer.connectionState)));
         setOnlineUserIds(data.onlineUserIds);
         setActiveStreams(data.activeStreams);
         for (const event of data.events) {

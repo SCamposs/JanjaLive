@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
   getReconnectDelay,
+  getPeerConnectionStatus,
   getRoomSignalDirective,
   useRoomMediaCore,
   type RealtimePoll,
@@ -44,6 +45,13 @@ describe("shared room media lifecycle", () => {
     expect(getReconnectDelay(1)).toBe(2_000);
     expect(getReconnectDelay(2)).toBe(4_000);
     expect(getReconnectDelay(20)).toBe(12_000);
+  });
+
+  it("does not report a media connection as good while its peer is still connecting", () => {
+    expect(getPeerConnectionStatus([])).toBe("good");
+    expect(getPeerConnectionStatus(["new", "connecting"])).toBe("reconnecting");
+    expect(getPeerConnectionStatus(["disconnected"])).toBe("unstable");
+    expect(getPeerConnectionStatus(["connected"])).toBe("good");
   });
 
   it("stops every capture track when leaving a room", async () => {

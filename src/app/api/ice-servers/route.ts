@@ -3,7 +3,7 @@ import { apiError, requireUser } from "@/lib/api";
 import { enforceRateLimit } from "@/lib/realtime";
 import { assertAuthorizedRoom } from "@/lib/rooms";
 
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.cloudflare.com:3478" }];
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"] }];
 
 export async function GET(request: Request) {
   try {
