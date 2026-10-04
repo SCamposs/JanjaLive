@@ -54,6 +54,7 @@ export function RoomList({ rooms }: { rooms: AvailableRoom[] }) {
                   <span>{room.role === "OWNER" ? "Criada por você" : "Acesso autorizado"}</span>
                 </div>
                 <span className="room-expiry"><Clock3 size={13} /> {expiryLabel(room.expiresInMs)}</span>
+                <span className="room-owner-action-slot" aria-hidden="true" />
                 <ArrowUpRight size={17} aria-hidden="true" />
               </Link>
               {room.role === "OWNER" && (confirming ? (
