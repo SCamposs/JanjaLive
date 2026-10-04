@@ -43,7 +43,10 @@ jobs:
       - name: Verify tag and package version
         shell: pwsh
         run: |
-          $expected = "v$((Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version)"
+          $rootVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $desktopVersion = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          if ($rootVersion -ne $desktopVersion) { throw "Root and desktop package versions must match ($rootVersion != $desktopVersion)" }
+          $expected = "v$desktopVersion"
           if ("${{ github.ref_name }}" -ne $expected) { throw "Tag must match desktop package version $expected" }
       - run: pnpm check:all
       - name: Build Windows installer
