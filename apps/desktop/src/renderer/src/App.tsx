@@ -162,6 +162,7 @@ export function App() {
         if (!systemAudio) throw audioError;
         stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
       }
+      await window.janja.capture.cancelSelection();
       setCapture(stream);
       setCaptureName(source.name);
       setSources(null);

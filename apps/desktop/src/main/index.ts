@@ -44,7 +44,6 @@ const APP_ORIGIN = "janja-app://bundle";
 const AUTH_FLOW_TTL_MS = 10 * 60 * 1_000;
 const SOURCE_TOKEN_TTL_MS = 60_000;
 const SELECTION_TTL_MS = 30_000;
-const AUDIO_FALLBACK_TTL_MS = 5_000;
 const isPackagedSmokeTest = process.argv.includes("--janjalive-smoke-test");
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const rendererDirectory = resolve(currentDirectory, "../renderer");
@@ -547,7 +546,7 @@ function configureSession() {
       audioFallbackSelections.set(window.webContents.id, {
         source: selection.source,
         ownerId: selection.ownerId,
-        expiresAt: Date.now() + AUDIO_FALLBACK_TTL_MS,
+        expiresAt: Date.now() + SELECTION_TTL_MS,
       });
     } else {
       audioFallbackSelections.delete(window.webContents.id);
