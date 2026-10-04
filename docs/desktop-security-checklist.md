@@ -28,7 +28,7 @@ Checked items are implemented in source. All items must be checked again against
 - [x] no GitHub token exists in the bundle
 - [x] sensitive logs are absent in packaged application code
 - [ ] signed update manifest verification is enabled after stable builder support
-- [ ] Windows Authenticode certificate is configured when budget permits
+- [ ] Windows Authenticode certificate is configured when budget permits; the release pipeline already signs and requires valid signatures when `WIN_CSC_LINK` is present
 - [x] dependency audit has been reviewed
 - [x] CI and release workflows run a full-history Gitleaks scan
 - [ ] desktop-to-web, web-to-desktop and desktop-to-desktop media tests pass

@@ -51,10 +51,17 @@ jobs:
       - run: pnpm check:all
       - name: Build Windows installer
         run: pnpm --filter @janjalive/desktop exec electron-builder --win nsis --x64 --publish never
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
       - name: Verify packaged Electron fuses
         run: pnpm --filter @janjalive/desktop verify:fuses
       - name: Verify update metadata and installer
         run: pnpm --filter @janjalive/desktop verify:release
+      - name: Verify Authenticode signatures when configured
+        run: pnpm --filter @janjalive/desktop verify:signature
+        env:
+          REQUIRE_WINDOWS_SIGNATURE: ${{ secrets.WIN_CSC_LINK != '' }}
       - name: Smoke test packaged application
         shell: pwsh
         run: pnpm --filter @janjalive/desktop smoke:packaged
