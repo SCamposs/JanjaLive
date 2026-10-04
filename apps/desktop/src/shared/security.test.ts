@@ -25,7 +25,7 @@ describe("desktop URL boundary", () => {
   });
 
   it("allows only fixed external destinations", () => {
-    expect(parseExternalUrl("https://janja.live/privacidade")).toBe("https://janja.live/privacidade");
+    expect(parseExternalUrl("https://www.janja.live/privacidade")).toBe("https://www.janja.live/privacidade");
     expect(parseExternalUrl("https://evil.test")).toBeNull();
     expect(parseExternalUrl("file:///etc/passwd")).toBeNull();
   });

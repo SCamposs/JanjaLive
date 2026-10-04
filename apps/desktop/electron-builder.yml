@@ -18,7 +18,6 @@ win:
         - x64
   artifactName: JanjaLive-Setup-${version}.${ext}
 nsis:
-  include: scripts/installer.nsh
   oneClick: false
   perMachine: false
   allowElevation: false

@@ -6,7 +6,9 @@ $startedAt = Get-Date
 $runId = [Guid]::NewGuid().ToString("N")
 $stdout = Join-Path ([IO.Path]::GetTempPath()) "janjalive-smoke-$runId.stdout.log"
 $stderr = Join-Path ([IO.Path]::GetTempPath()) "janjalive-smoke-$runId.stderr.log"
-$launcher = Start-Process -FilePath $resolvedExecutable -ArgumentList "--enable-logging", "--janjalive-smoke-test" -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+$profile = Join-Path ([IO.Path]::GetTempPath()) "janjalive-smoke-$runId-profile"
+New-Item -ItemType Directory -Path $profile | Out-Null
+$launcher = Start-Process -FilePath $resolvedExecutable -ArgumentList "--enable-logging", "--janjalive-smoke-test", "--user-data-dir=$profile" -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 
 try {
   $deadline = (Get-Date).AddSeconds(30)
@@ -47,4 +49,5 @@ finally {
     $_.Path -eq $resolvedExecutable -and $_.StartTime -ge $startedAt.AddSeconds(-2)
   } | Stop-Process -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $profile -Recurse -Force -ErrorAction SilentlyContinue
 }

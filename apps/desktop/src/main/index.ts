@@ -35,16 +35,11 @@ import {
 import { findDeepLink, type DesktopDeepLink } from "../shared/security";
 import { ExpiringGrantStore } from "../shared/expiring-grants";
 import { getProtocolRegistration } from "../shared/protocol-registration";
-import { launchBrowserAuth } from "../shared/auth-launch";
+import { API_ORIGIN, DESKTOP_AUTH_URLS, isAllowedRemoteRequest } from "../shared/network-policy";
 
 const { autoUpdater } = electronUpdater;
 
 const APP_ORIGIN = "janja-app://bundle";
-const API_ORIGIN = "https://janja.live";
-const AUTH_START_URL = "https://janja.live/desktop/auth/start";
-const AUTH_EXCHANGE_URL = "https://janja.live/api/desktop/auth/exchange";
-const AUTH_POLL_URL = "https://janja.live/api/desktop/auth/poll";
-const AUTH_SESSION_URL = "https://janja.live/api/desktop/auth/session";
 const AUTH_FLOW_TTL_MS = 10 * 60 * 1_000;
 const SOURCE_TOKEN_TTL_MS = 60_000;
 const SELECTION_TTL_MS = 30_000;
@@ -155,7 +150,7 @@ async function readStoredSession() {
 }
 
 async function fetchAuthenticatedSession(token: string) {
-  const response = await net.fetch(AUTH_SESSION_URL, {
+  const response = await net.fetch(DESKTOP_AUTH_URLS.session, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
@@ -196,10 +191,11 @@ async function attemptAuthExchange(flow: PendingAuth, code?: string) {
   }
   const attempt = (async (): Promise<"pending" | "complete"> => {
     if (pendingAuth !== flow || flow.expiresAt <= Date.now()) return "pending";
-    const response = await net.fetch(code ? AUTH_EXCHANGE_URL : AUTH_POLL_URL, {
+    const response = await net.fetch(code ? DESKTOP_AUTH_URLS.exchange : DESKTOP_AUTH_URLS.poll, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ ...(code ? { code } : {}), state: flow.state, verifier: flow.verifier }),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!code && response.status === 202) {
       await response.arrayBuffer().catch(() => undefined);
@@ -223,13 +219,20 @@ async function attemptAuthExchange(flow: PendingAuth, code?: string) {
 }
 
 async function pollAuthFlow(flow: PendingAuth) {
+  let consecutiveFailures = 0;
   while (pendingAuth === flow && Date.now() < flow.expiresAt) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000));
     if (pendingAuth !== flow) return;
     try {
       if (await attemptAuthExchange(flow) === "complete") return;
+      consecutiveFailures = 0;
     } catch {
-      // The browser may still be authenticating or the network may be temporarily unavailable.
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= 3 && pendingAuth === flow) {
+        pendingAuth = null;
+        updateAuthStatus({ state: "error", message: "Não foi possível conectar ao JanjaLive. Tente novamente." });
+        return;
+      }
     }
   }
   if (pendingAuth === flow) {
@@ -353,10 +356,11 @@ function registerIpc() {
     const flow = { state, verifier, expiresAt: Date.now() + AUTH_FLOW_TTL_MS };
     pendingAuth = flow;
     updateAuthStatus({ state: "connecting" });
-    const url = new URL(AUTH_START_URL);
+    const url = new URL(DESKTOP_AUTH_URLS.start);
     url.searchParams.set("state", state);
     url.searchParams.set("challenge", challenge);
-    launchBrowserAuth(() => void pollAuthFlow(flow), () => shell.openExternal(url.toString()), () => {
+    void pollAuthFlow(flow);
+    void shell.openExternal(url.toString()).catch(() => {
       if (pendingAuth !== flow) return;
       pendingAuth = null;
       updateAuthStatus({ state: "error", message: "Não foi possível abrir o navegador. Tente novamente." });
@@ -370,7 +374,7 @@ function registerIpc() {
     assertTrustedSender(event);
     const token = sessionToken;
     if (token) {
-      await net.fetch(AUTH_SESSION_URL, {
+      await net.fetch(DESKTOP_AUTH_URLS.session, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       }).catch(() => undefined);
@@ -522,7 +526,7 @@ function configureSession() {
   });
 
   activeSession.webRequest.onBeforeRequest((details, callback) => {
-    let allowed = details.url.startsWith(`${APP_ORIGIN}/`) || details.url.startsWith("https://janja.live/") || details.url.startsWith("https://cdn.discordapp.com/");
+    let allowed = details.url.startsWith(`${APP_ORIGIN}/`) || isAllowedRemoteRequest(details.url);
     if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL && details.url.startsWith(process.env.ELECTRON_RENDERER_URL)) allowed = true;
     if (details.url.startsWith("devtools://") && !app.isPackaged) allowed = true;
     callback({ cancel: !allowed });
@@ -533,7 +537,7 @@ function configureSession() {
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [
-          "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; media-src 'self' blob:; connect-src https://janja.live; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+          `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; media-src 'self' blob:; connect-src ${API_ORIGIN}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
         ],
       },
     });

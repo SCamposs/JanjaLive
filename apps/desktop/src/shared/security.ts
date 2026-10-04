@@ -34,8 +34,8 @@ export function parseDeepLink(value: string): DesktopDeepLink | null {
 }
 
 const fixedExternalUrls = z.enum([
-  "https://janja.live/privacidade",
-  "https://janja.live/termos",
+  "https://www.janja.live/privacidade",
+  "https://www.janja.live/termos",
   "https://github.com/SCamposs/JanjaLive",
 ]);
 

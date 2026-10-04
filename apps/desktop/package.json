@@ -1,6 +1,6 @@
 {
   "name": "@janjalive/desktop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Cliente desktop seguro do JanjaLive para compartilhamento P2P de tela.",
   "author": "SCamposs",
   "private": true,
@@ -16,6 +16,7 @@
     "smoke:packaged": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
     "@janjalive/webrtc": "workspace:*",
     "electron-updater": "6.8.9",
     "react": "19.2.8",

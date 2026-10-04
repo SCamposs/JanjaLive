@@ -1,4 +1,4 @@
-:root { color: #e6e3dc; background: #050505; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+:root { color: #e6e3dc; background: #050505; font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 880px; min-height: 600px; background: #050505; }
 button, input { font: inherit; }
@@ -7,15 +7,15 @@ button:focus-visible { outline: 2px solid #a62639; outline-offset: 2px; }
 .desktop-shell { min-height: 100vh; }
 .app-header { height: 60px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #292929; background: #0d0d0d; }
 .brand, .header-actions, .capture-title, .capture-actions, .audio-toggle { display: flex; align-items: center; }
-.brand { gap: 9px; font-size: 16px; font-weight: 560; }
-.brand img { width: 32px; height: 32px; object-fit: contain; border-radius: 7px; }
+.brand { gap: 9px; font-size: 15px; font-weight: 600; letter-spacing: -.025em; }
+.brand img { width: 32px; height: 32px; object-fit: contain; border-radius: 4px; }
 .header-actions { gap: 9px; }
 .version { color: #8b8882; font-size: 11px; }
 .update-indicator { min-height: 30px; padding: 0 9px; display: inline-flex; align-items: center; gap: 7px; border: 0; border-radius: 6px; color: #b5b1aa; background: transparent; cursor: pointer; font-size: 11px; }
 .update-indicator:hover { color: #e6e3dc; background: #1b1b1b; }
 .update-indicator > span { width: 7px; height: 7px; border-radius: 50%; background: #a62639; }
-.quiet-button, .account-button, .primary-button, .stop-button { min-height: 35px; padding: 0 13px; border: 1px solid #292929; border-radius: 7px; background: #151515; cursor: pointer; }
-.account-button, .primary-button { border-color: #8c1d2c; background: #8c1d2c; font-weight: 650; }
+.quiet-button, .account-button, .primary-button, .stop-button { min-height: 35px; padding: 0 13px; border: 1px solid #292929; border-radius: 4px; background: #151515; cursor: pointer; }
+.account-button, .primary-button { border-color: #a62639; background: #8c1d2c; font-weight: 600; letter-spacing: .015em; }
 .account-button { display: flex; align-items: center; gap: 7px; }
 .account-button img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
 .account-button small { color: #e6e3dc; opacity: .72; }
@@ -45,24 +45,24 @@ button:focus-visible { outline: 2px solid #a62639; outline-offset: 2px; }
 .desktop-home > div:first-child h1 { margin: 0 0 5px; font-size: 34px; }
 .desktop-home > div:first-child > p:last-child { margin: 0; color: #8b8882; }
 .desktop-room-grid { margin-top: 28px; display: grid; grid-template-columns: 1fr 340px; gap: 18px; align-items: start; }
-.room-list-card, .new-room-card { border: 1px solid #292929; border-radius: 10px; background: #0d0d0d; }
+.room-list-card, .new-room-card { border: 1px solid #292929; border-radius: 6px; background: #0d0d0d; }
 .room-list-card { padding: 6px; }
 .room-list-card > p { padding: 22px; color: #8b8882; }
-.room-list-card > button { width: 100%; min-height: 62px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; border: 0; border-radius: 7px; color: #e6e3dc; text-align: left; background: transparent; cursor: pointer; }
+.room-list-card > button { width: 100%; min-height: 62px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; border: 0; border-radius: 4px; color: #e6e3dc; text-align: left; background: transparent; cursor: pointer; }
 .room-list-card > button:hover { background: #151515; }
 .room-list-card span, .room-list-card strong, .room-list-card small { display: block; }
 .room-list-card small { margin-top: 4px; color: #8b8882; }
 .room-list-card b { color: #b8767e; font-size: 11px; }
 .new-room-card { padding: 18px; display: grid; gap: 10px; }
 .new-room-card h2 { margin: 0 0 4px; font-size: 17px; }
-.new-room-card input { min-height: 40px; padding: 0 11px; border: 1px solid #292929; border-radius: 6px; color: #e6e3dc; background: #050505; }
+.new-room-card input { min-height: 40px; padding: 0 11px; border: 1px solid #292929; border-radius: 4px; color: #e6e3dc; background: #050505; }
 .new-room-card > span { margin: 7px 0 0; color: #55524e; text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
 .desktop-room-layout { height: calc(100vh - 60px); display: grid; grid-template-columns: minmax(0,1fr) 280px; }
 .desktop-stage-column { min-width: 0; padding: 16px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 12px; }
 .room-heading { min-height: 40px; display: flex; align-items: center; justify-content: space-between; }
 .room-heading h1 { margin: 0; font-size: 15px; }
 .room-heading span { display: block; margin-top: 3px; color: #b8767e; font-size: 10px; }
-.desktop-stage { min-height: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid #1e1e1e; border-radius: 9px; background: #080808; }
+.desktop-stage { min-height: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid #1e1e1e; border-radius: 5px; background: #080808; }
 .empty-room { text-align: center; }
 .empty-room h2 { margin: 0 0 7px; font-size: 18px; }
 .empty-room p { margin: 0 0 18px; color: #8b8882; font-size: 12px; }
@@ -128,7 +128,7 @@ legend, .source-group h3 { margin-bottom: 7px; color: #8b8882; font-size: 10px; 
 .custom-bitrate input { width: 64px; min-height: 29px; padding: 0 7px; border: 1px solid #292929; border-radius: 5px; color: #e6e3dc; background: #050505; }
 .stop-button { display: block; margin: 0 17px 17px auto; color: #d7747f; background: #1a1011; border-color: #541019; }
 .modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(5,5,5,.82); backdrop-filter: blur(7px); }
-.source-dialog { width: min(920px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 22px; border: 1px solid #292929; border-radius: 13px; background: #0d0d0d; }
+.source-dialog { width: min(920px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 22px; border: 1px solid #292929; border-radius: 6px; background: #0d0d0d; }
 .source-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; }
 .source-dialog h2 { margin: 0 0 5px; font-size: 20px; }
 .source-dialog header p { margin: 0; color: #8b8882; font-size: 12px; }
@@ -137,7 +137,7 @@ legend, .source-group h3 { margin-bottom: 7px; color: #8b8882; font-size: 10px; 
 .audio-toggle input { accent-color: #8c1d2c; }
 .source-group + .source-group { margin-top: 25px; }
 .source-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
-.source-grid button { min-width: 0; padding: 8px; border: 1px solid #292929; border-radius: 9px; color: #e6e3dc; text-align: left; background: #151515; cursor: pointer; }
+.source-grid button { min-width: 0; padding: 8px; border: 1px solid #292929; border-radius: 5px; color: #e6e3dc; text-align: left; background: #151515; cursor: pointer; }
 .source-grid button:hover { border-color: #55524e; background: #191919; }
 .source-grid img { width: 100%; aspect-ratio: 16/9; display: block; object-fit: cover; border-radius: 5px; background: #050505; }
 .source-grid span { display: block; padding: 8px 2px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
