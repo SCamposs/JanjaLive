@@ -11,7 +11,7 @@ protocols:
     schemes:
       - janjalive
 win:
-  icon: ../../public/janja-live.png
+  icon: ../../public/web-app-manifest-512x512.png
   target:
     - target: nsis
       arch:
