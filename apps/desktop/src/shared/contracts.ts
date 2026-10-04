@@ -186,6 +186,7 @@ export type JanjaDesktopApi = {
     openInvite(token: string): Promise<RoomSnapshot>;
     requestAccess(roomId: string): Promise<void>;
     manageMember(roomId: string, input: z.infer<typeof membershipActionSchema>): Promise<RoomSnapshot>;
+    copyCode(code: string): Promise<void>;
     copyInvite(roomId: string): Promise<void>;
     delete(roomId: string): Promise<void>;
   };

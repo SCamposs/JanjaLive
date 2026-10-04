@@ -40,6 +40,7 @@ const api: JanjaDesktopApi = {
     openInvite: (token) => ipcRenderer.invoke("rooms:open-invite", token),
     requestAccess: (roomId) => ipcRenderer.invoke("rooms:request-access", roomId),
     manageMember: (roomId, input) => ipcRenderer.invoke("rooms:manage-member", roomId, input),
+    copyCode: (code) => ipcRenderer.invoke("rooms:copy-code", code),
     copyInvite: (roomId) => ipcRenderer.invoke("rooms:copy-invite", roomId),
     delete: (roomId) => ipcRenderer.invoke("rooms:delete", roomId),
   },

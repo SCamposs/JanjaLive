@@ -87,8 +87,13 @@ button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .desktop-room-layout { height: calc(100vh - 58px); display: grid; grid-template-columns: minmax(0,1fr) 300px; }
 .desktop-stage-column { min-width: 0; padding: 18px; display: grid; grid-template-rows: auto minmax(0,1fr); gap: 14px; }
 .room-heading { min-height: 40px; display: flex; align-items: center; justify-content: space-between; }
+.room-heading-identity { display: flex; align-items: center; gap: 10px; }
 .room-heading h1 { margin: 0; font-size: 15px; }
-.room-heading span { display: block; margin-top: 3px; color: #b8767e; font-size: 10px; }
+.room-code-display { min-height: 28px; padding: 0 8px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid #292929; border-radius: 4px; color: #8b8882; background: #0d0d0d; cursor: pointer; transition: color .18s, border-color .18s, background .18s; }
+.room-code-display:hover { color: #b5b1aa; border-color: #55524e; background: #151515; }
+.room-code-display span { font-size: 9px; }
+.room-code-display strong { color: #e6e3dc; font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; letter-spacing: .08em; }
+.connection-warning { color: #b8767e; font-size: 10px; }
 .desktop-stage { min-height: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid #232323; border-radius: 9px; background: radial-gradient(circle at 50% 42%, #0d0d0d, #070707 72%); }
 .empty-room { text-align: center; }
 .empty-room h2 { margin: 0 0 7px; font-size: 18px; }

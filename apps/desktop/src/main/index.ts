@@ -457,6 +457,11 @@ function registerIpc() {
     if (!token) throw new Error("INVALID_API_RESPONSE");
     clipboard.writeText(`${API_ORIGIN}/room/${token}`);
   });
+  ipcMain.handle("rooms:copy-code", (event, code: unknown) => {
+    assertTrustedSender(event);
+    if (typeof code !== "string" || !/^[2-9A-HJ-NP-Z]{7}$/.test(code)) throw new Error("INVALID_ROOM_CODE");
+    clipboard.writeText(code);
+  });
   ipcMain.handle("rooms:delete", async (event, roomId: unknown) => {
     assertTrustedSender(event);
     await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}`, { method: "DELETE" });
