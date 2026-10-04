@@ -1,5 +1,9 @@
-:root { color: #e6e3dc; background: #050505; font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace; }
+:root { color: #e6e3dc; background: #050505; font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace; scrollbar-color: #55524e #0d0d0d; scrollbar-width: thin; }
 * { box-sizing: border-box; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #0d0d0d; }
+::-webkit-scrollbar-thumb { min-height: 36px; border: 2px solid #0d0d0d; border-radius: 5px; background: #3b3936; }
+::-webkit-scrollbar-thumb:hover { background: #55524e; }
 body { margin: 0; min-width: 880px; min-height: 600px; background: #050505; }
 button, input { font: inherit; }
 button { color: inherit; }

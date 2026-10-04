@@ -21,7 +21,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: { default: "JanjaLive", template: "%s · JanjaLive" },
   description: "Compartilhamento privado de tela entre amigos.",
-  manifest: "/manifest.webmanifest",
+  manifest: "/manifest.json",
   applicationName: "JanjaLive",
   robots: { index: false, follow: false },
 };

@@ -1,6 +1,6 @@
 {
   "name": "@janjalive/desktop",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Cliente desktop seguro do JanjaLive para compartilhamento P2P de tela.",
   "author": "SCamposs",
   "private": true,

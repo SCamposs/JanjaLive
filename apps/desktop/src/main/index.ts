@@ -36,6 +36,7 @@ import { findDeepLink, type DesktopDeepLink } from "../shared/security";
 import { ExpiringGrantStore } from "../shared/expiring-grants";
 import { getProtocolRegistration } from "../shared/protocol-registration";
 import { API_ORIGIN, DESKTOP_AUTH_URLS, isAllowedRemoteRequest } from "../shared/network-policy";
+import { canGrantDesktopPermission } from "../shared/permission-policy";
 
 const { autoUpdater } = electronUpdater;
 
@@ -500,8 +501,18 @@ function registerIpc() {
 
 function configureSession() {
   const activeSession = session.defaultSession;
-  activeSession.setPermissionCheckHandler(() => false);
-  activeSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  activeSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => canGrantDesktopPermission({
+    permission,
+    isMainFrame: details.isMainFrame,
+    isMainWindow: Boolean(mainWindow && webContents && webContents.id === mainWindow.webContents.id),
+    isTrustedRenderer: Boolean(details.requestingUrl && rendererUrlIsTrusted(details.requestingUrl)),
+  }));
+  activeSession.setPermissionRequestHandler((webContents, permission, callback, details) => callback(canGrantDesktopPermission({
+    permission,
+    isMainFrame: details.isMainFrame,
+    isMainWindow: Boolean(mainWindow && webContents.id === mainWindow.webContents.id),
+    isTrustedRenderer: rendererUrlIsTrusted(details.requestingUrl),
+  })));
   activeSession.setDisplayMediaRequestHandler((request, callback) => {
     const window = mainWindow;
     if (!window || request.frame !== window.webContents.mainFrame || !rendererUrlIsTrusted(request.frame.url)) return callback({});
