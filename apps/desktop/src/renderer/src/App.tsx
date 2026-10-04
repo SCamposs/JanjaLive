@@ -4,6 +4,11 @@ import { useRoomMedia } from "./use-room-media";
 
 type Resolution = "720p" | "1080p" | "1440p" | "source";
 type Quality = "auto" | "high" | "custom";
+const ROOM_CODE_LENGTH = 7;
+
+function normalizeRoomCode(value: string) {
+  return (value.toUpperCase().match(/[2-9A-HJ-NP-Z]/g) ?? []).join("").slice(0, ROOM_CODE_LENGTH);
+}
 
 const BITRATES: Record<string, number> = {
   "720p30": 3_500_000,
@@ -285,8 +290,14 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const codeInputRef = useRef<HTMLInputElement>(null);
   async function createRoom() { setBusy(true); try { onOpenSnapshot(await window.janja.rooms.create({ name: name || undefined, accessMode: "APPROVAL" })); } finally { setBusy(false); } }
-  async function joinCode() { if (!/^[2-9A-HJ-NP-Z]{7}$/.test(code)) return; setBusy(true); try { onOpenSnapshot(await window.janja.rooms.joinCode(code)); } finally { setBusy(false); void onRefresh(); } }
+  async function joinCode(roomCode: string) { if (busy || !/^[2-9A-HJ-NP-Z]{7}$/.test(roomCode)) return; setBusy(true); try { onOpenSnapshot(await window.janja.rooms.joinCode(roomCode)); } finally { setBusy(false); void onRefresh(); } }
+  function updateCode(value: string) {
+    const nextCode = normalizeRoomCode(value);
+    setCode(nextCode);
+    if (nextCode.length === ROOM_CODE_LENGTH) void joinCode(nextCode);
+  }
   return <section className="desktop-home desktop-noir-screen">
     <div className="home-heading"><h1>Salas</h1><p>Crie uma sala ou entre com um código.</p></div>
     <div className="desktop-room-grid">
@@ -298,7 +309,28 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
         <label><span>Nome da sala</span><input value={name} maxLength={60} placeholder="Opcional" onChange={(event) => setName(event.target.value)} /></label>
         <button className="primary-button" type="button" disabled={busy} onClick={() => void createRoom()}>Criar sala</button>
         <span className="room-code-divider">ou entre com código</span>
-        <label><span>Código do convite</span><input className="room-code-input" value={code} maxLength={7} placeholder="XXXXXXX" onChange={(event) => setCode(event.target.value.toUpperCase().replace(/[^2-9A-HJ-NP-Z]/g, ""))} onKeyDown={(event) => { if (event.key === "Enter") void joinCode(); }} /></label>
+        <div className="room-code-field">
+          <span className="room-code-label">Código do convite</span>
+          <label className="room-code-entry" data-loading={busy} htmlFor="desktop-room-code">
+            <input
+              ref={codeInputRef}
+              id="desktop-room-code"
+              aria-label="Código da sala, 7 caracteres"
+              autoCapitalize="characters"
+              autoComplete="off"
+              disabled={busy}
+              inputMode="text"
+              maxLength={ROOM_CODE_LENGTH}
+              onChange={(event) => updateCode(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void joinCode(code); }}
+              spellCheck={false}
+              value={code}
+            />
+            <span className="room-code-slots" aria-hidden="true">
+              {Array.from({ length: ROOM_CODE_LENGTH }, (_, index) => <span className="room-code-slot" data-active={!busy && index === code.length} data-filled={Boolean(code[index])} key={index}>{code[index] ?? ""}</span>)}
+            </span>
+          </label>
+        </div>
       </section>
     </div>
   </section>;
