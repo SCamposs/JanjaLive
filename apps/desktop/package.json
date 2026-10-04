@@ -12,8 +12,9 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "package:win": "pnpm build && electron-builder --win nsis --x64 --publish never && pnpm verify:fuses && pnpm smoke:packaged",
+    "package:win": "pnpm build && electron-builder --win nsis --x64 --publish never && pnpm verify:fuses && pnpm verify:release && pnpm smoke:packaged",
     "verify:fuses": "node scripts/verify-fuses.mjs",
+    "verify:release": "node scripts/verify-release-artifacts.mjs",
     "smoke:packaged": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1"
   },
   "dependencies": {
