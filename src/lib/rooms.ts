@@ -91,7 +91,7 @@ export async function listAvailableRooms(userId: string): Promise<AvailableRoom[
   const renderedAt = Date.now();
   return rows.map((room) => ({
     ...room,
-    name: room.name || "Sala sem nome",
+    name: room.name || "Sala",
     expiresInMs: Math.max(0, room.expiresAt.getTime() - renderedAt),
   }));
 }
@@ -244,7 +244,7 @@ async function buildRoomSnapshot(room: Room, userId: string, allowInviteAutoJoin
   return {
     room: {
       id: room.id,
-      name: room.name || "Sala de amigos",
+      name: room.name || "Sala",
       publicId: room.publicId,
       code: room.code,
       accessMode: room.accessMode,

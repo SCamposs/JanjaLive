@@ -9,5 +9,9 @@ allowBuilds:
   sharp: false
   unrs-resolver: false
 
+minimumReleaseAgeExclude:
+  - http-cache-semantics@4.3.0
+
 overrides:
   "@esbuild-kit/core-utils>esbuild": 0.25.0
+  http-cache-semantics: 4.3.0

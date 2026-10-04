@@ -33,3 +33,7 @@ Checked items are implemented in source. All items must be checked again against
 - [ ] desktop-to-web, web-to-desktop and desktop-to-desktop media tests pass
 - [ ] 720p30, 720p60, 1080p60, 1440p60 and system-audio tests pass
 - [ ] revocation, reconnect, sleep/resume, app close and network interruption tests pass
+
+## Dependency audit note
+
+The 2026-10-04 audit found `http-cache-semantics` in the desktop packaging toolchain and `braces` in the Next.js lint toolchain. The published `http-cache-semantics@4.3.0` fix is pinned at the workspace root. The remaining `braces` advisory affects development-time glob matching through `eslint-config-next`; the registry still exposes `3.0.3` as the newest release even though the advisory names `3.0.4` as the first patched version. It has no runtime path into the web or packaged desktop application and must be revisited when a patched upstream release exists.
