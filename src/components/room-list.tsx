@@ -47,14 +47,13 @@ export function RoomList({ rooms }: { rooms: AvailableRoom[] }) {
           const confirming = confirmingId === room.id;
           const deleting = deletingId === room.id;
           return (
-            <article className="available-room" data-confirming={confirming} key={room.id}>
+            <article className="available-room" data-confirming={confirming} data-owner={room.role === "OWNER"} key={room.id}>
               <Link className="available-room-link" href={`/join/${room.publicId}`}>
                 <div>
                   <strong>{room.name}</strong>
                   <span>{room.role === "OWNER" ? "Criada por você" : "Acesso autorizado"}</span>
                 </div>
                 <span className="room-expiry"><Clock3 size={13} /> {expiryLabel(room.expiresInMs)}</span>
-                <span className="room-owner-action-slot" aria-hidden="true" />
                 <ArrowUpRight size={17} aria-hidden="true" />
               </Link>
               {room.role === "OWNER" && (confirming ? (
