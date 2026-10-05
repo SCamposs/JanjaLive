@@ -14,6 +14,7 @@ Checked items are implemented in source. All items must be checked again against
 - [x] raw `ipcRenderer` is not exposed
 - [x] Electron fuses are applied and re-read from the packaged executable before release
 - [x] ASAR integrity and load-only-from-ASAR fuses are enabled
+- [x] packaged ASAR contains required runtime files and rejects environment files, credentials, certificates, source maps and renderer-only dependencies
 - [x] extra `file://` protocol privileges are disabled
 - [x] update metadata version, installer path, size and SHA-512 are checked against the generated files
 - [x] the packaged executable reaches the mounted local renderer in the release smoke test

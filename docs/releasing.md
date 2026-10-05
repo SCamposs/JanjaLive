@@ -8,7 +8,7 @@ Windows releases are built only by `.github/workflows/release.yml` after a seman
 2. Run `pnpm install --frozen-lockfile` and `pnpm check:all`.
 3. Run `pnpm audit --audit-level moderate` and review every result.
 4. Run a full-history Gitleaks scan plus a scan of current source and `apps/desktop/out`.
-5. Build `pnpm desktop:package`; it re-reads all Electron fuses from the packaged executable and verifies the generated installer against the version, path, size and SHA-512 in `latest.yml`. Then verify the ASAR and the checklist in `desktop-security-checklist.md`.
+5. Build `pnpm desktop:package`; it re-reads all Electron fuses, audits the ASAR allowlist/denylist, and verifies the generated installer against the version, path, size and SHA-512 in `latest.yml`. Then review the checklist in `desktop-security-checklist.md`.
 6. Confirm the packaged-app smoke test reaches the mounted local renderer without an Electron error dialog.
 7. Complete the manual interoperability matrix in `manual-webrtc-test.md`.
 

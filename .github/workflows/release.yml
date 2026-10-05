@@ -56,6 +56,8 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
       - name: Verify packaged Electron fuses
         run: pnpm --filter @janjalive/desktop verify:fuses
+      - name: Verify packaged application contents
+        run: pnpm --filter @janjalive/desktop verify:package
       - name: Verify update metadata and installer
         run: pnpm --filter @janjalive/desktop verify:release
       - name: Verify Authenticode signatures when configured
