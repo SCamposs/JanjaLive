@@ -30,3 +30,7 @@ The updater provider is compiled as the official GitHub repository. Electron-bui
 The v0.1 Windows build is intentionally unsigned because the project has no paid Authenticode certificate. Windows may display **Unknown Publisher**. Never tell users to disable SmartScreen. When a real certificate is available, store its base64 `.pfx` value in the `WIN_CSC_LINK` GitHub Actions secret and its password in `WIN_CSC_KEY_PASSWORD`; never commit either value. Electron-builder signs both the application and installer, and the release job refuses publication unless Windows reports both signatures as valid. Adopt signed update manifests after the feature reaches the stable electron-builder release used by the project.
 
 `MINIMUM_DESKTOP_VERSION` is an optional emergency backend gate. Leave it unset normally. Setting it to a stable `x.y.z` version makes older or unidentified desktop clients receive HTTP 426 and show an update-required state.
+
+## Verified updater evidence
+
+On 5 October 2026, an installed `0.1.10` client discovered and downloaded the published `0.1.13` installer through the configured GitHub provider. The pending installer filename matched the target release and its computed SHA-512 matched the updater metadata. The client was stopped before installation, so this proves release discovery, download and hash validation—not the final restart-and-install transition, which remains part of the manual release checklist.

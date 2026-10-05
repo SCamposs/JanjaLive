@@ -21,6 +21,8 @@ Checked items are implemented in source. All items must be checked again against
 - [x] the renderer cannot submit an Electron source ID
 - [x] video frames never cross IPC
 - [x] updater provider is fixed and cannot be overridden by the renderer
+- [x] an installed older client discovers and downloads a newer GitHub release whose SHA-512 matches its updater metadata
+- [ ] restart-and-install updates an installed client and relaunches the new version
 - [x] desktop OAuth handoff is single-use, short-lived, state-bound and PKCE-bound
 - [x] desktop credential is encrypted with `safeStorage` without plaintext fallback
 - [x] logout is unavailable during capture and clears room, peers and the local/server credential when used
