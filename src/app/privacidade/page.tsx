@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacidade" updatedAt="4 de outubro de 2026">
+    <LegalPage title="Privacidade" updatedAt="5 de outubro de 2026">
       <section>
         <h2>O que é tratado</h2>
         <p>Ao entrar com o Discord, o JanjaLive recebe o identificador da sua conta, nome, nome de exibição e avatar. O aplicativo não solicita seu e-mail e não guarda os tokens de acesso do Discord.</p>
@@ -18,7 +18,8 @@ export default function PrivacyPage() {
       <section>
         <h2>Tela e áudio</h2>
         <p>A captura só começa após você escolher uma tela, janela, aplicação ou guia. No site, essa escolha acontece no seletor do navegador. No aplicativo para Windows, ela acontece no seletor do JanjaLive e vale uma única vez; compartilhar novamente exige uma nova escolha.</p>
-        <p>O JanjaLive recebe somente a fonte selecionada e não solicita câmera, microfone, arquivos, leitura da área de transferência ou acesso geral ao computador. O aplicativo pode escrever um link de convite na área de transferência apenas quando o dono da sala pede.</p>
+        <p>No aplicativo para Windows, nomes e miniaturas das telas e janelas disponíveis aparecem temporariamente no seletor para permitir a escolha. Eles não são armazenados nem enviados ao servidor. Somente a fonte escolhida se torna uma transmissão.</p>
+        <p>O JanjaLive não solicita câmera, microfone, arquivos, leitura da área de transferência ou acesso geral ao computador. O aplicativo pode escrever um link de convite na área de transferência apenas quando o dono da sala pede.</p>
         <p>A mídia segue por WebRTC entre quem transmite e quem escolheu assistir. Quando o TURN opcional estiver configurado e uma conexão direta não for possível, os pacotes podem passar por essa retransmissão. JanjaLive não grava nem armazena imagem ou áudio. Pessoas autorizadas que assistem ainda podem gravar o conteúdo por meios próprios.</p>
       </section>
 
