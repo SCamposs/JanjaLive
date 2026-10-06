@@ -8,7 +8,7 @@ describe("desktop network policy", () => {
   });
 
   it("allows the canonical API without relying on a blocked redirect", () => {
-    expect(isAllowedRemoteRequest(DESKTOP_AUTH_URLS.poll)).toBe(true);
-    expect(isAllowedRemoteRequest("https://janja.live/api/desktop/auth/poll")).toBe(false);
+    expect(isAllowedRemoteRequest(DESKTOP_AUTH_URLS.exchange)).toBe(true);
+    expect(isAllowedRemoteRequest("https://janja.live/api/desktop/auth/exchange")).toBe(false);
   });
 });

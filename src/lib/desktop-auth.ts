@@ -15,7 +15,7 @@ export type DesktopUser = {
 };
 
 type DesktopAuthResult = { token: string; expiresAt: string; user: DesktopUser };
-type DesktopAuthExchangeInput = { state: string; verifier: string; code?: string };
+type DesktopAuthExchangeInput = { state: string; verifier: string; code: string };
 
 export function hashDesktopSecret(value: string) {
   return createHash("sha256").update(value, "utf8").digest("base64url");
@@ -54,31 +54,23 @@ export async function createDesktopAuthGrant(input: {
   return code;
 }
 
-export function exchangeDesktopAuthGrant(input: DesktopAuthExchangeInput & { code: string }): Promise<DesktopAuthResult>;
-export function exchangeDesktopAuthGrant(input: DesktopAuthExchangeInput & { code?: undefined }): Promise<DesktopAuthResult | null>;
-export async function exchangeDesktopAuthGrant(input: DesktopAuthExchangeInput): Promise<DesktopAuthResult | null> {
-  if (![input.state, input.verifier].every((value) => BASE64URL_SECRET.test(value)) || (input.code !== undefined && !BASE64URL_SECRET.test(input.code))) {
+export async function exchangeDesktopAuthGrant(input: DesktopAuthExchangeInput): Promise<DesktopAuthResult> {
+  if (![input.code, input.state, input.verifier].every((value) => BASE64URL_SECRET.test(value))) {
     throw new Error("INVALID_DESKTOP_AUTH");
   }
 
   const db = getDb();
-  const grantSelector = input.code
-    ? eq(desktopAuthGrants.codeHash, hashDesktopSecret(input.code))
-    : eq(desktopAuthGrants.stateHash, hashDesktopSecret(input.state));
   const [grant] = await db
     .select()
     .from(desktopAuthGrants)
     .where(and(
-      grantSelector,
+      eq(desktopAuthGrants.codeHash, hashDesktopSecret(input.code)),
       isNull(desktopAuthGrants.usedAt),
       gt(desktopAuthGrants.expiresAt, new Date()),
     ))
     .limit(1);
 
-  if (!grant) {
-    if (!input.code) return null;
-    throw new Error("INVALID_DESKTOP_AUTH");
-  }
+  if (!grant) throw new Error("INVALID_DESKTOP_AUTH");
   if (!desktopSecretsMatch(grant.stateHash, hashDesktopSecret(input.state)) || !desktopSecretsMatch(grant.codeChallenge, getPkceChallenge(input.verifier))) {
     throw new Error("INVALID_DESKTOP_AUTH");
   }

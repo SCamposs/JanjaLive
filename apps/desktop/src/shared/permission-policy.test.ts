@@ -3,6 +3,7 @@ import { canGrantDesktopPermission } from "./permission-policy";
 
 const trustedDisplayCapture = {
   hasCaptureGrant: true,
+  isLegacyDisplayCapture: false,
   permission: "display-capture",
   isMainFrame: true,
   isMainWindow: true,
@@ -14,9 +15,17 @@ describe("desktop permission policy", () => {
     expect(canGrantDesktopPermission(trustedDisplayCapture)).toBe(true);
   });
 
-  it("allows Electron's media permission only while a capture grant is active", () => {
-    expect(canGrantDesktopPermission({ ...trustedDisplayCapture, permission: "media" })).toBe(true);
-    expect(canGrantDesktopPermission({ ...trustedDisplayCapture, permission: "media", hasCaptureGrant: false })).toBe(false);
+  it("allows Electron 44's legacy display capture without granting device media", () => {
+    expect(canGrantDesktopPermission({
+      ...trustedDisplayCapture,
+      permission: "media",
+      isLegacyDisplayCapture: true,
+    })).toBe(true);
+    expect(canGrantDesktopPermission({
+      ...trustedDisplayCapture,
+      permission: "media",
+      isLegacyDisplayCapture: false,
+    })).toBe(false);
   });
 
   it.each([

@@ -62,7 +62,7 @@ let updateRequired = false;
 let authStatus: AuthStatus = { state: "signed-out" };
 let sessionToken: string | null = null;
 let pendingAuth: PendingAuth | null = null;
-let authExchangeInFlight: Promise<"pending" | "complete"> | null = null;
+let authExchangeInFlight: Promise<"complete"> | null = null;
 const sourceGrants = new ExpiringGrantStore<DesktopCapturerSource>();
 const pendingSelections = new Map<number, PendingSelection>();
 const audioFallbackSelections = new Map<number, SourceGrant>();
@@ -184,26 +184,19 @@ async function restoreSession() {
   updateAuthStatus(restored);
 }
 
-async function attemptAuthExchange(flow: PendingAuth, code?: string) {
-  if (authExchangeInFlight) {
-    const inFlightResult = await authExchangeInFlight;
-    if (inFlightResult === "complete" || !code) return inFlightResult;
-  }
-  const attempt = (async (): Promise<"pending" | "complete"> => {
-    if (pendingAuth !== flow || flow.expiresAt <= Date.now()) return "pending";
-    const response = await net.fetch(code ? DESKTOP_AUTH_URLS.exchange : DESKTOP_AUTH_URLS.poll, {
+async function attemptAuthExchange(flow: PendingAuth, code: string) {
+  if (authExchangeInFlight) return authExchangeInFlight;
+  const attempt = (async (): Promise<"complete"> => {
+    if (pendingAuth !== flow || flow.expiresAt <= Date.now()) throw new Error("AUTH_FLOW_EXPIRED");
+    const response = await net.fetch(DESKTOP_AUTH_URLS.exchange, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ ...(code ? { code } : {}), state: flow.state, verifier: flow.verifier }),
+      body: JSON.stringify({ code, state: flow.state, verifier: flow.verifier }),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!code && response.status === 202) {
-      await response.arrayBuffer().catch(() => undefined);
-      return "pending";
-    }
     if (!response.ok) throw new Error("AUTH_EXCHANGE_FAILED");
     const exchanged = authExchangeResponseSchema.parse(await response.json());
-    if (pendingAuth !== flow) return "pending";
+    if (pendingAuth !== flow) throw new Error("AUTH_FLOW_REPLACED");
     await persistSession(exchanged.token, exchanged.expiresAt);
     pendingAuth = null;
     sessionToken = exchanged.token;
@@ -218,36 +211,16 @@ async function attemptAuthExchange(flow: PendingAuth, code?: string) {
   }
 }
 
-async function pollAuthFlow(flow: PendingAuth) {
-  let consecutiveFailures = 0;
-  while (pendingAuth === flow && Date.now() < flow.expiresAt) {
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000));
-    if (pendingAuth !== flow) return;
-    try {
-      if (await attemptAuthExchange(flow) === "complete") return;
-      consecutiveFailures = 0;
-    } catch {
-      consecutiveFailures += 1;
-      if (consecutiveFailures >= 3 && pendingAuth === flow) {
-        pendingAuth = null;
-        updateAuthStatus({ state: "error", message: "Não foi possível conectar ao JanjaLive. Tente novamente." });
-        return;
-      }
-    }
-  }
-  if (pendingAuth === flow) {
-    pendingAuth = null;
-    updateAuthStatus({ state: "error", message: "Este login expirou. Tente entrar novamente." });
-  }
-}
-
 async function exchangeAuthCode(link: Extract<DesktopDeepLink, { type: "auth" }>) {
   const flow = pendingAuth;
   if (!flow || flow.expiresAt <= Date.now() || !secretsMatch(flow.state, link.state)) return;
   try {
     await attemptAuthExchange(flow, link.code);
   } catch {
-    // Polling remains active as a fallback when a browser does not complete the deep-link handoff.
+    if (pendingAuth === flow) {
+      pendingAuth = null;
+      updateAuthStatus({ state: "error", message: "Não foi possível conectar ao JanjaLive. Tente novamente." });
+    }
   }
 }
 
@@ -359,7 +332,6 @@ function registerIpc() {
     const url = new URL(DESKTOP_AUTH_URLS.start);
     url.searchParams.set("state", state);
     url.searchParams.set("challenge", challenge);
-    void pollAuthFlow(flow);
     void shell.openExternal(url.toString()).catch(() => {
       if (pendingAuth !== flow) return;
       pendingAuth = null;
@@ -514,6 +486,8 @@ function configureSession() {
   activeSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
     const allowed = canGrantDesktopPermission({
       hasCaptureGrant: Boolean(webContents && hasCaptureGrant(webContents.id)),
+      isLegacyDisplayCapture:
+        permission === "media" && details.mediaType !== "audio" && details.mediaType !== "video",
       permission,
       isMainFrame: details.isMainFrame,
       isMainWindow: Boolean(mainWindow && webContents && webContents.id === mainWindow.webContents.id),
@@ -522,8 +496,12 @@ function configureSession() {
     return allowed;
   });
   activeSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const mediaTypes = "mediaTypes" in details && Array.isArray(details.mediaTypes)
+      ? details.mediaTypes
+      : undefined;
     const allowed = canGrantDesktopPermission({
       hasCaptureGrant: hasCaptureGrant(webContents.id),
+      isLegacyDisplayCapture: permission === "media" && mediaTypes?.length === 0,
       permission,
       isMainFrame: details.isMainFrame,
       isMainWindow: Boolean(mainWindow && webContents.id === mainWindow.webContents.id),

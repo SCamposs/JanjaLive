@@ -1,5 +1,6 @@
 type DesktopPermissionContext = {
   hasCaptureGrant: boolean;
+  isLegacyDisplayCapture: boolean;
   permission: string;
   isMainFrame: boolean;
   isMainWindow: boolean;
@@ -7,8 +8,11 @@ type DesktopPermissionContext = {
 };
 
 export function canGrantDesktopPermission(context: DesktopPermissionContext) {
+  const isDisplayCapture =
+    context.permission === "display-capture" ||
+    (context.permission === "media" && context.isLegacyDisplayCapture);
   return (
-    (context.permission === "display-capture" || context.permission === "media") &&
+    isDisplayCapture &&
     context.hasCaptureGrant &&
     context.isMainFrame &&
     context.isMainWindow &&

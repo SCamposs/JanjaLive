@@ -3,7 +3,6 @@ export const API_ORIGIN = "https://www.janja.live";
 export const DESKTOP_AUTH_URLS = {
   start: `${API_ORIGIN}/desktop/auth/start`,
   exchange: `${API_ORIGIN}/api/desktop/auth/exchange`,
-  poll: `${API_ORIGIN}/api/desktop/auth/poll`,
   session: `${API_ORIGIN}/api/desktop/auth/session`,
 } as const;
 
