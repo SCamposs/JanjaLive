@@ -1,11 +1,6 @@
-export type WebDisplayCaptureOptions = DisplayMediaStreamOptions & {
-  systemAudio?: "include" | "exclude";
-};
-
-export function getWebDisplayCaptureOptions(includeSystemAudio = true): WebDisplayCaptureOptions {
+export function getWebDisplayCaptureOptions(includeSystemAudio = true): DisplayMediaStreamOptions {
   return {
     video: true,
     audio: includeSystemAudio,
-    systemAudio: includeSystemAudio ? "include" : "exclude",
   };
 }

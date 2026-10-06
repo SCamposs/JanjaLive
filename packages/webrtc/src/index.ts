@@ -99,6 +99,7 @@ type ConnectionStatus = "good" | "unstable" | "reconnecting";
 const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"] }];
 const EMPTY_USER_IDS: string[] = [];
 const PEER_CONNECTION_TIMEOUT_MS = 20_000;
+const WATCH_RETRY_INTERVAL_MS = 3_000;
 
 export function getPeerConnectionStatus(states: RTCPeerConnectionState[]): ConnectionStatus {
   if (states.length === 0 || states.some((state) => state === "connected")) return "good";
@@ -117,7 +118,9 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   const [membershipRevision, setMembershipRevision] = useState(0);
   const peersRef = useRef(new Map<string, RTCPeerConnection>());
   const peerTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const watchRetryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingCandidatesRef = useRef(new Map<string, RTCIceCandidateInit[]>());
+  const pendingWatchersRef = useRef(new Set<string>());
   const remoteStreamRefs = useRef(new Map<string, MediaStream>());
   const localStreamRef = useRef<MediaStream | null>(null);
   const bitrateRef = useRef(10_000_000);
@@ -131,7 +134,11 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   const closePeer = useCallback((remoteUserId: string) => {
     const timer = peerTimersRef.current.get(remoteUserId);
     if (timer) clearTimeout(timer);
+    const watchRetryTimer = watchRetryTimersRef.current.get(remoteUserId);
+    if (watchRetryTimer) clearTimeout(watchRetryTimer);
     peerTimersRef.current.delete(remoteUserId);
+    watchRetryTimersRef.current.delete(remoteUserId);
+    pendingWatchersRef.current.delete(remoteUserId);
     peersRef.current.get(remoteUserId)?.close();
     peersRef.current.delete(remoteUserId);
     pendingCandidatesRef.current.delete(remoteUserId);
@@ -146,9 +153,12 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   const closeAllPeers = useCallback(() => {
     for (const peer of peersRef.current.values()) peer.close();
     for (const timer of peerTimersRef.current.values()) clearTimeout(timer);
+    for (const timer of watchRetryTimersRef.current.values()) clearTimeout(timer);
     peersRef.current.clear();
     peerTimersRef.current.clear();
+    watchRetryTimersRef.current.clear();
     pendingCandidatesRef.current.clear();
+    pendingWatchersRef.current.clear();
     remoteStreamRefs.current.clear();
     setRemoteStreams({});
   }, []);
@@ -212,6 +222,9 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
         const timer = peerTimersRef.current.get(remoteUserId);
         if (timer) clearTimeout(timer);
         peerTimersRef.current.delete(remoteUserId);
+        const watchRetryTimer = watchRetryTimersRef.current.get(remoteUserId);
+        if (watchRetryTimer) clearTimeout(watchRetryTimer);
+        watchRetryTimersRef.current.delete(remoteUserId);
         setConnectionStatus("good");
         setConnectionError(null);
       } else if (peer.connectionState === "new" || peer.connectionState === "connecting") {
@@ -226,6 +239,45 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     };
     return peer;
   }, [closePeer, roomId, send, transport]);
+
+  const offerBroadcastTo = useCallback(async (remoteUserId: string) => {
+    const stream = localStreamRef.current;
+    if (!stream) {
+      pendingWatchersRef.current.add(remoteUserId);
+      return;
+    }
+    pendingWatchersRef.current.delete(remoteUserId);
+    const peer = await createPeer(remoteUserId);
+    if (peer.getSenders().length === 0) {
+      for (const track of stream.getTracks()) {
+        const sender = peer.addTrack(track, stream);
+        if (track.kind === "video") {
+          const parameters = sender.getParameters();
+          parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+          const [encoding] = parameters.encodings;
+          if (encoding) encoding.maxBitrate = bitrateRef.current;
+          await sender.setParameters(parameters).catch(() => undefined);
+        }
+      }
+    }
+
+    if (peer.signalingState === "have-local-offer" && peer.localDescription?.type === "offer") {
+      await send({
+        type: "webrtc:offer",
+        targetUserId: remoteUserId,
+        description: { type: "offer", sdp: peer.localDescription.sdp ?? "" },
+      });
+      return;
+    }
+    if (peer.signalingState !== "stable") return;
+    const description = await peer.createOffer();
+    await peer.setLocalDescription(description);
+    await send({
+      type: "webrtc:offer",
+      targetUserId: remoteUserId,
+      description: { type: "offer", sdp: description.sdp ?? "" },
+    });
+  }, [createPeer, send]);
 
   const handleSignal = useCallback(async (senderUserId: string, payload: ServerSignal) => {
     const directive = getRoomSignalDirective(payload);
@@ -245,27 +297,8 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       for (const candidate of candidates) await peer.addIceCandidate(candidate);
     };
 
-    if (payload.type === "watch:request" && localStreamRef.current) {
-      const peer = await createPeer(senderUserId);
-      if (peer.getSenders().length === 0) {
-        for (const track of localStreamRef.current.getTracks()) {
-          const sender = peer.addTrack(track, localStreamRef.current);
-          if (track.kind === "video") {
-            const parameters = sender.getParameters();
-            parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
-            const [encoding] = parameters.encodings;
-            if (encoding) encoding.maxBitrate = bitrateRef.current;
-            await sender.setParameters(parameters).catch(() => undefined);
-          }
-        }
-      }
-      const description = await peer.createOffer();
-      await peer.setLocalDescription(description);
-      await send({
-        type: "webrtc:offer",
-        targetUserId: senderUserId,
-        description: { type: "offer", sdp: description.sdp ?? "" },
-      });
+    if (payload.type === "watch:request") {
+      await offerBroadcastTo(senderUserId);
     } else if (payload.type === "webrtc:offer") {
       const peer = await createPeer(senderUserId);
       await peer.setRemoteDescription(payload.description);
@@ -292,7 +325,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       ]);
     }
     return false;
-  }, [closePeer, createPeer, makeRoomUnavailable, send]);
+  }, [closePeer, createPeer, makeRoomUnavailable, offerBroadcastTo, send]);
 
   useEffect(() => {
     if (!roomId) return;
@@ -349,7 +382,8 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     localStreamRef.current = stream;
     bitrateRef.current = bitrate;
     await send({ type: "stream:start", metadata });
-  }, [send]);
+    await Promise.all([...pendingWatchersRef.current].map((watcherUserId) => offerBroadcastTo(watcherUserId)));
+  }, [offerBroadcastTo, send]);
 
   const stopBroadcast = useCallback(async () => {
     stopLocalCapture();
@@ -361,7 +395,19 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     setConnectionStatus("reconnecting");
     setConnectionError(null);
     await createPeer(streamerUserId);
-    await send({ type: "watch:request", targetUserId: streamerUserId });
+    const requestStream = async () => {
+      const peer = peersRef.current.get(streamerUserId);
+      if (!peer || peer.connectionState === "connected" || peer.connectionState === "closed") return;
+      await send({ type: "watch:request", targetUserId: streamerUserId });
+      const currentPeer = peersRef.current.get(streamerUserId);
+      if (currentPeer !== peer || currentPeer.connectionState === "connected") return;
+      const currentTimer = watchRetryTimersRef.current.get(streamerUserId);
+      if (currentTimer) clearTimeout(currentTimer);
+      watchRetryTimersRef.current.set(streamerUserId, setTimeout(() => {
+        void requestStream().catch(() => setConnectionStatus("reconnecting"));
+      }, WATCH_RETRY_INTERVAL_MS));
+    };
+    await requestStream();
   }, [createPeer, send]);
 
   const stopWatching = useCallback(async (streamerUserId: string) => {

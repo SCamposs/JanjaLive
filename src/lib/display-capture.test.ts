@@ -6,7 +6,6 @@ describe("getWebDisplayCaptureOptions", () => {
     expect(getWebDisplayCaptureOptions()).toEqual({
       video: true,
       audio: true,
-      systemAudio: "include",
     });
   });
 
@@ -14,7 +13,6 @@ describe("getWebDisplayCaptureOptions", () => {
     expect(getWebDisplayCaptureOptions(false)).toEqual({
       video: true,
       audio: false,
-      systemAudio: "exclude",
     });
   });
 });

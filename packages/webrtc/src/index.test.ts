@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getReconnectDelay,
   getPeerConnectionStatus,
@@ -19,6 +19,11 @@ function createTransport(poll: () => Promise<RealtimePoll>): RoomMediaTransport 
     isRoomUnavailable: () => false,
   };
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe("shared room media lifecycle", () => {
   it("ends the room locally when it is closed or access is revoked", () => {
@@ -95,5 +100,38 @@ describe("shared room media lifecycle", () => {
 
     await waitFor(() => expect(result.current.roomUnavailable).toBe(true));
     expect(poll).toHaveBeenCalledOnce();
+  });
+
+  it("retries a watch request while signaling has not connected the peer", async () => {
+    vi.useFakeTimers();
+    class PeerStub {
+      connectionState: RTCPeerConnectionState = "new";
+      signalingState: RTCSignalingState = "stable";
+      onconnectionstatechange: (() => void) | null = null;
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      close() { this.connectionState = "closed"; }
+    }
+    vi.stubGlobal("RTCPeerConnection", PeerStub);
+    const transport = createTransport(() => new Promise(() => undefined));
+    const { result, unmount } = renderHook(() => useRoomMediaCore({ roomId: "room-a", transport }));
+
+    await act(async () => {
+      await result.current.watch("streamer");
+    });
+    expect(transport.send).toHaveBeenCalledWith("room-a", {
+      type: "watch:request",
+      targetUserId: "streamer",
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(transport.send).toHaveBeenCalledWith("room-a", {
+      type: "watch:request",
+      targetUserId: "streamer",
+    });
+    expect(vi.mocked(transport.send).mock.calls.filter(([, payload]) => payload.type === "watch:request")).toHaveLength(2);
+    unmount();
   });
 });
