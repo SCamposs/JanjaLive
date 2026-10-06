@@ -107,7 +107,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
     } catch (error) {
       if (error instanceof DOMException && ["NotAllowedError", "AbortError"].includes(error.name)) return;
       if (includeSystemAudio && error instanceof DOMException && error.name === "NotReadableError") {
-        setCaptureError("Essa fonte não oferece áudio neste navegador. Escolha uma aba ou tela compatível, ou continue sem áudio.");
+        setCaptureError("Não foi possível iniciar o áudio desta fonte.");
         setCaptureFallbackAvailable(true);
         return;
       }
