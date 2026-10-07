@@ -8,10 +8,15 @@ type DesktopPermissionContext = {
 };
 
 export function canGrantDesktopPermission(context: DesktopPermissionContext) {
+  const isTrustedFullscreen =
+    context.permission === "fullscreen" &&
+    context.isMainFrame &&
+    context.isMainWindow &&
+    context.isTrustedRenderer;
   const isDisplayCapture =
     context.permission === "display-capture" ||
     (context.permission === "media" && context.isLegacyDisplayCapture);
-  return (
+  return isTrustedFullscreen || (
     isDisplayCapture &&
     context.hasCaptureGrant &&
     context.isMainFrame &&

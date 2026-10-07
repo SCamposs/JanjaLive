@@ -15,6 +15,20 @@ describe("desktop permission policy", () => {
     expect(canGrantDesktopPermission(trustedDisplayCapture)).toBe(true);
   });
 
+  it("allows fullscreen only from the trusted main renderer", () => {
+    expect(canGrantDesktopPermission({
+      ...trustedDisplayCapture,
+      permission: "fullscreen",
+      hasCaptureGrant: false,
+    })).toBe(true);
+    expect(canGrantDesktopPermission({
+      ...trustedDisplayCapture,
+      permission: "fullscreen",
+      hasCaptureGrant: false,
+      isTrustedRenderer: false,
+    })).toBe(false);
+  });
+
   it("allows Electron 44's legacy display capture without granting device media", () => {
     expect(canGrantDesktopPermission({
       ...trustedDisplayCapture,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, CircleStop, Copy, LogOut, Maximize, PictureInPicture2, Scaling, Trash2, UserMinus, Volume2, VolumeX, X } from "lucide-react";
+import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Scaling, Trash2, UserMinus, Volume2, VolumeX, X } from "lucide-react";
 import type { AuthStatus, CaptureSource, RoomSnapshot, RoomSummary, UpdaterStatus } from "../../shared/contracts";
 import { useRoomMedia } from "./use-room-media";
 
@@ -403,9 +403,11 @@ function RoomMembers({ room, onlineUserIds, currentUserId, onRoomUpdate, onRoomD
 
 function Player({ stream, label, own, onStop }: { stream: MediaStream; label: string; own: boolean; onStop: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [muted, setMuted] = useState(own);
   const [volume, setVolume] = useState(1);
   const [playing, setPlaying] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
   const [fitMode, setFitMode] = useState<"contain" | "cover">("contain");
   useEffect(() => {
     const video = ref.current;
@@ -421,7 +423,16 @@ function Player({ stream, label, own, onStop }: { stream: MediaStream; label: st
       void video.play().catch(() => undefined);
     });
   }, [own, stream]);
-  return <div className="desktop-player" data-fit={fitMode}><video ref={ref} autoPlay muted={muted} playsInline onPlaying={() => setPlaying(true)} onWaiting={() => setPlaying(false)} />{!playing && <div className="desktop-player-waiting">Conectando à transmissão…</div>}<div className="desktop-player-controls"><span>{label}</span><div className="player-actions"><button className="icon-action" data-tooltip={muted ? "Ativar som" : "Silenciar"} aria-label={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const next = Number(event.target.value); setVolume(next); if (ref.current) ref.current.volume = next; }} /><button className="icon-action" data-tooltip={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} aria-label={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} type="button" onClick={() => setFitMode((value) => value === "contain" ? "cover" : "contain")}><Scaling size={16} /></button><button className="icon-action" data-tooltip="Picture in Picture" aria-label="Picture in Picture" type="button" onClick={() => void ref.current?.requestPictureInPicture?.()}><PictureInPicture2 size={16} /></button><button className="icon-action" data-tooltip="Tela cheia" aria-label="Tela cheia" type="button" onClick={() => void ref.current?.requestFullscreen()}><Maximize size={16} /></button><button className="icon-action danger-control" data-tooltip={own ? "Encerrar transmissão" : "Parar de assistir"} aria-label={own ? "Encerrar transmissão" : "Parar de assistir"} type="button" onClick={onStop}><CircleStop size={16} /></button></div></div></div>;
+  useEffect(() => {
+    const handleFullscreenChange = () => setFullscreen(document.fullscreenElement === containerRef.current);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+  async function toggleFullscreen() {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await containerRef.current?.requestFullscreen();
+  }
+  return <div className="desktop-player" data-fit={fitMode} ref={containerRef}><video ref={ref} autoPlay muted={muted} playsInline onDoubleClick={() => void toggleFullscreen()} onPlaying={() => setPlaying(true)} onWaiting={() => setPlaying(false)} />{!playing && <div className="desktop-player-waiting">Conectando à transmissão…</div>}<div className="desktop-player-controls"><span>{label}</span><div className="player-actions"><button className="icon-action" data-tooltip={muted ? "Ativar som" : "Silenciar"} aria-label={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const next = Number(event.target.value); setVolume(next); if (ref.current) ref.current.volume = next; }} /><button className="icon-action" data-tooltip={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} aria-label={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} type="button" onClick={() => setFitMode((value) => value === "contain" ? "cover" : "contain")}><Scaling size={16} /></button><button className="icon-action" data-tooltip="Picture in Picture" aria-label="Picture in Picture" type="button" onClick={() => void ref.current?.requestPictureInPicture?.()}><PictureInPicture2 size={16} /></button><button className="icon-action" data-tooltip={fullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-label={fullscreen ? "Sair da tela cheia" : "Tela cheia"} type="button" onClick={() => void toggleFullscreen()}>{fullscreen ? <Minimize2 size={16} /> : <Maximize size={16} />}</button><button className="icon-action danger-control" data-tooltip={own ? "Encerrar transmissão" : "Parar de assistir"} aria-label={own ? "Encerrar transmissão" : "Parar de assistir"} type="button" onClick={onStop}><CircleStop size={16} /></button></div></div></div>;
 }
 
 function Member({ member, online, onRemove }: { member: RoomSnapshot["members"][number]; online: boolean; onRemove?: () => void }) {

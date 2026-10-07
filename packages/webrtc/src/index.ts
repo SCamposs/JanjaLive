@@ -107,6 +107,19 @@ export function getPeerConnectionStatus(states: RTCPeerConnectionState[]): Conne
   return "reconnecting";
 }
 
+export function shouldApplyRemoteAnswer(
+  signalingState: RTCSignalingState,
+  currentDescription: RTCSessionDescription | null,
+  incomingDescription: SessionDescription,
+) {
+  if (
+    signalingState === "stable" &&
+    currentDescription?.type === "answer" &&
+    currentDescription.sdp === incomingDescription.sdp
+  ) return false;
+  return signalingState === "have-local-offer";
+}
+
 export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: UseRoomMediaOptions) {
   const initialOnline = initialOnlineUserIds ?? EMPTY_USER_IDS;
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>(initialOnline);
@@ -301,6 +314,19 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       await offerBroadcastTo(senderUserId);
     } else if (payload.type === "webrtc:offer") {
       const peer = await createPeer(senderUserId);
+      if (
+        peer.remoteDescription?.type === "offer" &&
+        peer.remoteDescription.sdp === payload.description.sdp &&
+        peer.localDescription?.type === "answer"
+      ) {
+        await send({
+          type: "webrtc:answer",
+          targetUserId: senderUserId,
+          description: { type: "answer", sdp: peer.localDescription.sdp ?? "" },
+        });
+        return false;
+      }
+      if (peer.signalingState !== "stable") return false;
       await peer.setRemoteDescription(payload.description);
       await applyPendingCandidates(peer);
       const answer = await peer.createAnswer();
@@ -312,7 +338,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       });
     } else if (payload.type === "webrtc:answer") {
       const peer = peersRef.current.get(senderUserId);
-      if (peer) {
+      if (peer && shouldApplyRemoteAnswer(peer.signalingState, peer.remoteDescription, payload.description)) {
         await peer.setRemoteDescription(payload.description);
         await applyPendingCandidates(peer);
       }
@@ -353,7 +379,11 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
         setOnlineUserIds(data.onlineUserIds);
         setActiveStreams(data.activeStreams);
         for (const event of data.events) {
-          if (await handleSignal(event.senderUserId, event.payload)) return;
+          try {
+            if (await handleSignal(event.senderUserId, event.payload)) return;
+          } catch {
+            setConnectionStatus("reconnecting");
+          }
         }
         sinceRef.current = Math.max(sinceRef.current, data.cursor);
         timeout = setTimeout(poll, 1_500);

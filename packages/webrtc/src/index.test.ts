@@ -6,6 +6,7 @@ import {
   getReconnectDelay,
   getPeerConnectionStatus,
   getRoomSignalDirective,
+  shouldApplyRemoteAnswer,
   useRoomMediaCore,
   type RealtimePoll,
   type RoomMediaTransport,
@@ -57,6 +58,13 @@ describe("shared room media lifecycle", () => {
     expect(getPeerConnectionStatus(["new", "connecting"])).toBe("reconnecting");
     expect(getPeerConnectionStatus(["disconnected"])).toBe("unstable");
     expect(getPeerConnectionStatus(["connected"])).toBe("good");
+  });
+
+  it("applies an answer once and ignores repeated or stale answers", () => {
+    const answer = { type: "answer" as const, sdp: "v=0\r\n" };
+    expect(shouldApplyRemoteAnswer("have-local-offer", null, answer)).toBe(true);
+    expect(shouldApplyRemoteAnswer("stable", answer as RTCSessionDescription, answer)).toBe(false);
+    expect(shouldApplyRemoteAnswer("have-remote-offer", null, answer)).toBe(false);
   });
 
   it("stops every capture track when leaving a room", async () => {
