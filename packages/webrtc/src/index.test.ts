@@ -145,8 +145,8 @@ describe("shared room media lifecycle", () => {
 
   it("does not poison polling when a retried negotiation delivers the same answer twice", async () => {
     vi.useFakeTimers();
-    let createdPeer: PeerStub | undefined;
     class PeerStub {
+      static lastCreated: PeerStub | undefined;
       connectionState: RTCPeerConnectionState = "new";
       signalingState: RTCSignalingState = "stable";
       localDescription: RTCSessionDescription | null = null;
@@ -155,7 +155,7 @@ describe("shared room media lifecycle", () => {
       onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
       ontrack: ((event: RTCTrackEvent) => void) | null = null;
       private senders: RTCRtpSender[] = [];
-      constructor() { createdPeer = this; }
+      constructor() { PeerStub.lastCreated = this; }
       getSenders() { return this.senders; }
       addTrack() {
         const sender = {
@@ -226,14 +226,14 @@ describe("shared room media lifecycle", () => {
       }, 10_000_000);
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(createdPeer?.signalingState).toBe("have-local-offer");
+    expect(PeerStub.lastCreated?.signalingState).toBe("have-local-offer");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_500);
     });
 
-    expect(createdPeer?.setRemoteDescription).toHaveBeenCalledOnce();
-    expect(createdPeer?.signalingState).toBe("stable");
+    expect(PeerStub.lastCreated?.setRemoteDescription).toHaveBeenCalledOnce();
+    expect(PeerStub.lastCreated?.signalingState).toBe("stable");
     expect(result.current.connectionStatus).not.toBe("unstable");
     unmount();
   });
