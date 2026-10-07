@@ -142,4 +142,99 @@ describe("shared room media lifecycle", () => {
     expect(vi.mocked(transport.send).mock.calls.filter(([, payload]) => payload.type === "watch:request")).toHaveLength(2);
     unmount();
   });
+
+  it("does not poison polling when a retried negotiation delivers the same answer twice", async () => {
+    vi.useFakeTimers();
+    let createdPeer: PeerStub | undefined;
+    class PeerStub {
+      connectionState: RTCPeerConnectionState = "new";
+      signalingState: RTCSignalingState = "stable";
+      localDescription: RTCSessionDescription | null = null;
+      remoteDescription: RTCSessionDescription | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      private senders: RTCRtpSender[] = [];
+      constructor() { createdPeer = this; }
+      getSenders() { return this.senders; }
+      addTrack() {
+        const sender = {
+          getParameters: () => ({ encodings: [{}] }),
+          setParameters: vi.fn().mockResolvedValue(undefined),
+        } as unknown as RTCRtpSender;
+        this.senders.push(sender);
+        return sender;
+      }
+      createOffer() { return Promise.resolve({ type: "offer" as const, sdp: "offer-sdp" }); }
+      setLocalDescription(description: RTCSessionDescriptionInit) {
+        this.localDescription = description as RTCSessionDescription;
+        this.signalingState = description.type === "offer" ? "have-local-offer" : "stable";
+        return Promise.resolve();
+      }
+      setRemoteDescription = vi.fn((description: RTCSessionDescriptionInit) => {
+        if (description.type === "answer" && this.signalingState !== "have-local-offer") {
+          return Promise.reject(new Error("InvalidStateError"));
+        }
+        this.remoteDescription = description as RTCSessionDescription;
+        this.signalingState = "stable";
+        return Promise.resolve();
+      });
+      addIceCandidate() { return Promise.resolve(); }
+      close() { this.connectionState = "closed"; }
+    }
+    vi.stubGlobal("RTCPeerConnection", PeerStub);
+
+    const answer = { type: "answer" as const, sdp: "answer-sdp" };
+    const now = Date.now();
+    const poll = vi.fn()
+      .mockResolvedValueOnce({
+        events: [{
+          id: "watch-1",
+          senderUserId: "viewer",
+          sentAt: now,
+          cursor: 1,
+          payload: { type: "watch:request", targetUserId: "broadcaster" },
+        }],
+        onlineUserIds: ["viewer", "broadcaster"],
+        activeStreams: [],
+        cursor: 1,
+      } satisfies RealtimePoll)
+      .mockResolvedValueOnce({
+        events: [1, 2].map((cursor) => ({
+          id: `answer-${cursor}`,
+          senderUserId: "viewer",
+          sentAt: now,
+          cursor,
+          payload: { type: "webrtc:answer" as const, targetUserId: "broadcaster", description: answer },
+        })),
+        onlineUserIds: ["viewer", "broadcaster"],
+        activeStreams: [],
+        cursor: 2,
+      } satisfies RealtimePoll)
+      .mockImplementation(() => new Promise(() => undefined));
+    const transport = createTransport(poll);
+    const { result, unmount } = renderHook(() => useRoomMediaCore({ roomId: "room-a", transport }));
+    const stream = { getTracks: () => [{ kind: "video", stop: vi.fn() }] } as unknown as MediaStream;
+
+    await act(async () => {
+      await result.current.startBroadcast(stream, {
+        preset: "1080p60",
+        width: 1920,
+        height: 1080,
+        frameRate: 60,
+        hasAudio: false,
+      }, 10_000_000);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(createdPeer?.signalingState).toBe("have-local-offer");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+
+    expect(createdPeer?.setRemoteDescription).toHaveBeenCalledOnce();
+    expect(createdPeer?.signalingState).toBe("stable");
+    expect(result.current.connectionStatus).not.toBe("unstable");
+    unmount();
+  });
 });
