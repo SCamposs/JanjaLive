@@ -120,6 +120,7 @@ button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .watch-action { color: #b5b1aa; font-size: 10px; }
 .desktop-player { width: 100%; height: 100%; position: relative; }
 .desktop-player video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
+.desktop-player[data-fit="cover"] video { object-fit: cover; }
 .desktop-player-waiting { position: absolute; inset: 0; display: grid; place-content: center; color: #8b8882; background: rgba(5,5,5,.58); font-size: 12px; pointer-events: none; }
 .desktop-player-controls { position: absolute; right: 12px; bottom: 12px; left: 12px; min-height: 48px; padding: 7px 9px; display: flex; align-items: center; justify-content: space-between; border: 1px solid rgba(255,255,255,.08); border-radius: 7px; background: rgba(5,5,5,.84); opacity: 0; transition: opacity .18s ease; }
 .desktop-player:hover .desktop-player-controls, .desktop-player:focus-within .desktop-player-controls { opacity: 1; }

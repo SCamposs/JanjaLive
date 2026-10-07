@@ -1,6 +1,6 @@
 "use client";
 
-import { Maximize, Minimize2, PictureInPicture2, Volume2, VolumeX, X } from "lucide-react";
+import { Maximize, Minimize2, PictureInPicture2, Scaling, Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 type Props = {
@@ -19,6 +19,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackBlocked, setPlaybackBlocked] = useState(false);
+  const [fitMode, setFitMode] = useState<"contain" | "cover">("contain");
 
   useEffect(() => {
     const video = videoRef.current;
@@ -28,6 +29,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
     setMuted(mode === "local");
     setIsPlaying(false);
     setPlaybackBlocked(false);
+    setFitMode("contain");
     void video.play().catch(() => {
       if (mode === "local") return;
       video.muted = true;
@@ -55,7 +57,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
   }
 
   return (
-    <div className="player-shell" ref={containerRef}>
+    <div className="player-shell" data-fit={fitMode} ref={containerRef}>
       <video ref={videoRef} autoPlay playsInline muted={mode === "local" || muted} onDoubleClick={toggleFullscreen} onPlaying={() => { setIsPlaying(true); setPlaybackBlocked(false); }} onWaiting={() => setIsPlaying(false)} />
       {!isPlaying && (
         <div className="player-waiting">
@@ -91,6 +93,9 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
           </>
         )}
         <span className="control-spacer" />
+        <button className="icon-button" data-tooltip={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} type="button" onClick={() => setFitMode((value) => value === "contain" ? "cover" : "contain")} aria-label={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"}>
+          <Scaling size={18} />
+        </button>
         <button className="icon-button" data-tooltip="Picture in Picture" type="button" onClick={togglePictureInPicture} aria-label="Picture in Picture">
           <PictureInPicture2 size={18} />
         </button>

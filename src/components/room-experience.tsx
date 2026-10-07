@@ -71,6 +71,17 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
   const isWatchingOwnStream = selectedStreamer === currentUser.id && Boolean(localStream);
   const selectedStream = selectedStreamer && !isWatchingOwnStream ? realtime.remoteStreams[selectedStreamer] : undefined;
   const connectionError = realtime.connectionError === dismissedConnectionError ? null : realtime.connectionError;
+  const stopWatching = realtime.stopWatching;
+
+  useEffect(() => {
+    if (!selectedStreamer || selectedStreamer === currentUser.id) return;
+    if (streamingUserIds.has(selectedStreamer)) return;
+    const timeout = window.setTimeout(() => {
+      void stopWatching(selectedStreamer);
+      setSelectedStreamer(null);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [currentUser.id, selectedStreamer, stopWatching, streamingUserIds]);
 
   async function stopSharing() {
     localStream?.getVideoTracks().forEach((track) => { track.onended = null; });
