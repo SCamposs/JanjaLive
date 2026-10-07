@@ -33,4 +33,4 @@ The v0.1 Windows build is intentionally unsigned because the project has no paid
 
 ## Verified updater evidence
 
-On 5 October 2026, an installed `0.1.10` client discovered and downloaded the published `0.1.13` installer through the configured GitHub provider. The pending installer filename matched the target release and its computed SHA-512 matched the updater metadata. The client was stopped before installation, so this proves release discovery, download and hash validation—not the final restart-and-install transition, which remains part of the manual release checklist.
+On 7 October 2026, the installed `0.1.15` client discovered and downloaded the published `0.1.16` installer through the configured GitHub provider. The pending file was `JanjaLive-Setup-0.1.16.exe`, measured `117,705,411` bytes, matched the GitHub Release SHA-256 digest and produced the exact SHA-512 value published in `latest.yml`. The installed client remained open on `0.1.15`, so this proves release discovery, download and integrity validation—not the final restart-and-install transition, which remains part of the manual release checklist.
