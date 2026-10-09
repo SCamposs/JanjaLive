@@ -2,11 +2,12 @@
 
 import { Maximize, Minimize2, PictureInPicture2, Scaling, Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { ConnectionStatus } from "@janjalive/webrtc";
 
 type Props = {
   stream: MediaStream;
   streamerName: string;
-  status: "good" | "unstable" | "reconnecting";
+  status: ConnectionStatus;
   onStop: () => void;
   mode?: "remote" | "local";
 };
@@ -68,7 +69,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
       <div className="player-label">
         <strong>{streamerName}</strong>
         {mode === "remote" && status !== "good" && (
-          <><span className={`connection-dot ${status}`} /><span>{status === "unstable" ? "Instável" : "Reconectando"}</span></>
+          <><span className={`connection-dot ${status}`} /><span>{status === "unstable" ? "Instável" : status === "connecting" ? "Conectando" : "Reconectando"}</span></>
         )}
       </div>
       <div className="player-controls">

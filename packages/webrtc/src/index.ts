@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+export { playRoomCue } from "./ui-sounds";
+
 export type QualityPreset =
   | "720p30"
   | "720p60"
@@ -94,7 +96,7 @@ type UseRoomMediaOptions = {
   initialOnlineUserIds?: string[];
 };
 
-type ConnectionStatus = "good" | "unstable" | "reconnecting";
+export type ConnectionStatus = "connecting" | "good" | "unstable" | "reconnecting";
 
 const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"] }];
 const EMPTY_USER_IDS: string[] = [];
@@ -112,7 +114,15 @@ export function getRoomPollInterval(states: RTCPeerConnectionState[]) {
 export function getPeerConnectionStatus(states: RTCPeerConnectionState[]): ConnectionStatus {
   if (states.length === 0 || states.some((state) => state === "connected")) return "good";
   if (states.some((state) => state === "failed" || state === "disconnected")) return "unstable";
-  return "reconnecting";
+  return "connecting";
+}
+
+export function isTransientPeerSignal(payload: ServerSignal) {
+  return payload.type === "watch:request" ||
+    payload.type === "watch:stop" ||
+    payload.type === "webrtc:offer" ||
+    payload.type === "webrtc:answer" ||
+    payload.type === "webrtc:ice-candidate";
 }
 
 export function shouldApplyRemoteAnswer(
@@ -128,12 +138,40 @@ export function shouldApplyRemoteAnswer(
   return signalingState === "have-local-offer";
 }
 
+export async function replacePeerTracks(peer: RTCPeerConnection, stream: MediaStream, bitrate: number) {
+  const nextTracks = new Map(stream.getTracks().map((track) => [track.kind, track]));
+  const senders = peer.getSenders();
+  const existingKinds = new Set(senders.flatMap((sender) => sender.track ? [sender.track.kind] : []));
+  let needsNegotiation = false;
+
+  for (const sender of senders) {
+    const currentTrack = sender.track;
+    if (!currentTrack) continue;
+    const nextTrack = nextTracks.get(currentTrack.kind) ?? null;
+    if (nextTrack !== currentTrack) await sender.replaceTrack(nextTrack);
+    if (!nextTrack) needsNegotiation = true;
+  }
+  for (const track of stream.getTracks()) {
+    if (existingKinds.has(track.kind)) continue;
+    peer.addTrack(track, stream);
+    needsNegotiation = true;
+  }
+  const videoSender = peer.getSenders().find((sender) => sender.track?.kind === "video");
+  if (videoSender) {
+    const parameters = videoSender.getParameters();
+    parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+    if (parameters.encodings[0]) parameters.encodings[0].maxBitrate = bitrate;
+    await videoSender.setParameters(parameters).catch(() => undefined);
+  }
+  return needsNegotiation;
+}
+
 export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: UseRoomMediaOptions) {
   const initialOnline = initialOnlineUserIds ?? EMPTY_USER_IDS;
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>(initialOnline);
   const [activeStreams, setActiveStreams] = useState<ActiveStream[]>([]);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("reconnecting");
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [roomUnavailable, setRoomUnavailable] = useState(false);
   const [membershipRevision, setMembershipRevision] = useState(0);
@@ -233,7 +271,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
           sdpMLineIndex: candidateInit.sdpMLineIndex,
           usernameFragment: candidateInit.usernameFragment,
         },
-      }).catch(() => setConnectionStatus("reconnecting"));
+      }).catch(() => setConnectionStatus("unstable"));
     };
     peer.ontrack = ({ track, streams }) => {
       const incomingStream = streams[0];
@@ -259,7 +297,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
         setConnectionStatus("good");
         setConnectionError(null);
       } else if (peer.connectionState === "new" || peer.connectionState === "connecting") {
-        setConnectionStatus("reconnecting");
+        setConnectionStatus("connecting");
       } else if (peer.connectionState === "disconnected") {
         setConnectionStatus("unstable");
       } else if (peer.connectionState === "failed") {
@@ -377,13 +415,14 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let polling = false;
     let failures = 0;
+    let hasSynced = false;
     sinceRef.current = 0;
     iceServersRef.current = null;
     void resolveIceServers();
     const resetState = setTimeout(() => {
       setRoomUnavailable(false);
       setConnectionError(null);
-      setConnectionStatus("reconnecting");
+      setConnectionStatus("connecting");
       setOnlineUserIds(initialOnline);
       setActiveStreams([]);
       setRemoteStreams({});
@@ -397,22 +436,26 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       try {
         const data = await transport.poll(roomId, sinceRef.current);
         failures = 0;
-        setConnectionStatus(getPeerConnectionStatus([...peersRef.current.values()].map((peer) => peer.connectionState)));
         setOnlineUserIds(data.onlineUserIds);
         setActiveStreams(data.activeStreams);
         for (const event of data.events) {
+          // Establish a fresh session cursor without replaying retained peer
+          // negotiation from an earlier visit to the room.
+          if (!hasSynced && isTransientPeerSignal(event.payload)) continue;
           try {
             if (await handleSignal(event.senderUserId, event.payload)) return;
           } catch {
-            setConnectionStatus("reconnecting");
+            setConnectionStatus(hasSynced ? "reconnecting" : "connecting");
           }
         }
         sinceRef.current = Math.max(sinceRef.current, data.cursor);
+        hasSynced = true;
         const peerStates = [...peersRef.current.values()].map((peer) => peer.connectionState);
+        setConnectionStatus(getPeerConnectionStatus(peerStates));
         timeout = setTimeout(poll, getRoomPollInterval(peerStates));
       } catch (error) {
         failures += 1;
-        setConnectionStatus("reconnecting");
+        setConnectionStatus(hasSynced ? "reconnecting" : "connecting");
         if (transport.isRoomUnavailable(error)) {
           makeRoomUnavailable();
           return;
@@ -450,6 +493,20 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     await Promise.all([...pendingWatchersRef.current].map((watcherUserId) => offerBroadcastTo(watcherUserId)));
   }, [offerBroadcastTo, send]);
 
+  const replaceBroadcast = useCallback(async (stream: MediaStream, metadata: StreamMetadata, bitrate: number) => {
+    const previousStream = localStreamRef.current;
+
+    for (const [remoteUserId, peer] of peersRef.current) {
+      const needsNegotiation = await replacePeerTracks(peer, stream, bitrate);
+      if (needsNegotiation && peer.signalingState === "stable") await offerBroadcastTo(remoteUserId);
+    }
+
+    localStreamRef.current = stream;
+    bitrateRef.current = bitrate;
+    await send({ type: "stream:start", metadata });
+    previousStream?.getTracks().forEach((track) => track.stop());
+  }, [offerBroadcastTo, send]);
+
   const stopBroadcast = useCallback(async () => {
     stopLocalCapture();
     closeAllPeers();
@@ -457,7 +514,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   }, [closeAllPeers, send, stopLocalCapture]);
 
   const watch = useCallback(async (streamerUserId: string) => {
-    setConnectionStatus("reconnecting");
+    setConnectionStatus("connecting");
     setConnectionError(null);
     await createPeer(streamerUserId);
     const requestStream = async () => {
@@ -470,7 +527,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       const currentTimer = watchRetryTimersRef.current.get(streamerUserId);
       if (currentTimer) clearTimeout(currentTimer);
       watchRetryTimersRef.current.set(streamerUserId, setTimeout(() => {
-        void requestStream().catch(() => setConnectionStatus("reconnecting"));
+        void requestStream().catch(() => setConnectionStatus("unstable"));
       }, WATCH_RETRY_INTERVAL_MS));
     };
     await requestStream();
@@ -488,6 +545,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     membershipRevision,
     onlineUserIds,
     remoteStreams,
+    replaceBroadcast,
     roomUnavailable,
     startBroadcast,
     stopBroadcast,

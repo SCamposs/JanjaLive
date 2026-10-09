@@ -7,6 +7,8 @@ import {
   getPeerConnectionStatus,
   getRoomPollInterval,
   getRoomSignalDirective,
+  isTransientPeerSignal,
+  replacePeerTracks,
   shouldApplyRemoteAnswer,
   useRoomMediaCore,
   type RealtimePoll,
@@ -56,9 +58,16 @@ describe("shared room media lifecycle", () => {
 
   it("does not report a media connection as good while its peer is still connecting", () => {
     expect(getPeerConnectionStatus([])).toBe("good");
-    expect(getPeerConnectionStatus(["new", "connecting"])).toBe("reconnecting");
+    expect(getPeerConnectionStatus(["new", "connecting"])).toBe("connecting");
     expect(getPeerConnectionStatus(["disconnected"])).toBe("unstable");
     expect(getPeerConnectionStatus(["connected"])).toBe("good");
+  });
+
+  it("does not replay peer negotiation into a newly opened room session", () => {
+    expect(isTransientPeerSignal({ type: "webrtc:ice-candidate", targetUserId: "user", candidate: { candidate: "candidate" } })).toBe(true);
+    expect(isTransientPeerSignal({ type: "watch:request", targetUserId: "user" })).toBe(true);
+    expect(isTransientPeerSignal({ type: "room:closed" })).toBe(false);
+    expect(isTransientPeerSignal({ type: "stream:start", metadata: { preset: "720p30", width: 1280, height: 720, frameRate: 30, hasAudio: false } })).toBe(false);
   });
 
   it("polls faster only while negotiating a peer connection", () => {
@@ -73,6 +82,29 @@ describe("shared room media lifecycle", () => {
     expect(shouldApplyRemoteAnswer("have-local-offer", null, answer)).toBe(true);
     expect(shouldApplyRemoteAnswer("stable", answer as RTCSessionDescription, answer)).toBe(false);
     expect(shouldApplyRemoteAnswer("have-remote-offer", null, answer)).toBe(false);
+  });
+
+  it("switches the shared video track without rebuilding the peer", async () => {
+    const oldVideo = { kind: "video" } as MediaStreamTrack;
+    const nextVideo = { kind: "video" } as MediaStreamTrack;
+    const replaceTrack = vi.fn().mockResolvedValue(undefined);
+    const setParameters = vi.fn().mockResolvedValue(undefined);
+    const sender = {
+      track: oldVideo,
+      replaceTrack,
+      getParameters: () => ({ encodings: [{}] }),
+      setParameters,
+    } as unknown as RTCRtpSender;
+    const peer = {
+      getSenders: () => [sender],
+      addTrack: vi.fn(),
+    } as unknown as RTCPeerConnection;
+    const stream = { getTracks: () => [nextVideo] } as unknown as MediaStream;
+
+    await expect(replacePeerTracks(peer, stream, 7_000_000)).resolves.toBe(false);
+    expect(replaceTrack).toHaveBeenCalledWith(nextVideo);
+    expect(setParameters).toHaveBeenCalledWith({ encodings: [{ maxBitrate: 7_000_000 }] });
+    expect(peer.addTrack).not.toHaveBeenCalled();
   });
 
   it("stops every capture track when leaving a room", async () => {
@@ -116,6 +148,38 @@ describe("shared room media lifecycle", () => {
 
     await waitFor(() => expect(result.current.roomUnavailable).toBe(true));
     expect(poll).toHaveBeenCalledOnce();
+  });
+
+  it("uses the first poll as a cursor baseline instead of recreating stale peers", async () => {
+    class PeerStub {
+      static created = 0;
+      connectionState: RTCPeerConnectionState = "new";
+      signalingState: RTCSignalingState = "stable";
+      onconnectionstatechange: (() => void) | null = null;
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      constructor() { PeerStub.created += 1; }
+      close() { this.connectionState = "closed"; }
+    }
+    vi.stubGlobal("RTCPeerConnection", PeerStub);
+    const transport = createTransport(vi.fn().mockResolvedValue({
+      events: [{
+        id: "stale-candidate",
+        senderUserId: "streamer",
+        sentAt: Date.now() - 10_000,
+        cursor: 41,
+        payload: { type: "webrtc:ice-candidate", targetUserId: "viewer", candidate: { candidate: "candidate" } },
+      }],
+      onlineUserIds: ["streamer", "viewer"],
+      activeStreams: [],
+      cursor: 41,
+    } satisfies RealtimePoll));
+
+    const { result, unmount } = renderHook(() => useRoomMediaCore({ roomId: "room-a", transport }));
+    await waitFor(() => expect(result.current.connectionStatus).toBe("good"));
+
+    expect(PeerStub.created).toBe(0);
+    unmount();
   });
 
   it("retries a watch request while signaling has not connected the peer", async () => {
@@ -196,6 +260,12 @@ describe("shared room media lifecycle", () => {
     const now = Date.now();
     const poll = vi.fn()
       .mockResolvedValueOnce({
+        events: [],
+        onlineUserIds: ["viewer", "broadcaster"],
+        activeStreams: [],
+        cursor: 0,
+      } satisfies RealtimePoll)
+      .mockResolvedValueOnce({
         events: [{
           id: "watch-1",
           senderUserId: "viewer",
@@ -232,7 +302,7 @@ describe("shared room media lifecycle", () => {
         frameRate: 60,
         hasAudio: false,
       }, 10_000_000);
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1_500);
     });
     expect(transport.send).toHaveBeenCalledWith("room-a", expect.objectContaining({
       type: "webrtc:offer",

@@ -12,7 +12,8 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { playRoomCue } from "@janjalive/webrtc";
 import { getWebDisplayCaptureOptions } from "@/lib/display-capture";
 import type { RoomSnapshot } from "@/lib/rooms";
 import { QUALITY_PROFILES } from "@/lib/quality";
@@ -72,6 +73,16 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
   const selectedStream = selectedStreamer && !isWatchingOwnStream ? realtime.remoteStreams[selectedStreamer] : undefined;
   const connectionError = realtime.connectionError === dismissedConnectionError ? null : realtime.connectionError;
   const stopWatching = realtime.stopWatching;
+  const knownStreamsRef = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    const current = new Set(remoteActiveStreams.map((stream) => stream.streamerUserId));
+    const known = knownStreamsRef.current;
+    if (known && remoteActiveStreams.some((stream) => !known.has(stream.streamerUserId))) {
+      void playRoomCue("stream-start");
+    }
+    knownStreamsRef.current = current;
+  }, [remoteActiveStreams]);
 
   useEffect(() => {
     if (!selectedStreamer || selectedStreamer === currentUser.id) return;
@@ -89,6 +100,21 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
     setLocalStream(null);
     setIsBroadcasting(false);
     setSelectedStreamer((selected) => selected === currentUser.id ? null : selected);
+  }
+
+  async function watchStreamer(userId: string) {
+    if (selectedStreamer && selectedStreamer !== currentUser.id && selectedStreamer !== userId) {
+      await realtime.stopWatching(selectedStreamer).catch(() => undefined);
+    }
+    setSelectedStreamer(userId);
+    await playRoomCue("join", true);
+    await realtime.watch(userId);
+  }
+
+  async function leaveStream(userId: string) {
+    await realtime.stopWatching(userId);
+    setSelectedStreamer(null);
+    await playRoomCue("leave", true);
   }
 
   async function beginCapture(includeSystemAudio = true) {
@@ -184,7 +210,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
           <div className="room-identity">
             <strong>{snapshot.room.name}</strong>
             {realtime.connectionStatus !== "good" && (
-              <><span className={`connection-dot ${realtime.connectionStatus}`} /><small>{realtime.connectionStatus === "unstable" ? "Instável" : "Reconectando"}</small></>
+              <><span className={`connection-dot ${realtime.connectionStatus}`} /><small>{realtime.connectionStatus === "unstable" ? "Instável" : realtime.connectionStatus === "connecting" ? "Conectando" : "Reconectando"}</small></>
             )}
           </div>
         </div>
@@ -222,6 +248,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
               {isBroadcasting ? (
                 <>
                   <button className="button secondary compact" type="button" onClick={() => setSelectedStreamer(currentUser.id)} disabled={isWatchingOwnStream}>Minha transmissão</button>
+                  <button className="button secondary compact" type="button" onClick={() => void beginCapture()} disabled={!canShare}><MonitorUp size={16} /> Trocar tela</button>
                   <button className="button ghost compact danger-text" type="button" onClick={() => void stopSharing()}>Encerrar</button>
                 </>
               ) : (
@@ -247,14 +274,13 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                 streamerName={membersById.get(selectedStreamer)?.name ?? "Amigo"}
                 status={realtime.connectionStatus}
                 onStop={() => {
-                  void realtime.stopWatching(selectedStreamer);
-                  setSelectedStreamer(null);
+                  void leaveStream(selectedStreamer);
                 }}
               />
             ) : selectedStreamer ? (
               <div className="stream-connecting" role="status">
                 <span>Conectando à transmissão…</span>
-                <button className="button secondary compact" type="button" onClick={() => { void realtime.stopWatching(selectedStreamer); setSelectedStreamer(null); }}>Cancelar</button>
+                <button className="button secondary compact" type="button" onClick={() => void leaveStream(selectedStreamer)}>Cancelar</button>
               </div>
             ) : remoteActiveStreams.length > 0 ? (
               <div className="stream-picker">
@@ -273,10 +299,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                         className="stream-choice"
                         type="button"
                         key={stream.streamerUserId}
-                        onClick={() => {
-                          setSelectedStreamer(stream.streamerUserId);
-                          void realtime.watch(stream.streamerUserId);
-                        }}
+                        onClick={() => void watchStreamer(stream.streamerUserId)}
                       >
                         <UserAvatar className="stream-choice-avatar" image={member?.image} name={name} size={48} />
                         <span className="stream-choice-copy"><strong>{name}</strong><span><b>AO VIVO</b> {QUALITY_PROFILES[stream.preset].label}{stream.hasAudio ? " · Áudio" : ""}</span></span>
@@ -315,7 +338,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
           <section className="member-section">
             <h3>Online <span>{snapshot.members.filter((member) => onlineUserIds.has(member.userId)).length}</span></h3>
             {snapshot.members.filter((member) => onlineUserIds.has(member.userId)).map((person) => (
-              <MemberRow key={person.userId} person={person} online streaming={streamingUserIds.has(person.userId)} isOwner={snapshot.room.isOwner} onRevoke={handleMember} />
+              <MemberRow key={person.userId} person={person} online streaming={streamingUserIds.has(person.userId)} selected={selectedStreamer === person.userId} isCurrentUser={person.userId === currentUser.id} isOwner={snapshot.room.isOwner} onWatch={watchStreamer} onRevoke={handleMember} />
             ))}
           </section>
           <section className="member-section">
@@ -326,7 +349,10 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
                 person={person}
                 online={onlineUserIds.has(person.userId)}
                 streaming={streamingUserIds.has(person.userId)}
+                selected={selectedStreamer === person.userId}
+                isCurrentUser={person.userId === currentUser.id}
                 isOwner={snapshot.room.isOwner}
+                onWatch={watchStreamer}
                 onRevoke={handleMember}
               />
             ))}
@@ -340,13 +366,20 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
         onCancel={cancelCapture}
         onStart={async ({ stream, preset, bitrate, frameRate }) => {
           const settings = stream.getVideoTracks()[0]?.getSettings();
-          await realtime.startBroadcast(stream, {
+          const metadata = {
             preset,
             width: settings?.width ?? QUALITY_PROFILES[preset].width ?? 1920,
             height: settings?.height ?? QUALITY_PROFILES[preset].height ?? 1080,
             frameRate: settings?.frameRate ?? frameRate,
             hasAudio: stream.getAudioTracks().length > 0,
-          }, bitrate);
+          };
+          if (isBroadcasting) {
+            localStream?.getVideoTracks().forEach((track) => { track.onended = null; });
+            await realtime.replaceBroadcast(stream, metadata, bitrate);
+          } else {
+            await realtime.startBroadcast(stream, metadata, bitrate);
+            await playRoomCue("stream-start", true);
+          }
           setLocalStream(stream);
           setCapture(null);
           setIsBroadcasting(true);
@@ -390,18 +423,24 @@ function MemberAvatar({ person }: { person: { name: string; image: string | null
   return person.image ? <Image className="member-avatar" src={person.image} alt="" width={32} height={32} /> : <span className="member-avatar fallback">{person.name.slice(0, 1).toUpperCase()}</span>;
 }
 
-function MemberRow({ person, online, streaming, isOwner, onRevoke }: {
+function MemberRow({ person, online, streaming, selected, isCurrentUser, isOwner, onWatch, onRevoke }: {
   person: RoomSnapshot["members"][number];
   online: boolean;
   streaming: boolean;
+  selected: boolean;
+  isCurrentUser: boolean;
   isOwner: boolean;
+  onWatch: (userId: string) => Promise<void>;
   onRevoke: (userId: string, action: "approve" | "reject" | "revoke") => Promise<void>;
 }) {
   return (
     <div className="member-row">
       <div className="avatar-wrap"><MemberAvatar person={person} /><span data-online={online} /></div>
       <div><strong>{person.name}</strong><span>{streaming ? `${person.role === "OWNER" ? "Dono · " : ""}Transmitindo` : person.role === "OWNER" ? "Dono" : online ? "Online" : "Offline"}</span></div>
-      {isOwner && person.role !== "OWNER" && <button className="member-menu" type="button" onClick={() => onRevoke(person.userId, "revoke")} aria-label={`Remover ${person.name}`}><X size={15} /></button>}
+      <div className="member-actions">
+        {streaming && !isCurrentUser && <button className="member-watch" data-tooltip={selected ? `Assistindo ${person.name}` : `Assistir ${person.name}`} type="button" disabled={selected} onClick={() => void onWatch(person.userId)} aria-label={selected ? `Assistindo ${person.name}` : `Assistir ${person.name}`}><Play size={13} fill="currentColor" /></button>}
+        {isOwner && person.role !== "OWNER" && <button className="member-menu" type="button" onClick={() => onRevoke(person.userId, "revoke")} aria-label={`Remover ${person.name}`}><X size={15} /></button>}
+      </div>
     </div>
   );
 }

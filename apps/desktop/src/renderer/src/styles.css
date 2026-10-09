@@ -104,7 +104,13 @@ button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .room-code-display:hover { color: #b5b1aa; border-color: #55524e; background: #151515; }
 .room-code-display span { font-size: 9px; }
 .room-code-display strong { color: #e6e3dc; font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; letter-spacing: .08em; }
-.connection-warning { color: #b8767e; font-size: 10px; }
+.connection-warning { display: inline-flex; align-items: center; gap: 6px; color: #b8767e; font-size: 10px; }
+.connection-warning::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.connection-warning.connecting::before, .connection-warning.reconnecting::before { animation: connection-pulse 1.4s ease-in-out infinite; }
+@keyframes connection-pulse { 50% { opacity: .3; } }
+.member-watch { width: 24px; height: 24px; display: grid; place-items: center; border: 0; border-radius: 5px; color: #c87c86; background: #251416; cursor: pointer; }
+.member-watch:hover { background: #32191c; }
+.member-watch:disabled { color: #89a783; background: transparent; opacity: 1; cursor: default; }
 .desktop-stage { position: relative; min-height: 0; display: grid; place-items: center; overflow: hidden; border: 1px solid #232323; border-radius: 9px; background: #070707; }
 .empty-room { width: 100%; height: 100%; padding: 34px; display: flex; align-items: flex-end; background: linear-gradient(90deg, rgba(5,5,5,.15), rgba(5,5,5,.68)), linear-gradient(0deg, rgba(5,5,5,.62), transparent 60%), center 38% / cover no-repeat url("/janja-live-noir-2.png"); }
 .empty-room > div { width: min(370px, 100%); padding: 18px 20px; background: rgba(5,5,5,.8); }

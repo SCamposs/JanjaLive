@@ -187,8 +187,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .room-identity small { color: var(--muted); font-size: 11px; }
 .connection-dot { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: var(--muted-2); }
 .connection-dot.good { background: var(--success); }
-.connection-dot.unstable, .connection-dot.reconnecting { background: var(--warning); }
-.connection-dot.reconnecting { animation: pulse 1.4s infinite; }
+.connection-dot.unstable, .connection-dot.connecting, .connection-dot.reconnecting { background: var(--warning); }
+.connection-dot.connecting, .connection-dot.reconnecting { animation: pulse 1.4s infinite; }
 .icon-button, .avatar-button { width: 34px; height: 34px; border-radius: 7px; border: 1px solid transparent; color: var(--text-soft); background: transparent; display: inline-grid; place-items: center; cursor: pointer; }
 .icon-button:hover, .avatar-button:hover { border-color: var(--border); background: var(--surface-2); }
 [data-tooltip] { position: relative; }
@@ -271,6 +271,10 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .member-menu { width: 25px; height: 25px; display: grid; place-items: center; border: 0; background: transparent; color: var(--disabled); border-radius: 5px; cursor: pointer; opacity: 0; }
 .member-row:hover .member-menu { opacity: 1; }
 .member-menu:hover { color: var(--danger); background: var(--danger-surface); }
+.member-actions { display: flex; align-items: center; gap: 3px; }
+.member-watch { width: 25px; height: 25px; display: grid; place-items: center; border: 0; border-radius: 5px; color: var(--accent-strong); background: var(--accent-surface); cursor: pointer; }
+.member-watch:hover { background: oklch(31% .07 12.3); }
+.member-watch:disabled { color: var(--success); background: transparent; opacity: 1; cursor: default; }
 .all-online { color: var(--muted-2); font-size: 10px; text-align: center; padding: 8px; }
 .pending-section { border: 1px solid oklch(35.5% .082 12.3); border-radius: 8px; background: var(--accent-surface); padding: 10px; }
 .pending-card { display: grid; grid-template-columns: 32px 1fr; gap: 2px 8px; align-items: center; }
@@ -292,7 +296,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .stream-connecting { display: grid; justify-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
 .player-label { position: absolute; top: 13px; left: 13px; display: flex; align-items: center; gap: 7px; border-radius: 6px; padding: 7px 9px; background: rgba(13,13,13,.78); backdrop-filter: blur(8px); font-size: 10px; opacity: 0; transition: opacity .2s; }
 .player-label strong { font-size: 11px; }
-.player-controls { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); min-width: 390px; height: 46px; padding: 0 7px; display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; background: rgba(21,21,21,.88); backdrop-filter: blur(12px); opacity: 0; transition: opacity .2s; }
+.player-controls { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); min-width: 390px; height: 46px; padding: 0 7px; display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; background: rgba(21,21,21,.88); backdrop-filter: blur(12px); opacity: .92; transition: opacity .2s; }
 .player-shell:hover .player-controls, .player-shell:hover .player-label, .player-controls:focus-within { opacity: 1; }
 .player-controls input[type="range"] { width: 70px; accent-color: var(--accent); }
 .control-spacer { flex: 1; }
