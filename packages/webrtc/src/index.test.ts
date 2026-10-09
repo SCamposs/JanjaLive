@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getReconnectDelay,
   getPeerConnectionStatus,
+  getRoomPollInterval,
   getRoomSignalDirective,
   shouldApplyRemoteAnswer,
   useRoomMediaCore,
@@ -58,6 +59,13 @@ describe("shared room media lifecycle", () => {
     expect(getPeerConnectionStatus(["new", "connecting"])).toBe("reconnecting");
     expect(getPeerConnectionStatus(["disconnected"])).toBe("unstable");
     expect(getPeerConnectionStatus(["connected"])).toBe("good");
+  });
+
+  it("polls faster only while negotiating a peer connection", () => {
+    expect(getRoomPollInterval([])).toBe(1_500);
+    expect(getRoomPollInterval(["new"])).toBe(300);
+    expect(getRoomPollInterval(["connecting"])).toBe(300);
+    expect(getRoomPollInterval(["connected"])).toBe(1_500);
   });
 
   it("applies an answer once and ignores repeated or stale answers", () => {
@@ -226,10 +234,13 @@ describe("shared room media lifecycle", () => {
       }, 10_000_000);
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(PeerStub.lastCreated?.signalingState).toBe("have-local-offer");
+    expect(transport.send).toHaveBeenCalledWith("room-a", expect.objectContaining({
+      type: "webrtc:offer",
+      targetUserId: "viewer",
+    }));
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500);
+      await vi.advanceTimersByTimeAsync(300);
     });
 
     expect(PeerStub.lastCreated?.setRemoteDescription).toHaveBeenCalledOnce();

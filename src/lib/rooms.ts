@@ -148,11 +148,15 @@ async function getMember(roomId: string, userId: string) {
 
 export async function assertAuthorizedRoom(roomId: string, userId: string) {
   const db = getDb();
-  const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
-  if (!room || !isRoomActive(room)) throw new Error("ROOM_UNAVAILABLE");
-  const member = await getMember(room.id, userId);
-  if (!isAuthorizedMember(member)) throw new Error("ROOM_FORBIDDEN");
-  return { room, member: member! };
+  const [result] = await db
+    .select({ room: rooms, member: roomMembers })
+    .from(rooms)
+    .leftJoin(roomMembers, and(eq(roomMembers.roomId, rooms.id), eq(roomMembers.userId, userId)))
+    .where(eq(rooms.id, roomId))
+    .limit(1);
+  if (!result?.room || !isRoomActive(result.room)) throw new Error("ROOM_UNAVAILABLE");
+  if (!isAuthorizedMember(result.member)) throw new Error("ROOM_FORBIDDEN");
+  return { room: result.room, member: result.member! };
 }
 
 export async function getRoomSnapshot(inviteToken: string, userId: string): Promise<RoomSnapshot | null> {

@@ -81,30 +81,28 @@ export async function publishSignal(roomId: string, senderUserId: string, payloa
     payload,
   };
 
-  await Promise.all([
-    store.set(eventPayloadKey(roomId, signal.id), signal, { px: SIGNAL_RETENTION_MS }),
-    store.hset(presenceKey(roomId), { [senderUserId]: now }),
-  ]);
-  await store.zadd(eventIndexKey(roomId), { score: signal.cursor, member: signal.id });
-  const indexedSignals = await store.zcard(eventIndexKey(roomId));
-  await Promise.all([
-    store.zremrangebyscore(eventIndexKey(roomId), "-inf", getSignalCutoff(now)),
-    indexedSignals > MAX_INDEXED_SIGNALS
-      ? store.zremrangebyrank(eventIndexKey(roomId), 0, indexedSignals - MAX_INDEXED_SIGNALS - 1)
-      : Promise.resolve(0),
-    store.expire(eventIndexKey(roomId), SIGNAL_INDEX_RETENTION_SECONDS),
-    store.expire(eventSequenceKey(roomId), SIGNAL_INDEX_RETENTION_SECONDS),
-    store.expire(presenceKey(roomId), 180),
-  ]);
-
+  const pipeline = store.pipeline();
+  pipeline.set(eventPayloadKey(roomId, signal.id), signal, { px: SIGNAL_RETENTION_MS });
+  pipeline.hset(presenceKey(roomId), { [senderUserId]: now });
+  pipeline.zadd(eventIndexKey(roomId), { score: signal.cursor, member: signal.id });
+  pipeline.zremrangebyscore(eventIndexKey(roomId), "-inf", getSignalCutoff(now));
+  pipeline.zcard(eventIndexKey(roomId));
+  pipeline.expire(eventIndexKey(roomId), SIGNAL_INDEX_RETENTION_SECONDS);
+  pipeline.expire(eventSequenceKey(roomId), SIGNAL_INDEX_RETENTION_SECONDS);
+  pipeline.expire(presenceKey(roomId), 180);
   if (payload.type === "stream:start") {
-    await store.hset(streamsKey(roomId), {
+    pipeline.hset(streamsKey(roomId), {
       [senderUserId]: JSON.stringify({ ...payload.metadata, startedAt: now }),
     });
-    await store.expire(streamsKey(roomId), 180);
+    pipeline.expire(streamsKey(roomId), 180);
   } else if (payload.type === "stream:stop" || payload.type === "presence:leave") {
-    await store.hdel(streamsKey(roomId), senderUserId);
-    if (payload.type === "presence:leave") await store.hdel(presenceKey(roomId), senderUserId);
+    pipeline.hdel(streamsKey(roomId), senderUserId);
+    if (payload.type === "presence:leave") pipeline.hdel(presenceKey(roomId), senderUserId);
+  }
+  const results = await pipeline.exec();
+  const indexedSignals = Number(results[4] ?? 0);
+  if (indexedSignals > MAX_INDEXED_SIGNALS) {
+    await store.zremrangebyrank(eventIndexKey(roomId), 0, indexedSignals - MAX_INDEXED_SIGNALS - 1);
   }
 
   return signal;
@@ -143,24 +141,30 @@ export function getSignalCutoff(now: number) {
 export async function readRoomRealtime(roomId: string, userId: string, since: number) {
   const store = getRealtimeStore();
   const now = Date.now();
-  await store.hset(presenceKey(roomId), { [userId]: now });
-  await Promise.all([store.expire(presenceKey(roomId), 180), store.expire(streamsKey(roomId), 180)]);
+  const indexPipeline = store.pipeline();
+  indexPipeline.hset(presenceKey(roomId), { [userId]: now });
+  indexPipeline.expire(presenceKey(roomId), 180);
+  indexPipeline.expire(streamsKey(roomId), 180);
+  indexPipeline.zremrangebyscore(eventIndexKey(roomId), "-inf", getSignalCutoff(now));
+  indexPipeline.zrange(eventIndexKey(roomId), `(${since}` as `(${number}`, "+inf", { byScore: true });
+  const indexResults = await indexPipeline.exec();
+  const eventIds = (indexResults[4] ?? []) as string[];
 
-  await store.zremrangebyscore(eventIndexKey(roomId), "-inf", getSignalCutoff(now));
-  const eventIds = await store.zrange<string[]>(
-    eventIndexKey(roomId),
-    `(${since}` as `(${number}`,
-    "+inf",
-    { byScore: true },
-  );
-
-  const [rawEvents, presence, streams] = await Promise.all([
-    eventIds.length
-      ? store.mget<unknown[]>(...eventIds.map((eventId) => eventPayloadKey(roomId, eventId)))
-      : Promise.resolve([]),
-    store.hgetall<Record<string, number>>(presenceKey(roomId)),
-    store.hgetall<Record<string, string>>(streamsKey(roomId)),
-  ]);
+  let rawEvents: unknown[];
+  let presence: Record<string, number> | null;
+  let streams: Record<string, string> | null;
+  const statePipeline = store.pipeline();
+  if (eventIds.length) {
+    statePipeline.mget(...eventIds.map((eventId) => eventPayloadKey(roomId, eventId)));
+    statePipeline.hgetall(presenceKey(roomId));
+    statePipeline.hgetall(streamsKey(roomId));
+    [rawEvents, presence, streams] = await statePipeline.exec() as [unknown[], Record<string, number> | null, Record<string, string> | null];
+  } else {
+    statePipeline.hgetall(presenceKey(roomId));
+    statePipeline.hgetall(streamsKey(roomId));
+    [presence, streams] = await statePipeline.exec() as [Record<string, number> | null, Record<string, string> | null];
+    rawEvents = [];
+  }
 
   const parsedEvents = rawEvents
     .map(parseStoredSignal)

@@ -100,6 +100,14 @@ const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: ["stun:stun.cloudflare.com
 const EMPTY_USER_IDS: string[] = [];
 const PEER_CONNECTION_TIMEOUT_MS = 20_000;
 const WATCH_RETRY_INTERVAL_MS = 3_000;
+const IDLE_POLL_INTERVAL_MS = 1_500;
+const NEGOTIATING_POLL_INTERVAL_MS = 300;
+
+export function getRoomPollInterval(states: RTCPeerConnectionState[]) {
+  return states.some((state) => state === "new" || state === "connecting")
+    ? NEGOTIATING_POLL_INTERVAL_MS
+    : IDLE_POLL_INTERVAL_MS;
+}
 
 export function getPeerConnectionStatus(states: RTCPeerConnectionState[]): ConnectionStatus {
   if (states.length === 0 || states.some((state) => state === "connected")) return "good";
@@ -138,6 +146,8 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   const localStreamRef = useRef<MediaStream | null>(null);
   const bitrateRef = useRef(10_000_000);
   const sinceRef = useRef(0);
+  const pollWakeRef = useRef<(() => void) | null>(null);
+  const iceServersRef = useRef<{ roomId: string; promise: Promise<RTCIceServer[]> } | null>(null);
 
   const send = useCallback(async (payload: ClientSignal) => {
     if (!roomId) throw new Error("ROOM_REQUIRED");
@@ -189,12 +199,20 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     setRoomUnavailable(true);
   }, [closeAllPeers, stopLocalCapture]);
 
+  const resolveIceServers = useCallback(() => {
+    if (!roomId) return Promise.resolve(FALLBACK_ICE_SERVERS);
+    if (iceServersRef.current?.roomId === roomId) return iceServersRef.current.promise;
+    const promise = transport.getIceServers(roomId).catch(() => FALLBACK_ICE_SERVERS);
+    iceServersRef.current = { roomId, promise };
+    return promise;
+  }, [roomId, transport]);
+
   const createPeer = useCallback(async (remoteUserId: string) => {
     if (!roomId) throw new Error("ROOM_REQUIRED");
     const current = peersRef.current.get(remoteUserId);
     if (current && current.connectionState !== "closed") return current;
 
-    const iceServers = await transport.getIceServers(roomId).catch(() => FALLBACK_ICE_SERVERS);
+    const iceServers = await resolveIceServers();
     const peer = new RTCPeerConnection({ iceServers });
     peersRef.current.set(remoteUserId, peer);
     peerTimersRef.current.set(remoteUserId, setTimeout(() => {
@@ -251,7 +269,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       }
     };
     return peer;
-  }, [closePeer, roomId, send, transport]);
+  }, [closePeer, resolveIceServers, roomId, send]);
 
   const offerBroadcastTo = useCallback(async (remoteUserId: string) => {
     const stream = localStreamRef.current;
@@ -357,8 +375,11 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     if (!roomId) return;
     let stopped = false;
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let polling = false;
     let failures = 0;
     sinceRef.current = 0;
+    iceServersRef.current = null;
+    void resolveIceServers();
     const resetState = setTimeout(() => {
       setRoomUnavailable(false);
       setConnectionError(null);
@@ -371,7 +392,8 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     }, 0);
 
     const poll = async () => {
-      if (stopped) return;
+      if (stopped || polling) return;
+      polling = true;
       try {
         const data = await transport.poll(roomId, sinceRef.current);
         failures = 0;
@@ -386,7 +408,8 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
           }
         }
         sinceRef.current = Math.max(sinceRef.current, data.cursor);
-        timeout = setTimeout(poll, 1_500);
+        const peerStates = [...peersRef.current.values()].map((peer) => peer.connectionState);
+        timeout = setTimeout(poll, getRoomPollInterval(peerStates));
       } catch (error) {
         failures += 1;
         setConnectionStatus("reconnecting");
@@ -395,23 +418,35 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
           return;
         }
         timeout = setTimeout(poll, getReconnectDelay(failures));
+      } finally {
+        polling = false;
       }
     };
+
+    const wakePoll = () => {
+      if (stopped || polling) return;
+      if (timeout) clearTimeout(timeout);
+      timeout = undefined;
+      void poll();
+    };
+    pollWakeRef.current = wakePoll;
 
     return () => {
       stopped = true;
       clearTimeout(resetState);
       if (timeout) clearTimeout(timeout);
+      if (pollWakeRef.current === wakePoll) pollWakeRef.current = null;
       void send({ type: "presence:leave" }).catch(() => undefined);
       stopLocalCapture();
       closeAllPeers();
     };
-  }, [closeAllPeers, handleSignal, initialOnline, makeRoomUnavailable, roomId, send, stopLocalCapture, transport]);
+  }, [closeAllPeers, handleSignal, initialOnline, makeRoomUnavailable, resolveIceServers, roomId, send, stopLocalCapture, transport]);
 
   const startBroadcast = useCallback(async (stream: MediaStream, metadata: StreamMetadata, bitrate: number) => {
     localStreamRef.current = stream;
     bitrateRef.current = bitrate;
     await send({ type: "stream:start", metadata });
+    pollWakeRef.current?.();
     await Promise.all([...pendingWatchersRef.current].map((watcherUserId) => offerBroadcastTo(watcherUserId)));
   }, [offerBroadcastTo, send]);
 
@@ -429,6 +464,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       const peer = peersRef.current.get(streamerUserId);
       if (!peer || peer.connectionState === "connected" || peer.connectionState === "closed") return;
       await send({ type: "watch:request", targetUserId: streamerUserId });
+      pollWakeRef.current?.();
       const currentPeer = peersRef.current.get(streamerUserId);
       if (currentPeer !== peer || currentPeer.connectionState === "connected") return;
       const currentTimer = watchRetryTimersRef.current.get(streamerUserId);
