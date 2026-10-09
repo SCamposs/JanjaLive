@@ -1,9 +1,9 @@
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import type { Adapter } from "next-auth/adapters";
 import NextAuth from "next-auth";
-import Discord from "next-auth/providers/discord";
 import { getDb } from "@/db";
 import { accounts, sessions, users, verificationTokens } from "@/db/schema";
+import { createDiscordProvider } from "@/lib/discord-provider";
 
 const hasDatabase = Boolean(process.env.DATABASE_URL);
 const baseAdapter = hasDatabase
@@ -37,24 +37,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     updateAge: 24 * 60 * 60,
   },
   providers: [
-    Discord({
-      authorization: { params: { scope: "identify" } },
-      profile(profile) {
-        const avatar = profile.avatar
-          ? `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.png`
-          : null;
-
-        return {
-          id: profile.id,
-          discordId: profile.id,
-          username: profile.username,
-          displayName: profile.global_name ?? profile.username,
-          avatar,
-          name: profile.global_name ?? profile.username,
-          image: avatar,
-        };
-      },
-    }),
+    createDiscordProvider(),
   ],
   callbacks: {
     session({ session, user, token }) {
