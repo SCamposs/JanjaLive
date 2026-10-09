@@ -297,7 +297,7 @@ function Header({ auth, version, update, inRoom, canLogout, onLeaveRoom, onLogou
 }
 
 function Login({ auth }: { auth: AuthStatus }) {
-  return <section className="desktop-login desktop-noir-screen"><img src="/janja-live.png" alt="" /><h1>JanjaLive</h1><p>Entre para abrir suas salas.</p><button className="primary-button" type="button" disabled={auth.state === "connecting"} onClick={() => void window.janja.auth.start()}>{auth.state === "connecting" ? "Aguardando o navegador…" : "Entrar com Discord"}</button></section>;
+  return <section className="desktop-login desktop-noir-screen"><img src="/janja-live.png" alt="" /><h1>JanjaLive</h1><p>Entre para abrir suas salas.</p>{auth.state === "connecting" ? <div className="login-actions"><span>Aguardando o navegador…</span><button className="quiet-button" type="button" onClick={() => void window.janja.auth.cancel()}>Cancelar</button></div> : <button className="primary-button" type="button" onClick={() => void window.janja.auth.start()}>Entrar com Discord</button>}</section>;
 }
 
 function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary[]; onOpen: (id: string) => Promise<void>; onOpenSnapshot: (room: RoomSnapshot) => void; onRefresh: () => Promise<void> }) {

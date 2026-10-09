@@ -338,6 +338,12 @@ function registerIpc() {
       updateAuthStatus({ state: "error", message: "Não foi possível abrir o navegador. Tente novamente." });
     });
   });
+  ipcMain.handle("auth:cancel", (event) => {
+    assertTrustedSender(event);
+    if (authStatus.state !== "connecting") return;
+    pendingAuth = null;
+    updateAuthStatus({ state: "signed-out" });
+  });
   ipcMain.handle("auth:get-status", (event) => {
     assertTrustedSender(event);
     return authStatus;

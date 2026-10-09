@@ -173,6 +173,7 @@ export type JanjaDesktopApi = {
   };
   auth: {
     start(): Promise<void>;
+    cancel(): Promise<void>;
     getStatus(): Promise<AuthStatus>;
     logout(): Promise<void>;
     onStatus(listener: (status: AuthStatus) => void): () => void;

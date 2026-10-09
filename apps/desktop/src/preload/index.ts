@@ -23,6 +23,7 @@ const api: JanjaDesktopApi = {
   },
   auth: {
     start: () => ipcRenderer.invoke("auth:start"),
+    cancel: () => ipcRenderer.invoke("auth:cancel"),
     getStatus: () => ipcRenderer.invoke("auth:get-status"),
     logout: () => ipcRenderer.invoke("auth:logout"),
     onStatus(listener) {
