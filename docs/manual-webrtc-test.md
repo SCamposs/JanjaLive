@@ -12,6 +12,21 @@ CI verifies that web and desktop accept the same signaling fixtures, both consum
 - Apply the checked-in Drizzle migration.
 - Register the correct Discord callback URL.
 - Open DevTools only to verify that media requests are peer connections; do not copy raw SDP, ICE candidates, cookies, or IP addresses.
+- Record the exact browser and desktop versions before each run. Desktop regression testing for the stale-negotiation fix starts at `0.1.20`.
+
+## Regression gate — desktop 0.1.20
+
+Run this short gate before the broader matrix. It specifically covers failures observed in `0.1.19`.
+
+- [ ] Enter an authorized room in the desktop app. The status begins as **Conectando** and clears after the first successful room sync; it must not begin as **Reconectando**.
+- [ ] Start and stop one viewing attempt, leave the room, then reopen it within three minutes. Old offers and ICE candidates must not recreate a peer or hold the room in a connection state.
+- [ ] Start a browser transmission, click **Assistir** in desktop, and confirm video/audio arrive without the former 20-second failure.
+- [ ] Start a desktop transmission and confirm a browser on another account can watch it.
+- [ ] Repeat both directions on different networks so TURN is exercised when a direct route is unavailable.
+- [ ] With a viewer connected, use **Trocar tela**. The viewer must remain connected and begin receiving the new source without clicking **Assistir** again.
+- [ ] With two friends transmitting, switch between them from the play buttons in the members panel. The previous peer must close and the selected stream must open.
+- [ ] At browser zoom 100%, confirm the player controls are visible without F11, scrolling, or pointer hover.
+- [ ] Confirm the short start/join/leave sounds are quiet, distinct, and never block an action if browser autoplay policy suspends audio.
 
 ## Test A — two browser sessions, one computer
 
@@ -73,6 +88,15 @@ CI verifies that web and desktop accept the same signaling fixtures, both consum
 - [ ] Picture in Picture works when the browser exposes it.
 - [ ] Fullscreen works.
 - [ ] **Parar de assistir** closes the selected peer connection.
+- [ ] Switching to another broadcaster from the members panel closes the previous peer connection.
+- [ ] Controls remain reachable at 100% browser zoom and at common laptop viewport heights.
+
+## Desktop update
+
+- [ ] An installed older build detects `0.1.20` or newer without a manual update button.
+- [ ] Accepting the update restarts the application.
+- [ ] After relaunch, the title bar and in-app version both show the new version.
+- [ ] Authentication and the saved room list remain available after the update.
 
 ## Resilience
 
