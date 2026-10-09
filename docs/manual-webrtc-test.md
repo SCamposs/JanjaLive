@@ -12,13 +12,14 @@ CI verifies that web and desktop accept the same signaling fixtures, both consum
 - Apply the checked-in Drizzle migration.
 - Register the correct Discord callback URL.
 - Open DevTools only to verify that media requests are peer connections; do not copy raw SDP, ICE candidates, cookies, or IP addresses.
-- Record the exact browser and desktop versions before each run. Desktop regression testing for the stale-negotiation fix starts at `0.1.20`.
+- Record the exact browser and desktop versions before each run. Desktop regression testing for resilient realtime polling starts at `0.1.21`.
 
-## Regression gate — desktop 0.1.20
+## Regression gate — desktop 0.1.21
 
-Run this short gate before the broader matrix. It specifically covers failures observed in `0.1.19`.
+Run this short gate before the broader matrix. It specifically covers failures observed through `0.1.20`.
 
 - [ ] Enter an authorized room in the desktop app. The status begins as **Conectando** and clears after the first successful room sync; it must not begin as **Reconectando**.
+- [ ] Leave an older or malformed retained signaling item in the room queue. Valid presence and stream state must still load, and later valid events must continue from the returned cursor.
 - [ ] Start and stop one viewing attempt, leave the room, then reopen it within three minutes. Old offers and ICE candidates must not recreate a peer or hold the room in a connection state.
 - [ ] Start a browser transmission, click **Assistir** in desktop, and confirm video/audio arrive without the former 20-second failure.
 - [ ] Start a desktop transmission and confirm a browser on another account can watch it.
@@ -93,7 +94,7 @@ Run this short gate before the broader matrix. It specifically covers failures o
 
 ## Desktop update
 
-- [ ] An installed older build detects `0.1.20` or newer without a manual update button.
+- [ ] An installed older build detects `0.1.21` or newer without a manual update button.
 - [ ] Accepting the update restarts the application.
 - [ ] After relaunch, the title bar and in-app version both show the new version.
 - [ ] Authentication and the saved room list remain available after the update.

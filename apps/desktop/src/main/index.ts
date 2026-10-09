@@ -24,7 +24,7 @@ import {
   captureSelectionSchema,
   iceServersSchema,
   membershipActionSchema,
-  realtimePollSchema,
+  parseRealtimePoll,
   roomCreateInputSchema,
   roomSnapshotSchema,
   roomSummarySchema,
@@ -447,7 +447,7 @@ function registerIpc() {
     assertTrustedSender(event);
     if (typeof since !== "number" || !Number.isSafeInteger(since) || since < 0) throw new Error("INVALID_CURSOR");
     const response = await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}/signals?since=${since}`);
-    return realtimePollSchema.parse(await response.json());
+    return parseRealtimePoll(await response.json());
   });
   ipcMain.handle("realtime:send", async (event, roomId: unknown, payload: unknown) => {
     assertTrustedSender(event);

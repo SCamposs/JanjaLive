@@ -130,21 +130,49 @@ const serverSignalSchema = z.union([
   z.object({ type: z.literal("room:closed") }).strict(),
 ]);
 
+const realtimeEventSchema = z.object({
+  id: z.string().min(1).max(128),
+  senderUserId: z.string().min(1).max(128),
+  sentAt: z.number(),
+  cursor: z.number().int().nonnegative(),
+  payload: serverSignalSchema,
+}).strict();
+
+const activeStreamSchema = streamMetadataSchema.extend({
+  streamerUserId: z.string().min(1).max(128),
+  startedAt: z.number(),
+}).strict();
+
 export const realtimePollSchema = z.object({
-  events: z.array(z.object({
-    id: z.string().min(1).max(128),
-    senderUserId: z.string().min(1).max(128),
-    sentAt: z.number(),
-    cursor: z.number().int().nonnegative(),
-    payload: serverSignalSchema,
-  }).strict()).max(400),
+  events: z.array(realtimeEventSchema).max(400),
   onlineUserIds: z.array(z.string().min(1).max(128)).max(100),
-  activeStreams: z.array(streamMetadataSchema.extend({
-    streamerUserId: z.string().min(1).max(128),
-    startedAt: z.number(),
-  }).strict()).max(100),
+  activeStreams: z.array(activeStreamSchema).max(100),
   cursor: z.number().int().nonnegative(),
 }).strict();
+
+const realtimePollEnvelopeSchema = z.object({
+  events: z.array(z.unknown()).max(400),
+  onlineUserIds: z.array(z.unknown()).max(100),
+  activeStreams: z.array(z.unknown()).max(100),
+  cursor: z.number().int().nonnegative(),
+});
+
+export function parseRealtimePoll(value: unknown): RealtimePoll {
+  const envelope = realtimePollEnvelopeSchema.parse(value);
+  const events = envelope.events.flatMap((candidate) => {
+    const parsed = realtimeEventSchema.safeParse(candidate);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const onlineUserIds = envelope.onlineUserIds.flatMap((candidate) => {
+    const parsed = z.string().min(1).max(128).safeParse(candidate);
+    return parsed.success ? [parsed.data] : [];
+  });
+  const activeStreams = envelope.activeStreams.flatMap((candidate) => {
+    const parsed = activeStreamSchema.safeParse(candidate);
+    return parsed.success ? [parsed.data] : [];
+  });
+  return realtimePollSchema.parse({ events, onlineUserIds, activeStreams, cursor: envelope.cursor });
+}
 
 export const iceServersSchema = z.object({
   iceServers: z.array(z.object({
