@@ -538,10 +538,15 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     await send({ type: "watch:stop", targetUserId: streamerUserId }).catch(() => undefined);
   }, [closePeer, send]);
 
+  const dismissConnectionError = useCallback(() => {
+    setConnectionError(null);
+  }, []);
+
   return {
     activeStreams,
     connectionError,
     connectionStatus,
+    dismissConnectionError,
     membershipRevision,
     onlineUserIds,
     remoteStreams,

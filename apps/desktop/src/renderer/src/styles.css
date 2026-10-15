@@ -138,6 +138,8 @@ button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .player-actions { display: flex; align-items: center; gap: 8px; }
 .player-actions input { width: 76px; accent-color: #8c1d2c; }
 .player-actions .danger-control { color: #d9a0a6; }
+.player-actions > [data-tooltip]:last-child::after { right: 0; left: auto; transform: translateY(3px); }
+.player-actions > [data-tooltip]:last-child:hover::after, .player-actions > [data-tooltip]:last-child:focus-visible::after { transform: translateY(0); }
 .desktop-members { padding: 18px 14px; overflow: auto; border-left: 1px solid #1e1e1e; background: #0d0d0d; }
 .desktop-members h2 { margin: 0 5px 20px; font-size: 15px; }
 .desktop-members h2 span { margin-left: 4px; color: #8b8882; font-size: 11px; }

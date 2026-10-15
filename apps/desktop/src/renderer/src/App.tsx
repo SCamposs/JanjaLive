@@ -308,7 +308,7 @@ export function App() {
 
       {update.state === "ready" && updateDialogOpen && <UpdateDialog version={update.version} onClose={() => setUpdateDialogOpen(false)} />}
 
-      {(error || auth.state === "error" || realtime.connectionError) && <div className="error-toast" role="alert">{error || (auth.state === "error" ? auth.message : realtime.connectionError)}<button type="button" onClick={() => { setError(null); if (auth.state === "error") setAuth({ state: "signed-out" }); }}>×</button></div>}
+      {(error || auth.state === "error" || realtime.connectionError) && <div className="error-toast" role="alert">{error || (auth.state === "error" ? auth.message : realtime.connectionError)}<button type="button" aria-label="Fechar aviso" onClick={() => { setError(null); realtime.dismissConnectionError(); if (auth.state === "error") setAuth({ state: "signed-out" }); }}>×</button></div>}
     </main>
   );
 }
@@ -324,7 +324,25 @@ function UpdateDialog({ version, onClose }: { version: string; onClose: () => vo
 }
 
 function Header({ auth, version, update, inRoom, canLogout, onLeaveRoom, onLogout, onShowUpdate }: { auth: AuthStatus; version: string; update: UpdaterStatus; inRoom: boolean; canLogout: boolean; onLeaveRoom: () => void; onLogout: () => Promise<void>; onShowUpdate: () => void }) {
-  return <header className="app-header"><div className="brand"><img src="/janja-live.png" alt="" /><span>JanjaLive</span></div><div className="header-actions">{inRoom && <button className="header-icon-action" data-tooltip="Sair da sala" aria-label="Sair da sala" type="button" onClick={onLeaveRoom}><LogOut size={17} /></button>}<span className="version">v{version}</span>{update.state === "checking" && <span className="update-checking" data-tooltip="Verificando atualização" role="status" aria-label="Verificando atualização" />}{update.state === "ready" && <button className="update-indicator" type="button" onClick={onShowUpdate}><span />Nova versão</button>}{auth.state === "signed-in" && <details className="desktop-account-menu"><summary className="account-button">{auth.user.image ? <img src={auth.user.image} alt="" /> : <span className="avatar-fallback">{auth.user.name[0]}</span>}<span>{auth.user.name}</span></summary><div><button type="button" disabled={!canLogout} onClick={() => void onLogout()}>Sair da conta</button></div></details>}</div></header>;
+  const accountMenuRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    function closeOnOutsidePress(event: PointerEvent) {
+      const menu = accountMenuRef.current;
+      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape" || !accountMenuRef.current?.open) return;
+      accountMenuRef.current.open = false;
+      accountMenuRef.current.querySelector<HTMLElement>("summary")?.focus();
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
+  return <header className="app-header"><div className="brand"><img src="/janja-live.png" alt="" /><span>JanjaLive</span></div><div className="header-actions">{inRoom && <button className="header-icon-action" data-tooltip="Sair da sala" aria-label="Sair da sala" type="button" onClick={onLeaveRoom}><LogOut size={17} /></button>}<span className="version">v{version}</span>{update.state === "checking" && <span className="update-checking" data-tooltip="Verificando atualização" role="status" aria-label="Verificando atualização" />}{update.state === "ready" && <button className="update-indicator" type="button" onClick={onShowUpdate}><span />Nova versão</button>}{auth.state === "signed-in" && <details ref={accountMenuRef} className="desktop-account-menu"><summary className="account-button">{auth.user.image ? <img src={auth.user.image} alt="" /> : <span className="avatar-fallback">{auth.user.name[0]}</span>}<span>{auth.user.name}</span></summary><div><button type="button" disabled={!canLogout} onClick={() => { accountMenuRef.current?.removeAttribute("open"); void onLogout(); }}>Sair da conta</button></div></details>}</div></header>;
 }
 
 function Login({ auth }: { auth: AuthStatus }) {
