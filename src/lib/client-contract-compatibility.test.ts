@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ClientSignal, RealtimePoll } from "@janjalive/webrtc";
-import { clientSignalSchema as desktopClientSignalSchema, realtimePollSchema } from "../../apps/desktop/src/shared/contracts";
+import {
+  clientSignalSchema as desktopClientSignalSchema,
+  parseRealtimePoll,
+  realtimePollSchema,
+} from "../../apps/desktop/src/shared/contracts";
 import { clientSignalingEventSchema, signalingEventSchema } from "./schemas";
 
 const signals = [
@@ -37,9 +41,10 @@ describe("web and desktop realtime contract", () => {
   });
 
   it("accepts the same poll envelope consumed by the shared WebRTC core", () => {
-    const poll = {
+    const serverPoll = {
       events: [{
         id: "event-1",
+        roomId: "600d84a1-26a0-4758-8d81-14f8bbef08e2",
         senderUserId: "friend",
         sentAt: Date.now(),
         cursor: 1,
@@ -56,9 +61,12 @@ describe("web and desktop realtime contract", () => {
         startedAt: Date.now(),
       }],
       cursor: 1,
-    } satisfies RealtimePoll;
+    };
+
+    const poll = parseRealtimePoll(serverPoll) satisfies RealtimePoll;
 
     expect(realtimePollSchema.safeParse(poll).success).toBe(true);
+    expect(poll.events).toHaveLength(1);
     expect(poll.events.every((event) => signalingEventSchema.safeParse(event.payload).success)).toBe(true);
   });
 });

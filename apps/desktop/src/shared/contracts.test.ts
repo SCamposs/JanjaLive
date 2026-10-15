@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { parseRealtimePoll, realtimePollSchema } from "./contracts";
+import { parseRealtimePoll } from "./contracts";
 
 const validEvent = {
   id: "event-1",
+  roomId: "600d84a1-26a0-4758-8d81-14f8bbef08e2",
   senderUserId: "friend",
   sentAt: 1_000,
   cursor: 1_000_001,
   payload: { type: "watch:request", targetUserId: "viewer" },
+};
+
+const normalizedEvent = {
+  id: validEvent.id,
+  senderUserId: validEvent.senderUserId,
+  sentAt: validEvent.sentAt,
+  cursor: validEvent.cursor,
+  payload: validEvent.payload,
 };
 
 const validStream = {
@@ -28,7 +37,10 @@ describe("desktop realtime response boundary", () => {
       cursor: validEvent.cursor,
     };
 
-    expect(parseRealtimePoll(value)).toEqual(realtimePollSchema.parse(value));
+    expect(parseRealtimePoll(value)).toEqual({
+      ...value,
+      events: [normalizedEvent],
+    });
   });
 
   it("drops malformed retained entries without poisoning the next cursor", () => {
@@ -43,7 +55,7 @@ describe("desktop realtime response boundary", () => {
     });
 
     expect(parsed).toEqual({
-      events: [validEvent],
+      events: [normalizedEvent],
       onlineUserIds: ["friend"],
       activeStreams: [validStream],
       cursor: 1_000_999,

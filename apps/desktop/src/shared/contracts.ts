@@ -138,6 +138,13 @@ const realtimeEventSchema = z.object({
   payload: serverSignalSchema,
 }).strict();
 
+const storedRealtimeEventSchema = realtimeEventSchema.extend({
+  roomId: z.string().uuid(),
+}).strict().transform(({ roomId, ...event }) => {
+  void roomId;
+  return event;
+});
+
 const activeStreamSchema = streamMetadataSchema.extend({
   streamerUserId: z.string().min(1).max(128),
   startedAt: z.number(),
@@ -160,7 +167,7 @@ const realtimePollEnvelopeSchema = z.object({
 export function parseRealtimePoll(value: unknown): RealtimePoll {
   const envelope = realtimePollEnvelopeSchema.parse(value);
   const events = envelope.events.flatMap((candidate) => {
-    const parsed = realtimeEventSchema.safeParse(candidate);
+    const parsed = storedRealtimeEventSchema.safeParse(candidate);
     return parsed.success ? [parsed.data] : [];
   });
   const onlineUserIds = envelope.onlineUserIds.flatMap((candidate) => {
