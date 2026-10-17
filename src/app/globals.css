@@ -296,8 +296,9 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .stream-connecting { display: grid; justify-items: center; gap: 12px; color: var(--muted); font-size: 12px; }
 .player-label { position: absolute; z-index: 2; top: 13px; left: 13px; display: flex; align-items: center; gap: 7px; border-radius: 6px; padding: 7px 9px; background: rgba(13,13,13,.78); backdrop-filter: blur(8px); font-size: 10px; opacity: 0; transition: opacity .2s; }
 .player-label strong { font-size: 11px; }
-.player-controls { position: absolute; z-index: 2; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); min-width: 390px; height: 46px; padding: 0 7px; display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; background: rgba(21,21,21,.88); backdrop-filter: blur(12px); opacity: .92; transition: opacity .2s; }
-.player-shell:hover .player-controls, .player-shell:hover .player-label, .player-controls:focus-within { opacity: 1; }
+.player-controls { position: absolute; z-index: 2; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translate(-50%, 4px); min-width: 390px; height: 46px; padding: 0 7px; display: flex; align-items: center; gap: 6px; border: 1px solid rgba(255,255,255,.08); border-radius: 9px; background: rgba(21,21,21,.88); backdrop-filter: blur(12px); opacity: 0; pointer-events: none; transition: opacity .18s cubic-bezier(.22, 1, .36, 1), transform .18s cubic-bezier(.22, 1, .36, 1); }
+.player-shell[data-controls-visible="true"] .player-controls { opacity: .96; pointer-events: auto; transform: translate(-50%, 0); }
+.player-shell[data-controls-visible="true"] .player-label { opacity: 1; }
 .player-controls input[type="range"] { width: 70px; accent-color: var(--accent); }
 .control-spacer { flex: 1; }
 .stop-button { height: 30px; display: flex; align-items: center; gap: 5px; border: 0; border-radius: 5px; color: var(--text-soft); background: var(--surface-3); font-size: 10px; cursor: pointer; padding: 0 9px; }

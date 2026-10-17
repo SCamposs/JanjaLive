@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent as ReactFocusEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Play, Scaling, Trash2, UserMinus, Volume2, VolumeX, X } from "lucide-react";
 import { playRoomCue, type ConnectionStatus, type StreamMetadata } from "@janjalive/webrtc";
 import type { AuthStatus, CaptureSource, RoomSnapshot, RoomSummary, UpdaterStatus } from "../../shared/contracts";
@@ -7,6 +7,7 @@ import { useRoomMedia } from "./use-room-media";
 type Resolution = "720p" | "1080p" | "1440p" | "source";
 type Quality = "auto" | "high" | "custom";
 const ROOM_CODE_LENGTH = 7;
+const PLAYER_CONTROLS_HIDE_DELAY_MS = 2_500;
 
 function normalizeRoomCode(value: string) {
   return (value.toUpperCase().match(/[2-9A-HJ-NP-Z]/g) ?? []).join("").slice(0, ROOM_CODE_LENGTH);
@@ -450,6 +451,82 @@ function RoomMembers({ room, onlineUserIds, currentUserId, activeStreamerIds, se
   return <aside className="desktop-members"><h2>Membros <span>{room.members.length}</span></h2>{room.pending.length > 0 && <section className="member-section pending-members"><h3>Pedidos</h3>{room.pending.map((member) => <div className="pending-member" key={member.userId}><Member member={{ ...member, role: "MEMBER" }} online={false} /><div><button data-tooltip={`Aprovar ${member.name}`} aria-label={`Aprovar ${member.name}`} type="button" onClick={() => void manage(member.userId, "approve")}><Check size={14} /></button><button data-tooltip={`Recusar ${member.name}`} aria-label={`Recusar ${member.name}`} type="button" onClick={() => void manage(member.userId, "reject")}><X size={14} /></button></div></div>)}</section>}<section className="member-section"><h3>Online</h3>{online.length ? online.map((member) => <Member key={member.userId} member={member} online streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamer === member.userId} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} />) : <p className="members-empty">Ninguém online.</p>}</section><section className="member-section"><h3>Autorizados</h3>{room.members.map((member) => <Member key={member.userId} member={member} online={onlineUserIds.includes(member.userId)} streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamer === member.userId} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} onRemove={room.room.isOwner && member.userId !== currentUserId ? () => void manage(member.userId, "revoke") : undefined} />)}</section>{room.room.isOwner && <footer className="room-owner-actions"><button data-tooltip={copied ? "Convite copiado" : "Copiar novo convite"} aria-label={copied ? "Convite copiado" : "Copiar novo convite"} type="button" onClick={() => void copyInvite()}>{copied ? <Check size={15} /> : <Copy size={15} />}</button><button data-tooltip={confirmDelete ? "Confirmar exclusão" : "Excluir sala"} aria-label={confirmDelete ? "Confirmar exclusão" : "Excluir sala"} className="danger-control" type="button" onBlur={() => setConfirmDelete(false)} onClick={() => void removeRoom()}><Trash2 size={15} /></button></footer>}</aside>;
 }
 
+function usePlayerControlsAutoHide() {
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const hideTimerRef = useRef<number | null>(null);
+
+  const clearHideTimer = useCallback(() => {
+    if (hideTimerRef.current === null) return;
+    window.clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = null;
+  }, []);
+
+  const scheduleHide = useCallback(() => {
+    clearHideTimer();
+    hideTimerRef.current = window.setTimeout(() => setControlsVisible(false), PLAYER_CONTROLS_HIDE_DELAY_MS);
+  }, [clearHideTimer]);
+
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    scheduleHide();
+  }, [scheduleHide]);
+
+  useEffect(() => {
+    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) scheduleHide();
+    return clearHideTimer;
+  }, [clearHideTimer, scheduleHide]);
+
+  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") return;
+    if (event.target instanceof Element && event.target.closest("[data-player-controls]")) {
+      clearHideTimer();
+      setControlsVisible(true);
+      return;
+    }
+    showControls();
+  }, [clearHideTimer, showControls]);
+
+  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") {
+      showControls();
+      return;
+    }
+    clearHideTimer();
+    if (event.target instanceof Element && event.target.closest("[data-player-controls]")) {
+      setControlsVisible(true);
+      return;
+    }
+    setControlsVisible((visible) => !visible);
+  }, [clearHideTimer, showControls]);
+
+  const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) scheduleHide();
+  }, [scheduleHide]);
+
+  return {
+    controlsVisible,
+    showControls,
+    containerProps: {
+      onPointerEnter: showControls,
+      onPointerMove: handlePointerMove,
+      onPointerDownCapture: handlePointerDown,
+      onPointerLeave: scheduleHide,
+      onFocusCapture: () => {
+        clearHideTimer();
+        setControlsVisible(true);
+      },
+      onBlurCapture: handleBlur,
+    },
+    controlsProps: {
+      onPointerEnter: () => {
+        clearHideTimer();
+        setControlsVisible(true);
+      },
+      onPointerLeave: scheduleHide,
+    },
+  };
+}
+
 function Player({ stream, label, own, onStop }: { stream: MediaStream; label: string; own: boolean; onStop: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -458,6 +535,7 @@ function Player({ stream, label, own, onStop }: { stream: MediaStream; label: st
   const [playing, setPlaying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [fitMode, setFitMode] = useState<"contain" | "cover">("contain");
+  const { controlsVisible, showControls, containerProps, controlsProps } = usePlayerControlsAutoHide();
   useEffect(() => {
     const video = ref.current;
     if (!video) return;
@@ -466,12 +544,13 @@ function Player({ stream, label, own, onStop }: { stream: MediaStream; label: st
     setMuted(own);
     setPlaying(false);
     setFitMode("contain");
+    showControls();
     void video.play().catch(() => {
       video.muted = true;
       setMuted(true);
       void video.play().catch(() => undefined);
     });
-  }, [own, stream]);
+  }, [own, showControls, stream]);
   useEffect(() => {
     const handleFullscreenChange = () => setFullscreen(document.fullscreenElement === containerRef.current);
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -481,7 +560,7 @@ function Player({ stream, label, own, onStop }: { stream: MediaStream; label: st
     if (document.fullscreenElement) await document.exitFullscreen();
     else await containerRef.current?.requestFullscreen();
   }
-  return <div className="desktop-player" data-fit={fitMode} ref={containerRef}><video ref={ref} autoPlay muted={muted} playsInline onDoubleClick={() => void toggleFullscreen()} onPlaying={() => setPlaying(true)} onWaiting={() => setPlaying(false)} />{!playing && <div className="desktop-player-waiting">Conectando à transmissão…</div>}<div className="desktop-player-controls"><span>{label}</span><div className="player-actions"><button className="icon-action" data-tooltip={muted ? "Ativar som" : "Silenciar"} aria-label={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const next = Number(event.target.value); setVolume(next); if (ref.current) ref.current.volume = next; }} /><button className="icon-action" data-tooltip={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} aria-label={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} type="button" onClick={() => setFitMode((value) => value === "contain" ? "cover" : "contain")}><Scaling size={16} /></button><button className="icon-action" data-tooltip="Picture in Picture" aria-label="Picture in Picture" type="button" onClick={() => void ref.current?.requestPictureInPicture?.()}><PictureInPicture2 size={16} /></button><button className="icon-action" data-tooltip={fullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-label={fullscreen ? "Sair da tela cheia" : "Tela cheia"} type="button" onClick={() => void toggleFullscreen()}>{fullscreen ? <Minimize2 size={16} /> : <Maximize size={16} />}</button><button className="icon-action danger-control" data-tooltip={own ? "Encerrar transmissão" : "Parar de assistir"} aria-label={own ? "Encerrar transmissão" : "Parar de assistir"} type="button" onClick={onStop}><CircleStop size={16} /></button></div></div></div>;
+  return <div className="desktop-player" data-fit={fitMode} data-controls-visible={controlsVisible} ref={containerRef} {...containerProps}><video ref={ref} autoPlay muted={muted} playsInline onDoubleClick={() => void toggleFullscreen()} onPlaying={() => setPlaying(true)} onWaiting={() => setPlaying(false)} />{!playing && <div className="desktop-player-waiting">Conectando à transmissão…</div>}<div className="desktop-player-controls" data-player-controls {...controlsProps}><span>{label}</span><div className="player-actions"><button className="icon-action" data-tooltip={muted ? "Ativar som" : "Silenciar"} aria-label={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const next = Number(event.target.value); setVolume(next); if (ref.current) ref.current.volume = next; }} /><button className="icon-action" data-tooltip={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} aria-label={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} type="button" onClick={() => setFitMode((value) => value === "contain" ? "cover" : "contain")}><Scaling size={16} /></button><button className="icon-action" data-tooltip="Picture in Picture" aria-label="Picture in Picture" type="button" onClick={() => void ref.current?.requestPictureInPicture?.()}><PictureInPicture2 size={16} /></button><button className="icon-action" data-tooltip={fullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-label={fullscreen ? "Sair da tela cheia" : "Tela cheia"} type="button" onClick={() => void toggleFullscreen()}>{fullscreen ? <Minimize2 size={16} /> : <Maximize size={16} />}</button><button className="icon-action danger-control" data-tooltip={own ? "Encerrar transmissão" : "Parar de assistir"} aria-label={own ? "Encerrar transmissão" : "Parar de assistir"} type="button" onClick={onStop}><CircleStop size={16} /></button></div></div></div>;
 }
 
 function Member({ member, online, streaming = false, selected = false, onWatch, onRemove }: { member: RoomSnapshot["members"][number]; online: boolean; streaming?: boolean; selected?: boolean; onWatch?: () => void; onRemove?: () => void }) {

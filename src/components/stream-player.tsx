@@ -1,8 +1,86 @@
 "use client";
 
 import { Maximize, Minimize2, PictureInPicture2, Scaling, Volume2, VolumeX, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { ConnectionStatus } from "@janjalive/webrtc";
+
+const PLAYER_CONTROLS_HIDE_DELAY_MS = 2_500;
+
+function usePlayerControlsAutoHide() {
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const hideTimerRef = useRef<number | null>(null);
+
+  const clearHideTimer = useCallback(() => {
+    if (hideTimerRef.current === null) return;
+    window.clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = null;
+  }, []);
+
+  const scheduleHide = useCallback(() => {
+    clearHideTimer();
+    hideTimerRef.current = window.setTimeout(() => setControlsVisible(false), PLAYER_CONTROLS_HIDE_DELAY_MS);
+  }, [clearHideTimer]);
+
+  const showControls = useCallback(() => {
+    setControlsVisible(true);
+    scheduleHide();
+  }, [scheduleHide]);
+
+  useEffect(() => {
+    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) scheduleHide();
+    return clearHideTimer;
+  }, [clearHideTimer, scheduleHide]);
+
+  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") return;
+    if (event.target instanceof Element && event.target.closest("[data-player-controls]")) {
+      clearHideTimer();
+      setControlsVisible(true);
+      return;
+    }
+    showControls();
+  }, [clearHideTimer, showControls]);
+
+  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") {
+      showControls();
+      return;
+    }
+    clearHideTimer();
+    if (event.target instanceof Element && event.target.closest("[data-player-controls]")) {
+      setControlsVisible(true);
+      return;
+    }
+    setControlsVisible((visible) => !visible);
+  }, [clearHideTimer, showControls]);
+
+  const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) scheduleHide();
+  }, [scheduleHide]);
+
+  return {
+    controlsVisible,
+    showControls,
+    containerProps: {
+      onPointerEnter: showControls,
+      onPointerMove: handlePointerMove,
+      onPointerDownCapture: handlePointerDown,
+      onPointerLeave: scheduleHide,
+      onFocusCapture: () => {
+        clearHideTimer();
+        setControlsVisible(true);
+      },
+      onBlurCapture: handleBlur,
+    },
+    controlsProps: {
+      onPointerEnter: () => {
+        clearHideTimer();
+        setControlsVisible(true);
+      },
+      onPointerLeave: scheduleHide,
+    },
+  };
+}
 
 type Props = {
   stream: MediaStream;
@@ -21,6 +99,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackBlocked, setPlaybackBlocked] = useState(false);
   const [fitMode, setFitMode] = useState<"contain" | "cover">("contain");
+  const { controlsVisible, showControls, containerProps, controlsProps } = usePlayerControlsAutoHide();
 
   useEffect(() => {
     const video = videoRef.current;
@@ -31,13 +110,14 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
     setIsPlaying(false);
     setPlaybackBlocked(false);
     setFitMode("contain");
+    showControls();
     void video.play().catch(() => {
       if (mode === "local") return;
       video.muted = true;
       setMuted(true);
       void video.play().catch(() => setPlaybackBlocked(true));
     });
-  }, [mode, stream]);
+  }, [mode, showControls, stream]);
 
   useEffect(() => {
     const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
@@ -58,7 +138,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
   }
 
   return (
-    <div className="player-shell" data-fit={fitMode} ref={containerRef}>
+    <div className="player-shell" data-fit={fitMode} data-controls-visible={controlsVisible} ref={containerRef} {...containerProps}>
       <video ref={videoRef} autoPlay playsInline muted={mode === "local" || muted} onDoubleClick={toggleFullscreen} onPlaying={() => { setIsPlaying(true); setPlaybackBlocked(false); }} onWaiting={() => setIsPlaying(false)} />
       {!isPlaying && (
         <div className="player-waiting">
@@ -72,7 +152,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
           <><span className={`connection-dot ${status}`} /><span>{status === "unstable" ? "Instável" : status === "connecting" ? "Conectando" : "Reconectando"}</span></>
         )}
       </div>
-      <div className="player-controls">
+      <div className="player-controls" data-player-controls {...controlsProps}>
         {mode === "remote" && (
           <>
             <button className="icon-button" data-tooltip={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? "Ativar som" : "Silenciar"}>
