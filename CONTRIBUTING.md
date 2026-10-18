@@ -4,7 +4,7 @@ JanjaLive tem um escopo deliberadamente pequeno: compartilhar uma tela com amigo
 
 ## Ambiente local
 
-Requisitos: Node.js 22+, pnpm 11+, PostgreSQL compatível com Neon, Redis compatível com Upstash e uma aplicação Discord OAuth.
+Requisitos: Node.js 22+, pnpm 11+, PostgreSQL compatível com Neon, um Cloudflare Worker configurado a partir de `apps/realtime-worker` e uma aplicação Discord OAuth. Upstash é necessário apenas para testar o caminho de rollback.
 
 ```bash
 pnpm install

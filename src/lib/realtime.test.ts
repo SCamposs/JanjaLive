@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   getRealtimeCredentials,
+  getRealtimeProvider,
   getSignalCursor,
   getSignalCutoff,
   parseRealtimeHash,
@@ -8,6 +9,16 @@ import {
 } from "./realtime";
 
 describe("realtime credentials", () => {
+  it("selects Cloudflare only when the feature flag enables it", () => {
+    expect(getRealtimeProvider({ REALTIME_PROVIDER: "cloudflare" })).toBe("cloudflare");
+    expect(getRealtimeProvider({ REALTIME_PROVIDER: "disabled" })).toBe("disabled");
+    expect(getRealtimeProvider({})).toBe("upstash");
+  });
+
+  it("rejects unknown realtime providers instead of silently falling back", () => {
+    expect(() => getRealtimeProvider({ REALTIME_PROVIDER: "other" })).toThrow("REALTIME_NOT_CONFIGURED");
+  });
+
   it("accepts the variable names provisioned by the Vercel Upstash integration", () => {
     expect(getRealtimeCredentials({
       KV_REST_API_URL: "https://example.upstash.io",

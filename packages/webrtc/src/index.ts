@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  realtimeSocketMessageSchema,
+  type RealtimeSession,
+} from "@janjalive/realtime-protocol";
 
 export { playRoomCue } from "./ui-sounds";
 
@@ -64,7 +68,173 @@ export type RoomMediaTransport = {
   poll(roomId: string, since: number): Promise<RealtimePoll>;
   getIceServers(roomId: string): Promise<RTCIceServer[]>;
   isRoomUnavailable(error: unknown): boolean;
+  getPollInterval?(states: RTCPeerConnectionState[]): number;
+  close?(roomId: string): void;
 };
+
+type AdaptiveTransportOptions = {
+  getSession(roomId: string): Promise<RealtimeSession>;
+  legacySend(roomId: string, payload: ClientSignal): Promise<void>;
+  legacyPoll(roomId: string, since: number): Promise<RealtimePoll>;
+  getIceServers(roomId: string): Promise<RTCIceServer[]>;
+  isRoomUnavailable(error: unknown): boolean;
+};
+
+export function createAdaptiveRoomMediaTransport(options: AdaptiveTransportOptions): RoomMediaTransport {
+  let roomId: string | null = null;
+  let provider: RealtimeSession["provider"] | null = null;
+  let pendingSession: RealtimeSession | null = null;
+  let socket: WebSocket | null = null;
+  let connecting: Promise<WebSocket> | null = null;
+  let onlineUserIds: string[] = [];
+  let activeStreams: ActiveStream[] = [];
+  let events: RealtimePoll["events"] = [];
+  let cursor = 0;
+  let snapshotRevision = 0;
+  let deliveredRevision = -1;
+  const waiters = new Set<{ resolve: (value: RealtimePoll) => void; reject: (error: Error) => void }>();
+
+  const snapshot = (since: number): RealtimePoll => ({
+    events: events.filter((event) => event.cursor > since),
+    onlineUserIds,
+    activeStreams,
+    cursor,
+  });
+
+  const flush = () => {
+    for (const waiter of waiters) waiter.resolve(snapshot(0));
+    waiters.clear();
+  };
+
+  const fail = (error: Error) => {
+    for (const waiter of waiters) waiter.reject(error);
+    waiters.clear();
+  };
+
+  const resetRoom = (nextRoomId: string) => {
+    if (roomId === nextRoomId) return;
+    socket?.close(1000, "Room changed");
+    roomId = nextRoomId;
+    provider = null;
+    pendingSession = null;
+    socket = null;
+    connecting = null;
+    onlineUserIds = [];
+    activeStreams = [];
+    events = [];
+    cursor = 0;
+    snapshotRevision = 0;
+    deliveredRevision = -1;
+    fail(new Error("ROOM_CHANGED"));
+  };
+
+  const ensureProvider = async (targetRoomId: string) => {
+    resetRoom(targetRoomId);
+    if (!provider) {
+      pendingSession = await options.getSession(targetRoomId);
+      provider = pendingSession.provider;
+    }
+    return provider;
+  };
+
+  const connect = async (targetRoomId: string) => {
+    resetRoom(targetRoomId);
+    if (socket?.readyState === WebSocket.OPEN) return socket;
+    if (connecting) return connecting;
+    connecting = (async () => {
+      const session = pendingSession ?? await options.getSession(targetRoomId);
+      pendingSession = null;
+      provider = session.provider;
+      if (session.provider !== "cloudflare") throw new Error("REALTIME_PROVIDER_MISMATCH");
+      const websocketUrl = new URL("/connect", session.url);
+      websocketUrl.protocol = websocketUrl.protocol === "https:" ? "wss:" : "ws:";
+      const candidate = new WebSocket(websocketUrl, ["janjalive-v1", `janjalive-token.${session.token}`]);
+      candidate.addEventListener("message", (message) => {
+        try {
+          const parsed = realtimeSocketMessageSchema.safeParse(JSON.parse(String(message.data)));
+          if (!parsed.success) return;
+          if (parsed.data.type === "snapshot") {
+            onlineUserIds = parsed.data.onlineUserIds;
+            activeStreams = parsed.data.activeStreams;
+            snapshotRevision += 1;
+          } else {
+            events = [...events, parsed.data.event].slice(-400);
+            cursor = Math.max(cursor, parsed.data.event.cursor);
+          }
+          flush();
+        } catch {
+          // Ignore malformed server messages; a valid connection remains usable.
+        }
+      });
+      candidate.addEventListener("close", (event) => {
+        if (socket === candidate) socket = null;
+        connecting = null;
+        fail(new Error(event.code === 4003 || event.code === 4004 ? "API_403" : "REALTIME_DISCONNECTED"));
+      });
+      candidate.addEventListener("error", () => fail(new Error("REALTIME_DISCONNECTED")));
+      await new Promise<void>((resolve, reject) => {
+        const opened = () => { cleanup(); resolve(); };
+        const failed = () => { cleanup(); reject(new Error("REALTIME_CONNECT_FAILED")); };
+        const closed = () => { cleanup(); reject(new Error("REALTIME_DISCONNECTED")); };
+        const cleanup = () => {
+          candidate.removeEventListener("open", opened);
+          candidate.removeEventListener("error", failed);
+          candidate.removeEventListener("close", closed);
+        };
+        candidate.addEventListener("open", opened, { once: true });
+        candidate.addEventListener("error", failed, { once: true });
+        candidate.addEventListener("close", closed, { once: true });
+      });
+      socket = candidate;
+      return candidate;
+    })();
+    try {
+      return await connecting;
+    } finally {
+      connecting = null;
+    }
+  };
+
+  return {
+    async send(targetRoomId, payload) {
+      const selectedProvider = await ensureProvider(targetRoomId);
+      if (selectedProvider === "upstash") return options.legacySend(targetRoomId, payload);
+      const currentSocket = await connect(targetRoomId);
+      currentSocket.send(JSON.stringify({ type: "signal", payload }));
+    },
+    async poll(targetRoomId, since) {
+      const selectedProvider = await ensureProvider(targetRoomId);
+      if (selectedProvider === "upstash") return options.legacyPoll(targetRoomId, since);
+      await connect(targetRoomId);
+      if (events.some((event) => event.cursor > since) || snapshotRevision > deliveredRevision) {
+        deliveredRevision = snapshotRevision;
+        return snapshot(since);
+      }
+      return await new Promise<RealtimePoll>((resolve, reject) => {
+        waiters.add({
+          resolve: (value) => {
+            deliveredRevision = snapshotRevision;
+            resolve({ ...value, events: value.events.filter((event) => event.cursor > since) });
+          },
+          reject,
+        });
+      });
+    },
+    getIceServers: options.getIceServers,
+    isRoomUnavailable: options.isRoomUnavailable,
+    getPollInterval(states) {
+      return provider === "cloudflare" ? 0 : getRoomPollInterval(states);
+    },
+    close(targetRoomId) {
+      if (roomId !== targetRoomId) return;
+      const current = socket;
+      socket = null;
+      connecting = null;
+      current?.close(1000, "Left room");
+      fail(new Error("REALTIME_CLOSED"));
+    },
+  };
+}
 
 export type RoomSignalDirective = {
   closeSender: boolean;
@@ -461,7 +631,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
         const peerStates = [...peersRef.current.values()].map((peer) => peer.connectionState);
         setConnectionStatus(getPeerConnectionStatus(peerStates));
         if (!shouldPauseRoomPolling(document.visibilityState, Boolean(localStreamRef.current), peersRef.current.size)) {
-          timeout = setTimeout(poll, getRoomPollInterval(peerStates));
+          timeout = setTimeout(poll, transport.getPollInterval?.(peerStates) ?? getRoomPollInterval(peerStates));
         }
       } catch (error) {
         failures += 1;
@@ -496,7 +666,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       if (timeout) clearTimeout(timeout);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (pollWakeRef.current === wakePoll) pollWakeRef.current = null;
-      void send({ type: "presence:leave" }).catch(() => undefined);
+      void send({ type: "presence:leave" }).catch(() => undefined).finally(() => transport.close?.(roomId));
       stopLocalCapture();
       closeAllPeers();
     };

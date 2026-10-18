@@ -3,6 +3,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createAdaptiveRoomMediaTransport,
   getReconnectDelay,
   getPeerConnectionStatus,
   getRoomPollInterval,
@@ -31,6 +32,61 @@ afterEach(() => {
 });
 
 describe("shared room media lifecycle", () => {
+  it("receives the initial Cloudflare snapshot even when it follows the open event immediately", async () => {
+    class WebSocketStub extends EventTarget {
+      static OPEN = 1;
+      static last: WebSocketStub | null = null;
+      readyState = 0;
+      send = vi.fn();
+      constructor(public url: string, public protocols: string[]) {
+        super();
+        WebSocketStub.last = this;
+        queueMicrotask(() => {
+          this.readyState = WebSocketStub.OPEN;
+          this.dispatchEvent(new Event("open"));
+          this.dispatchEvent(new MessageEvent("message", {
+            data: JSON.stringify({
+              type: "snapshot",
+              onlineUserIds: ["viewer"],
+              activeStreams: [],
+            }),
+          }));
+        });
+      }
+      close() {
+        this.readyState = 3;
+        this.dispatchEvent(new CloseEvent("close", { code: 1000 }));
+      }
+    }
+    vi.stubGlobal("WebSocket", WebSocketStub);
+    const getSession = vi.fn().mockResolvedValue({
+      provider: "cloudflare",
+      url: "https://realtime.example.com",
+      token: "signed-token",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const transport = createAdaptiveRoomMediaTransport({
+      getSession,
+      legacySend: vi.fn(),
+      legacyPoll: vi.fn(),
+      getIceServers: vi.fn().mockResolvedValue([]),
+      isRoomUnavailable: () => false,
+    });
+
+    await transport.send("room-a", { type: "presence:join" });
+    await expect(transport.poll("room-a", 0)).resolves.toMatchObject({
+      onlineUserIds: ["viewer"],
+      activeStreams: [],
+    });
+    expect(getSession).toHaveBeenCalledOnce();
+    expect(WebSocketStub.last?.protocols).toEqual(["janjalive-v1", "janjalive-token.signed-token"]);
+    expect(WebSocketStub.last?.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "signal",
+      payload: { type: "presence:join" },
+    }));
+    transport.close?.("room-a");
+  });
+
   it("ends the room locally when it is closed or access is revoked", () => {
     expect(getRoomSignalDirective({ type: "room:closed" })).toMatchObject({
       membershipChanged: true,

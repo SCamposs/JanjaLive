@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { realtimeSessionSchema, type RealtimeSession } from "@janjalive/realtime-protocol";
+
+export { realtimeSessionSchema };
+export type { RealtimeSession };
 
 export const nativeAudioModeSchema = z.enum(["none", "application", "system"]);
 
@@ -249,6 +253,7 @@ export type JanjaDesktopApi = {
     delete(roomId: string): Promise<void>;
   };
   realtime: {
+    getSession(roomId: string): Promise<RealtimeSession>;
     poll(roomId: string, since: number): Promise<RealtimePoll>;
     send(roomId: string, signal: ClientSignal): Promise<void>;
     getIceServers(roomId: string): Promise<RTCIceServer[]>;

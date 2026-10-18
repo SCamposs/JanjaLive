@@ -7,7 +7,9 @@ flowchart LR
   A[Web client] -->|HTTPS: auth, rooms, signaling| V[Next.js on Vercel]
   B[Electron desktop] -->|HTTPS: auth, rooms, signaling| V
   V --> N[(Neon PostgreSQL)]
-  V --> R[(Upstash Redis: ephemeral)]
+  V --> C[Cloudflare Worker]
+  C --> D[(Durable Object per room)]
+  V -. rollback .-> R[(Upstash Redis: ephemeral)]
   A <-->|WebRTC media - never through Vercel| B
 ```
 
@@ -29,13 +31,13 @@ Room URLs contain a random 256-bit invite token. Only its SHA-256 hash is stored
 
 ## 4. Presence
 
-Presence is an expiring Redis heartbeat, independent from membership. A browser is considered online only while recent heartbeats exist. Redis loss may temporarily hide presence but cannot change who is authorized.
+Presence is derived from authenticated WebSockets attached to the room Durable Object, independent from membership. A realtime outage may temporarily hide presence but cannot change who is authorized.
 
 ## 5. Signaling
 
-The client sends validated control events over short HTTPS requests and polls an ephemeral Redis queue. This serverless transport was selected because it behaves predictably on the Vercel Hobby tier and does not bind correctness to one warm Function instance. The client implements heartbeat, exponential backoff, and resynchronizes presence and active streams after reconnecting.
+The client obtains a short-lived room-scoped token from Vercel and connects directly to a hibernatable WebSocket on Cloudflare. One Durable Object serializes each room's presence, stream announcements and signaling fan-out. The client reconnects with exponential backoff and receives a fresh presence and active-stream snapshot after reconnecting. Upstash polling remains only as an explicit rollback provider during migration.
 
-Every event is checked against the Auth.js session, active room, sender membership, and (for directed messages) target membership. Redis entries expire quickly. SDP and ICE candidates are never logged or copied to PostgreSQL.
+Vercel checks the Auth.js or desktop session, active room and sender membership before issuing a 60-second connection token. The Worker validates its signature, issuer, audience and room claim before accepting a socket. Administrative events use a separate internal secret. SDP and ICE candidates are never logged or copied to PostgreSQL.
 
 ## 6. WebRTC negotiation
 
@@ -95,7 +97,7 @@ WebRTC media transport is encrypted. P2P peers may still learn network-address i
 
 ## 12. Failure and reconnect behavior
 
-Signaling polling backs off after failures and returns to the normal cadence after recovery. Active streams and presence are resynchronized from Redis. Existing working media connections are kept alive. If no direct route can be established and no TURN fallback exists, the viewer sees a clear failure message.
+Realtime WebSockets reconnect with capped backoff. Active streams and presence are resynchronized from the Durable Object's live connection attachments. Existing working media connections are kept alive. If no direct route can be established and no TURN fallback exists, the viewer sees a clear failure message.
 
 ## 13. P2P scalability limits
 

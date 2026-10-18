@@ -6,7 +6,7 @@ import { joinRequests, roomMembers, rooms, users, type Room } from "@/db/schema"
 import { createInviteToken, createRoomCode, hashInviteToken } from "./crypto";
 import { canAutoJoinInvite, canManageRoom, isAuthorizedMember, isRoomActive } from "./room-policy";
 import { assertCanTargetMember, getMembershipTransition } from "./membership";
-import { getRealtimeStore, hasActiveRoomPresence } from "./realtime";
+import { hasActiveRoomPresence } from "./realtime";
 
 export const ROOM_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1_000;
 export const ROOM_PURGE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -114,9 +114,8 @@ export async function purgeStaleRooms(now = new Date()) {
 
   if (!candidates.length) return 0;
 
-  // Establish the Redis connection before any delete. If presence cannot be
-  // checked, cleanup fails closed and no room is removed.
-  getRealtimeStore();
+  // Presence is provider-owned. If it cannot be checked, cleanup fails closed
+  // and no room is removed.
   const presence = await Promise.all(
     candidates.map(async ({ id }) => ({ id, active: await hasActiveRoomPresence(id, now.getTime()) })),
   );

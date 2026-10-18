@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacidade" updatedAt="5 de outubro de 2026">
+    <LegalPage title="Privacidade" updatedAt="18 de outubro de 2026">
       <section>
         <h2>O que é tratado</h2>
         <p>Ao entrar com o Discord, o JanjaLive recebe o identificador da sua conta, nome, nome de exibição e avatar. O aplicativo não solicita seu e-mail e não guarda os tokens de acesso do Discord.</p>
@@ -25,13 +25,13 @@ export default function PrivacyPage() {
 
       <section>
         <h2>Dados temporários e prazos</h2>
-        <p>Presença, anúncios de transmissão e mensagens de conexão ficam temporariamente no Upstash Redis e expiram em até 180 segundos. Essas mensagens podem incluir informações de rede necessárias ao WebRTC, mas não são copiadas para o banco principal nem exibidas na interface.</p>
+        <p>Presença, anúncios de transmissão e mensagens de conexão são coordenados temporariamente pela Cloudflare. Essas mensagens podem incluir informações de rede necessárias ao WebRTC, mas não são gravadas no banco principal nem exibidas na interface.</p>
         <p>A sessão do site expira em sete dias. No aplicativo para Windows, a sessão protegida pelo sistema operacional expira em até 30 dias e pode ser encerrada antes pela opção de sair da conta. Salas expiram após três dias sem atividade e são removidas definitivamente depois de mais 30 dias, desde que não haja ninguém presente. Dados de conta, autorização e pedidos de entrada permanecem enquanto necessários ao funcionamento ou até uma solicitação aplicável de exclusão.</p>
       </section>
 
       <section>
         <h2>Serviços envolvidos</h2>
-        <p>Discord fornece a identidade; Vercel hospeda o aplicativo; Neon mantém o banco; Upstash mantém dados temporários; e Cloudflare pode atuar como retransmissor de mídia quando o TURN opcional estiver configurado. Cada provedor trata os dados técnicos necessários para prestar seu serviço conforme seus próprios termos.</p>
+        <p>Discord fornece a identidade; Vercel hospeda o aplicativo; Neon mantém o banco; e Cloudflare coordena temporariamente as conexões e pode retransmitir mídia quando o TURN opcional estiver configurado. Upstash permanece disponível apenas como alternativa técnica de retorno. Cada provedor trata os dados técnicos necessários para prestar seu serviço conforme seus próprios termos.</p>
       </section>
 
       <section>

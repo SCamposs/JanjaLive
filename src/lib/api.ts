@@ -34,6 +34,8 @@ export function apiError(error: unknown): Response {
     OWNER_REQUIRED: 403,
     ROOM_UNAVAILABLE: 404,
     REALTIME_NOT_CONFIGURED: 503,
+    REALTIME_TRANSPORT_REQUIRED: 426,
+    REALTIME_UNAVAILABLE: 503,
   };
   const isValidationError = error instanceof Error && error.name === "ZodError";
   const safeMessage = isValidationError ? "INVALID_REQUEST" : message in knownErrors ? message : "REQUEST_FAILED";

@@ -27,6 +27,7 @@ import {
   membershipActionSchema,
   nativeAudioStartResultSchema,
   parseRealtimePoll,
+  realtimeSessionSchema,
   roomCreateInputSchema,
   roomSnapshotSchema,
   roomSummarySchema,
@@ -38,7 +39,7 @@ import {
 import { findDeepLink, type DesktopDeepLink } from "../shared/security";
 import { ExpiringGrantStore } from "../shared/expiring-grants";
 import { getProtocolRegistration } from "../shared/protocol-registration";
-import { API_ORIGIN, DESKTOP_AUTH_URLS, isAllowedRemoteRequest } from "../shared/network-policy";
+import { API_ORIGIN, DESKTOP_AUTH_URLS, REALTIME_WEBSOCKET_ORIGIN, isAllowedRemoteRequest } from "../shared/network-policy";
 import { canGrantDesktopPermission } from "../shared/permission-policy";
 import { NativeAudioManager } from "./native-audio";
 
@@ -475,6 +476,11 @@ function registerIpc() {
     const response = await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}/signals?since=${since}`);
     return parseRealtimePoll(await response.json());
   });
+  ipcMain.handle("realtime:get-session", async (event, roomId: unknown) => {
+    assertTrustedSender(event);
+    const response = await backendRequest(`/api/realtime/session?roomId=${encodeURIComponent(assertRoomId(roomId))}`);
+    return realtimeSessionSchema.parse(await response.json());
+  });
   ipcMain.handle("realtime:send", async (event, roomId: unknown, payload: unknown) => {
     assertTrustedSender(event);
     const signal = clientSignalSchema.parse(payload);
@@ -570,7 +576,7 @@ function configureSession() {
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [
-          `default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; media-src 'self' blob:; connect-src ${API_ORIGIN}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
+          `default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; media-src 'self' blob:; connect-src ${API_ORIGIN} ${REALTIME_WEBSOCKET_ORIGIN}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
         ],
       },
     });

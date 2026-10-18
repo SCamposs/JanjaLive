@@ -64,6 +64,7 @@ const api: JanjaDesktopApi = {
     delete: (roomId) => ipcRenderer.invoke("rooms:delete", roomId),
   },
   realtime: {
+    getSession: (roomId) => ipcRenderer.invoke("realtime:get-session", roomId),
     poll: (roomId, since) => ipcRenderer.invoke("realtime:poll", roomId, since),
     send: (roomId, signal) => ipcRenderer.invoke("realtime:send", roomId, signal),
     getIceServers: (roomId) => ipcRenderer.invoke("realtime:ice-servers", roomId),

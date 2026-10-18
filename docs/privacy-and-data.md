@@ -21,9 +21,9 @@ The database does **not** store screen frames, video, audio, screenshots, files,
 
 ## Ephemeral signaling
 
-Upstash Redis temporarily holds presence, active-stream announcements and WebRTC negotiation messages. SDP and ICE candidates can contain network information. JanjaLive sets a 180-second TTL and keeps at most 400 recent events per room. These values are never copied to PostgreSQL or application logs.
+Cloudflare Durable Objects temporarily coordinate presence, active-stream announcements and WebRTC negotiation messages over authenticated WebSockets. Connection state disappears when clients leave; SDP and ICE candidates are not written to Durable Object storage, PostgreSQL or application logs. The optional Upstash rollback provider retains events for at most 180 seconds and keeps at most 400 recent events per room.
 
-Upstash is still an infrastructure provider that receives the signaling requests. Its own operational logs, backups and legal retention are governed by the selected Upstash plan and agreement, not by this repository. Production setup must use a private database, scoped credentials and the shortest provider retention available.
+Cloudflare is the production signaling provider and may retain platform-level operational metadata according to the configured account and agreement. Upstash receives signaling requests only while the explicit rollback provider is enabled. Production setup must use scoped credentials and the shortest provider retention available.
 
 ## Screen capture
 
@@ -37,7 +37,7 @@ On the web, system or tab audio is requested with the display picker and exists 
 
 ## Media path
 
-Media tracks are attached directly to browser `RTCPeerConnection` instances only after a viewer chooses **Assistir**. Vercel, Neon and Upstash do not receive or store media frames.
+Media tracks are attached directly to browser `RTCPeerConnection` instances only after a viewer chooses **Assistir**. Vercel, Neon, Cloudflare Durable Objects and Upstash do not receive or store media frames.
 
 When TURN is configured and a direct route cannot be established, Cloudflare may relay encrypted WebRTC packets. A relay can observe connection metadata and traffic volume, but WebRTC media remains encrypted in transit. TURN credentials are short-lived, limited to one hour and issued only to an authenticated, authorized room member.
 
@@ -56,7 +56,7 @@ JanjaLive strips query strings and fragments and replaces `/room/<invite>` and `
 
 ## Production checklist
 
-- Keep the Neon and Upstash databases private. The public GitHub repository must never contain production credentials.
+- Keep Neon private and Cloudflare and optional Upstash credentials scoped. The public GitHub repository must never contain production credentials.
 - Use separate scoped credentials for production and preview, and rotate them after any suspected exposure.
 - Never place server secrets in variables prefixed with `NEXT_PUBLIC_`.
 - Configure `AUTH_URL=https://janja.live` and the exact Discord callback `https://janja.live/api/auth/callback/discord`.

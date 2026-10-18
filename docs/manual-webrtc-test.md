@@ -4,11 +4,11 @@ Use Chrome or Edge on Windows first. Never paste production secrets into screens
 
 ## Automated coverage before this plan
 
-CI verifies that web and desktop accept the same signaling fixtures, both consume the same shared WebRTC core, reconnect backoff is bounded, room close/revocation ends polling, and leaving a room stops all local capture tracks. These tests protect protocol and lifecycle behavior but do not replace the real devices, networks, browser pickers, system-audio paths and operating-system transitions below.
+CI verifies that web and desktop accept the same signaling fixtures, both consume the same shared WebRTC core, reconnect backoff is bounded, room close/revocation ends realtime activity, and leaving a room stops all local capture tracks. These tests protect protocol and lifecycle behavior but do not replace the real devices, networks, browser pickers, system-audio paths and operating-system transitions below.
 
 ## Setup
 
-- Configure Discord OAuth, Neon, and Upstash variables.
+- Configure Discord OAuth, Neon, the Cloudflare realtime Worker and its matching Vercel variables.
 - Apply the checked-in Drizzle migration.
 - Register the correct Discord callback URL.
 - Open DevTools only to verify that media requests are peer connections; do not copy raw SDP, ICE candidates, cookies, or IP addresses.
@@ -128,6 +128,6 @@ Run this short gate before the broader matrix. It specifically covers failures o
 
 ## Privacy verification
 
-- [ ] No media request body reaches Vercel, Neon, or Redis.
+- [ ] No media request body reaches Vercel, Neon, Cloudflare Durable Objects, or the optional Upstash rollback provider.
 - [ ] PostgreSQL contains no SDP, ICE candidates, stats, IPs, frames, audio, or screenshots.
 - [ ] Production logs contain no invite token, OAuth token, SDP, ICE candidate, cookie, or raw IP.

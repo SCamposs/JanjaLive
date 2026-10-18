@@ -1,6 +1,6 @@
 {
   "name": "@janjalive/desktop",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "Cliente desktop seguro do JanjaLive para compartilhamento P2P de tela.",
   "author": "SCamposs",
   "private": true,
@@ -21,6 +21,7 @@
     "smoke:packaged": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke-packaged.ps1"
   },
   "dependencies": {
+    "@janjalive/realtime-protocol": "workspace:*",
     "electron-updater": "6.8.9",
     "zod": "4.6.5"
   },

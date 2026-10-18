@@ -1,6 +1,8 @@
 import { Redis } from "@upstash/redis";
+import { SignJWT } from "jose";
 import { nanoid } from "nanoid";
 import { signalingEventSchema, type SignalingEvent } from "./schemas";
+import type { RealtimeSession } from "@janjalive/realtime-protocol";
 
 export const SIGNAL_RETENTION_MS = 180_000;
 const SIGNAL_INDEX_RETENTION_SECONDS = 360;
@@ -39,6 +41,54 @@ export type StoredSignal = {
 
 let redis: Redis | undefined;
 
+export type RealtimeProvider = "upstash" | "cloudflare" | "disabled";
+
+export function getRealtimeProvider(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): RealtimeProvider {
+  const provider = environment.REALTIME_PROVIDER ?? "upstash";
+  if (provider === "upstash" || provider === "cloudflare" || provider === "disabled") return provider;
+  throw new Error("REALTIME_NOT_CONFIGURED");
+}
+
+function getCloudflareRealtimeConfig(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+) {
+  const url = environment.CLOUDFLARE_REALTIME_URL?.replace(/\/$/, "");
+  const tokenSecret = environment.REALTIME_TOKEN_SECRET;
+  const internalSecret = environment.REALTIME_INTERNAL_SECRET;
+  if (!url || !url.startsWith("https://") || !tokenSecret || !internalSecret) throw new Error("REALTIME_NOT_CONFIGURED");
+  return { url, tokenSecret, internalSecret };
+}
+
+async function cloudflareRequest(pathname: string, init: RequestInit = {}) {
+  const { url, internalSecret } = getCloudflareRealtimeConfig();
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${internalSecret}`);
+  headers.set("Accept", "application/json");
+  const response = await fetch(`${url}${pathname}`, { ...init, headers, cache: "no-store" });
+  if (!response.ok) throw new Error(response.status === 429 ? "RATE_LIMITED" : "REALTIME_UNAVAILABLE");
+  return response;
+}
+
+export async function createRealtimeSession(roomId: string, userId: string): Promise<RealtimeSession> {
+  const provider = getRealtimeProvider();
+  if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
+  if (provider === "upstash") return { provider };
+  const { url, tokenSecret } = getCloudflareRealtimeConfig();
+  const expiresAt = new Date(Date.now() + 60_000);
+  const token = await new SignJWT({ roomId })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setSubject(userId)
+    .setIssuer("https://www.janja.live")
+    .setAudience("janjalive-realtime")
+    .setJti(crypto.randomUUID())
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(expiresAt.getTime() / 1_000))
+    .sign(new TextEncoder().encode(tokenSecret));
+  return { provider, url, token, expiresAt: expiresAt.toISOString() };
+}
+
 export function getRealtimeCredentials(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ) {
@@ -73,6 +123,13 @@ export function roomActivityThrottleKey(roomId: string) {
 }
 
 export async function hasActiveRoomPresence(roomId: string, now = Date.now()) {
+  const provider = getRealtimeProvider();
+  if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
+  if (provider === "cloudflare") {
+    const response = await cloudflareRequest(`/internal/rooms/${encodeURIComponent(roomId)}/presence`);
+    const value = await response.json() as { active?: unknown };
+    return value.active === true;
+  }
   const presence = await getRealtimeStore().hgetall<Record<string, number>>(presenceKey(roomId));
   return Object.values(presence ?? {}).some((lastSeen) => now - Number(lastSeen) < 45_000);
 }
@@ -82,6 +139,16 @@ function streamsKey(roomId: string) {
 }
 
 export async function publishSignal(roomId: string, senderUserId: string, payload: SignalingEvent) {
+  const provider = getRealtimeProvider();
+  if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
+  if (provider === "cloudflare") {
+    await cloudflareRequest(`/internal/rooms/${encodeURIComponent(roomId)}/event`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ senderUserId, payload }),
+    });
+    return { id: nanoid(), roomId, senderUserId, sentAt: Date.now(), cursor: 0, payload } satisfies StoredSignal;
+  }
   const store = getRealtimeStore();
   const now = Date.now();
   const sequence = await store.incr(eventSequenceKey(roomId));
@@ -164,6 +231,7 @@ export function parseRealtimeHash(value: unknown): Record<string, unknown> {
 }
 
 export async function readRoomRealtime(roomId: string, userId: string, since: number) {
+  if (getRealtimeProvider() !== "upstash") throw new Error("REALTIME_TRANSPORT_REQUIRED");
   const store = getRealtimeStore();
   const now = Date.now();
   const snapshot = await store.eval(
@@ -207,6 +275,18 @@ export async function readRoomRealtime(roomId: string, userId: string, since: nu
 }
 
 export async function enforceRateLimit(key: string, limit: number, windowSeconds: number) {
+  const provider = getRealtimeProvider();
+  if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
+  if (provider === "cloudflare") {
+    const response = await cloudflareRequest("/internal/rate-limit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, limit, windowSeconds }),
+    });
+    const result = await response.json() as { allowed?: unknown };
+    if (result.allowed !== true) throw new Error("RATE_LIMITED");
+    return;
+  }
   const store = getRealtimeStore();
   const count = await store.incr(`janjalive:rate:${key}`);
   if (count === 1) await store.expire(`janjalive:rate:${key}`, windowSeconds);

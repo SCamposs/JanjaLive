@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { API_ORIGIN, DESKTOP_AUTH_URLS, isAllowedRemoteRequest } from "./network-policy";
+import { API_ORIGIN, DESKTOP_AUTH_URLS, REALTIME_WEBSOCKET_ORIGIN, isAllowedRemoteRequest } from "./network-policy";
 
 describe("desktop network policy", () => {
   it("uses the canonical host for every authentication endpoint", () => {
@@ -10,5 +10,10 @@ describe("desktop network policy", () => {
   it("allows the canonical API without relying on a blocked redirect", () => {
     expect(isAllowedRemoteRequest(DESKTOP_AUTH_URLS.exchange)).toBe(true);
     expect(isAllowedRemoteRequest("https://janja.live/api/desktop/auth/exchange")).toBe(false);
+  });
+
+  it("allows only the canonical realtime WebSocket host", () => {
+    expect(isAllowedRemoteRequest(`${REALTIME_WEBSOCKET_ORIGIN}/connect`)).toBe(true);
+    expect(isAllowedRemoteRequest("wss://attacker.example/connect")).toBe(false);
   });
 });
