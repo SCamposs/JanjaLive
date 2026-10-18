@@ -41,8 +41,8 @@ button, summary { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 
 .brand { display: inline-flex; align-items: center; gap: 9px; border-radius: 4px; }
-.brand-mark { width: 28px; height: 28px; object-fit: contain; border-radius: 4px; }
-.brand-mark-compact { width: 32px; height: 32px; }
+.brand-mark { width: 38px; height: 28px; object-fit: contain; border-radius: 4px; }
+.brand-mark-compact { width: 42px; height: 30px; }
 .brand-name { font-size: 16px; font-weight: 600; letter-spacing: -0.025em; }
 .brand-name-compact { font-size: 16px; }
 .button { border: 0; border-radius: 4px; min-height: 42px; padding: 0 16px; display: inline-flex; align-items: center; justify-content: center; gap: 9px; font-weight: 600; font-size: 13px; letter-spacing: .015em; cursor: pointer; transition: background .18s, color .18s, border-color .18s, transform .18s; }
@@ -424,7 +424,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
   .header-left { min-width: 0; gap: 10px; justify-content: space-between; }
   .header-actions { min-width: 0; justify-content: flex-end; gap: 6px; }
   .header-actions .button.compact { padding-inline: 10px; }
-  .brand-mark-compact { width: 28px; height: 28px; }
+  .brand-mark-compact { width: 38px; height: 28px; }
   .brand-name-compact { font-size: 15px; }
   .media-toolbar { min-height: 38px; }
   .stream-picker { width: calc(100% - 24px); }

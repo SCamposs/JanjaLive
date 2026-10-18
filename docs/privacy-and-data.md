@@ -59,7 +59,7 @@ JanjaLive strips query strings and fragments and replaces `/room/<invite>` and `
 - Keep Neon private and Cloudflare and optional Upstash credentials scoped. The public GitHub repository must never contain production credentials.
 - Use separate scoped credentials for production and preview, and rotate them after any suspected exposure.
 - Never place server secrets in variables prefixed with `NEXT_PUBLIC_`.
-- Configure `AUTH_URL=https://janja.live` and the exact Discord callback `https://janja.live/api/auth/callback/discord`.
+- Configure `AUTH_URL=https://www.janja.live` (or omit it with Auth.js v5 on Vercel) and the exact Discord callback `https://www.janja.live/api/auth/callback/discord`. Keep the OAuth flow on this canonical host so the PKCE cookie returns to the same origin.
 - Enable MFA on GitHub, Vercel, Discord, Neon, Upstash and Cloudflare accounts.
 - Review provider access logs and retention settings before inviting real users.
 - Do not enable request-body logging, session replay, custom analytics containing application data or error-reporting tools that capture application payloads.

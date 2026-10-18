@@ -4,7 +4,7 @@ This document describes the intended trust boundaries and the controls already p
 
 ## Trust model
 
-The packaged renderer is local code. It never loads `https://janja.live` as its application document. Remote JanjaLive responses, room members, deep links, capture source names and signaling payloads are untrusted input.
+The packaged renderer is local code. It never loads `https://www.janja.live` as its application document. Remote JanjaLive responses, room members, deep links, capture source names and signaling payloads are untrusted input.
 
 The renderer is assumed to be compromisable through a future UI bug. A renderer compromise must not grant Node.js, filesystem, shell, raw IPC, updater configuration or arbitrary screen-capture access. The main process and the operating system remain the native trust boundary.
 
@@ -37,7 +37,7 @@ The parser rejects unknown hosts, paths, parameters, fragments, credentials, por
 
 ## Authentication boundary
 
-Discord OAuth remains on `https://janja.live` in the system browser. No Discord client secret or backend secret belongs in the application. The handoff uses a five-minute single-use grant, state and PKCE. The backend issues a desktop session only when the registered `janjalive://` callback returns the random one-time code to the initiating app together with its matching state and private PKCE verifier. There is no state-only polling exchange. The code, state and desktop credential are stored only as SHA-256 hashes by the backend. The permanent desktop credential stays in the main process and is encrypted with Electron `safeStorage`; the app refuses a plaintext fallback. The renderer receives only authentication state and user display data.
+Discord OAuth remains on `https://www.janja.live` in the system browser. No Discord client secret or backend secret belongs in the application. The handoff uses a five-minute single-use grant, state and PKCE. The backend issues a desktop session only when the registered `janjalive://` callback returns the random one-time code to the initiating app together with its matching state and private PKCE verifier. There is no state-only polling exchange. The code, state and desktop credential are stored only as SHA-256 hashes by the backend. The permanent desktop credential stays in the main process and is encrypted with Electron `safeStorage`; the app refuses a plaintext fallback. The renderer receives only authentication state and user display data.
 
 The backend consumes a grant with a conditional update before creating the session, so concurrent replay has a single winner. Expired and consumed grants, expired sessions and revoked sessions are removed by the authenticated maintenance job. End-to-end browser-to-app and concurrent-exchange tests remain release gates.
 

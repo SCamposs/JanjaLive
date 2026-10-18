@@ -16,7 +16,7 @@ Run `pnpm dev`, then open `http://localhost:3000`. Add the matching local Discor
 
 ## Desktop
 
-Run the web backend at its configured origin, then run `pnpm desktop:dev`. Production desktop builds are intentionally locked to `https://janja.live`; do not add a renderer-configurable API origin.
+Run the web backend at its configured origin, then run `pnpm desktop:dev`. Production desktop builds are intentionally locked to `https://www.janja.live`; do not add a renderer-configurable API origin.
 
 Useful checks:
 

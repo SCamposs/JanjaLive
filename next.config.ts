@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { getRealtimeWebSocketSource } from "./src/lib/content-security-policy";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
@@ -7,6 +8,11 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     const isProduction = process.env.NODE_ENV === "production";
+    const realtimeWebSocketSource = getRealtimeWebSocketSource(process.env.CLOUDFLARE_REALTIME_URL);
+
+    if (process.env.VERCEL_ENV === "production" && !realtimeWebSocketSource) {
+      throw new Error("CLOUDFLARE_REALTIME_URL must be a valid HTTP(S) URL in production.");
+    }
 
     return [
       {
@@ -21,7 +27,12 @@ const nextConfig: NextConfig = {
               "form-action 'self' https://discord.com",
               "img-src 'self' data: https://cdn.discordapp.com",
               "media-src 'self' blob:",
-              "connect-src 'self' https://*.upstash.io https://*.neon.tech",
+              [
+                "connect-src 'self' https://*.upstash.io https://*.neon.tech",
+                realtimeWebSocketSource,
+              ]
+                .filter(Boolean)
+                .join(" "),
               `script-src 'self' 'unsafe-inline'${isProduction ? "" : " 'unsafe-eval'"}`,
               "style-src 'self' 'unsafe-inline'",
             ].join("; "),

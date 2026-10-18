@@ -8,8 +8,8 @@ export function Brand({ compact = false }: { compact?: boolean }) {
       <Image
         className={cn("brand-mark", compact && "brand-mark-compact")}
         src="/janja-live.png"
-        width={compact ? 32 : 28}
-        height={compact ? 32 : 28}
+        width={compact ? 42 : 38}
+        height={compact ? 30 : 28}
         alt=""
         priority
       />

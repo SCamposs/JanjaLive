@@ -2,7 +2,7 @@
 
 Compartilhamento privado de tela para grupos recorrentes de amigos.
 
-[Abrir JanjaLive](https://janja.live) · [Baixar para Windows](https://github.com/SCamposs/JanjaLive/releases/latest)
+[Abrir JanjaLive](https://www.janja.live) · [Baixar para Windows](https://github.com/SCamposs/JanjaLive/releases/latest)
 
 JanjaLive serve para abrir uma sala, escolher uma tela ou aplicação e compartilhar com amigos autorizados. As salas e seus membros continuam disponíveis para o próximo encontro, enquanto presença e transmissões são temporárias.
 
@@ -28,7 +28,7 @@ JanjaLive serve para abrir uma sala, escolher uma tela ou aplicação e comparti
 
 JanjaLive não grava sua transmissão. Somente a tela ou aplicação escolhida é capturada. A mídia é enviada por WebRTC para quem você decide atender; o servidor mantém identidade, salas, permissões e mensagens temporárias necessárias para conectar os participantes.
 
-Leia a [Política de Privacidade](https://janja.live/privacidade), os [Termos de Uso](https://janja.live/termos) e o [inventário técnico de dados](docs/privacy-and-data.md).
+Leia a [Política de Privacidade](https://www.janja.live/privacidade), os [Termos de Uso](https://www.janja.live/termos) e o [inventário técnico de dados](docs/privacy-and-data.md).
 
 ## Aplicativo para Windows
 
