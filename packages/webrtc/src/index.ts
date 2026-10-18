@@ -111,6 +111,14 @@ export function getRoomPollInterval(states: RTCPeerConnectionState[]) {
     : IDLE_POLL_INTERVAL_MS;
 }
 
+export function shouldPauseRoomPolling(
+  visibilityState: DocumentVisibilityState,
+  hasLocalStream: boolean,
+  peerCount: number,
+) {
+  return visibilityState === "hidden" && !hasLocalStream && peerCount === 0;
+}
+
 export function getPeerConnectionStatus(states: RTCPeerConnectionState[]): ConnectionStatus {
   if (states.length === 0 || states.some((state) => state === "connected")) return "good";
   if (states.some((state) => state === "failed" || state === "disconnected")) return "unstable";
@@ -452,7 +460,9 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
         hasSynced = true;
         const peerStates = [...peersRef.current.values()].map((peer) => peer.connectionState);
         setConnectionStatus(getPeerConnectionStatus(peerStates));
-        timeout = setTimeout(poll, getRoomPollInterval(peerStates));
+        if (!shouldPauseRoomPolling(document.visibilityState, Boolean(localStreamRef.current), peersRef.current.size)) {
+          timeout = setTimeout(poll, getRoomPollInterval(peerStates));
+        }
       } catch (error) {
         failures += 1;
         setConnectionStatus(hasSynced ? "reconnecting" : "connecting");
@@ -460,7 +470,9 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
           makeRoomUnavailable();
           return;
         }
-        timeout = setTimeout(poll, getReconnectDelay(failures));
+        if (!shouldPauseRoomPolling(document.visibilityState, Boolean(localStreamRef.current), peersRef.current.size)) {
+          timeout = setTimeout(poll, getReconnectDelay(failures));
+        }
       } finally {
         polling = false;
       }
@@ -473,11 +485,16 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       void poll();
     };
     pollWakeRef.current = wakePoll;
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") wakePoll();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       stopped = true;
       clearTimeout(resetState);
       if (timeout) clearTimeout(timeout);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (pollWakeRef.current === wakePoll) pollWakeRef.current = null;
       void send({ type: "presence:leave" }).catch(() => undefined);
       stopLocalCapture();

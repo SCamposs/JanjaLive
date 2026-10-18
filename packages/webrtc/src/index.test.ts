@@ -10,6 +10,7 @@ import {
   isTransientPeerSignal,
   replacePeerTracks,
   shouldApplyRemoteAnswer,
+  shouldPauseRoomPolling,
   useRoomMediaCore,
   type RealtimePoll,
   type RoomMediaTransport,
@@ -75,6 +76,13 @@ describe("shared room media lifecycle", () => {
     expect(getRoomPollInterval(["new"])).toBe(300);
     expect(getRoomPollInterval(["connecting"])).toBe(300);
     expect(getRoomPollInterval(["connected"])).toBe(1_500);
+  });
+
+  it("pauses an inactive hidden room without interrupting a broadcast or viewer", () => {
+    expect(shouldPauseRoomPolling("hidden", false, 0)).toBe(true);
+    expect(shouldPauseRoomPolling("visible", false, 0)).toBe(false);
+    expect(shouldPauseRoomPolling("hidden", true, 0)).toBe(false);
+    expect(shouldPauseRoomPolling("hidden", false, 1)).toBe(false);
   });
 
   it("applies an answer once and ignores repeated or stale answers", () => {
