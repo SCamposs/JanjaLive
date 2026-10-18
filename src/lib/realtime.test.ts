@@ -3,6 +3,7 @@ import {
   getRealtimeCredentials,
   getSignalCursor,
   getSignalCutoff,
+  parseRealtimeHash,
   SIGNAL_RETENTION_MS,
 } from "./realtime";
 
@@ -33,5 +34,16 @@ describe("ephemeral signaling retention", () => {
   it("cuts signaling payloads off after the configured retention window", () => {
     const now = 1_700_000_000_000;
     expect(getSignalCutoff(now)).toBe((now - SIGNAL_RETENTION_MS) * 1_000);
+  });
+
+  it("normalizes the flat hash arrays returned by a Lua snapshot", () => {
+    expect(parseRealtimeHash(["user-a", "1700000000000", "user-b", 1700000001000])).toEqual({
+      "user-a": "1700000000000",
+      "user-b": 1700000001000,
+    });
+  });
+
+  it("keeps object hashes compatible with direct Redis responses", () => {
+    expect(parseRealtimeHash({ "user-a": 1700000000000 })).toEqual({ "user-a": 1700000000000 });
   });
 });

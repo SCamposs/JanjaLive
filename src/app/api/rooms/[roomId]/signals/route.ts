@@ -12,10 +12,8 @@ export async function GET(request: Request, context: { params: Promise<{ roomId:
     const { roomId } = await context.params;
     await assertAuthorizedRoom(roomId, user.id);
     const since = sinceSchema.parse(new URL(request.url).searchParams.get("since"));
-    const [realtime] = await Promise.all([
-      readRoomRealtime(roomId, user.id, since),
-      refreshRoomActivity(roomId),
-    ]);
+    const { realtime, activityRefreshDue } = await readRoomRealtime(roomId, user.id, since);
+    if (activityRefreshDue) await refreshRoomActivity(roomId);
     return Response.json(realtime, {
       headers: { "Cache-Control": "no-store" },
     });

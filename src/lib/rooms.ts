@@ -6,7 +6,7 @@ import { joinRequests, roomMembers, rooms, users, type Room } from "@/db/schema"
 import { createInviteToken, createRoomCode, hashInviteToken } from "./crypto";
 import { canAutoJoinInvite, canManageRoom, isAuthorizedMember, isRoomActive } from "./room-policy";
 import { assertCanTargetMember, getMembershipTransition } from "./membership";
-import { getRealtimeStore, hasActiveRoomPresence, shouldRefreshRoomActivity } from "./realtime";
+import { getRealtimeStore, hasActiveRoomPresence } from "./realtime";
 
 export const ROOM_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1_000;
 export const ROOM_PURGE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -96,17 +96,7 @@ export async function listAvailableRooms(userId: string): Promise<AvailableRoom[
   }));
 }
 
-export async function refreshRoomActivity(roomId: string, force = false) {
-  let shouldRefresh = force;
-  if (!force) {
-    try {
-      shouldRefresh = await shouldRefreshRoomActivity(roomId);
-    } catch {
-      shouldRefresh = true;
-    }
-  }
-  if (!shouldRefresh) return;
-
+export async function refreshRoomActivity(roomId: string) {
   const now = new Date();
   await getDb()
     .update(rooms)
@@ -214,7 +204,7 @@ async function buildRoomSnapshot(room: Room, userId: string, allowInviteAutoJoin
         ? "rejected"
         : "invited";
 
-  if (access === "authorized") await refreshRoomActivity(room.id, true);
+  if (access === "authorized") await refreshRoomActivity(room.id);
 
   const memberRows = isAuthorizedMember(member)
     ? await db

@@ -6,6 +6,28 @@ export const SIGNAL_RETENTION_MS = 180_000;
 const SIGNAL_INDEX_RETENTION_SECONDS = 360;
 const MAX_INDEXED_SIGNALS = 400;
 
+// Upstash bills every command inside a pipeline separately. Keep the hot poll
+// path to one EVAL so presence refresh, cleanup and the room snapshot consume a
+// single command without adding extra network round trips.
+const READ_ROOM_REALTIME_SCRIPT = `
+redis.call("HSET", KEYS[1], ARGV[1], ARGV[2])
+redis.call("EXPIRE", KEYS[1], ARGV[5])
+redis.call("EXPIRE", KEYS[2], ARGV[5])
+redis.call("ZREMRANGEBYSCORE", KEYS[3], "-inf", ARGV[3])
+
+local shouldRefreshActivity = 0
+if redis.call("SET", KEYS[4], "1", "NX", "EX", ARGV[6]) then
+  shouldRefreshActivity = 1
+end
+
+return {
+  redis.call("ZRANGEBYSCORE", KEYS[3], "(" .. ARGV[4], "+inf"),
+  redis.call("HGETALL", KEYS[1]),
+  redis.call("HGETALL", KEYS[2]),
+  shouldRefreshActivity
+}
+`;
+
 export type StoredSignal = {
   id: string;
   roomId: string;
@@ -42,21 +64,12 @@ function eventSequenceKey(roomId: string) {
   return `janjalive:room:${roomId}:event-sequence`;
 }
 
-function eventPayloadKey(roomId: string, eventId: string) {
-  return `janjalive:room:${roomId}:event:${eventId}`;
-}
-
 function presenceKey(roomId: string) {
   return `janjalive:room:${roomId}:presence`;
 }
 
 export function roomActivityThrottleKey(roomId: string) {
   return `janjalive:room:${roomId}:activity-write`;
-}
-
-export async function shouldRefreshRoomActivity(roomId: string) {
-  const result = await getRealtimeStore().set(roomActivityThrottleKey(roomId), "1", { nx: true, ex: 3_600 });
-  return result === "OK";
 }
 
 export async function hasActiveRoomPresence(roomId: string, now = Date.now()) {
@@ -82,9 +95,8 @@ export async function publishSignal(roomId: string, senderUserId: string, payloa
   };
 
   const pipeline = store.pipeline();
-  pipeline.set(eventPayloadKey(roomId, signal.id), signal, { px: SIGNAL_RETENTION_MS });
   pipeline.hset(presenceKey(roomId), { [senderUserId]: now });
-  pipeline.zadd(eventIndexKey(roomId), { score: signal.cursor, member: signal.id });
+  pipeline.zadd(eventIndexKey(roomId), { score: signal.cursor, member: JSON.stringify(signal) });
   pipeline.zremrangebyscore(eventIndexKey(roomId), "-inf", getSignalCutoff(now));
   pipeline.zcard(eventIndexKey(roomId));
   pipeline.expire(eventIndexKey(roomId), SIGNAL_INDEX_RETENTION_SECONDS);
@@ -100,7 +112,7 @@ export async function publishSignal(roomId: string, senderUserId: string, payloa
     if (payload.type === "presence:leave") pipeline.hdel(presenceKey(roomId), senderUserId);
   }
   const results = await pipeline.exec();
-  const indexedSignals = Number(results[4] ?? 0);
+  const indexedSignals = Number(results[3] ?? 0);
   if (indexedSignals > MAX_INDEXED_SIGNALS) {
     await store.zremrangebyrank(eventIndexKey(roomId), 0, indexedSignals - MAX_INDEXED_SIGNALS - 1);
   }
@@ -138,33 +150,30 @@ export function getSignalCutoff(now: number) {
   return (now - SIGNAL_RETENTION_MS) * 1_000;
 }
 
+export function parseRealtimeHash(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (!Array.isArray(value)) {
+    return typeof value === "object" ? value as Record<string, unknown> : {};
+  }
+
+  const entries: Array<[string, unknown]> = [];
+  for (let index = 0; index + 1 < value.length; index += 2) {
+    if (typeof value[index] === "string") entries.push([value[index], value[index + 1]]);
+  }
+  return Object.fromEntries(entries);
+}
+
 export async function readRoomRealtime(roomId: string, userId: string, since: number) {
   const store = getRealtimeStore();
   const now = Date.now();
-  const indexPipeline = store.pipeline();
-  indexPipeline.hset(presenceKey(roomId), { [userId]: now });
-  indexPipeline.expire(presenceKey(roomId), 180);
-  indexPipeline.expire(streamsKey(roomId), 180);
-  indexPipeline.zremrangebyscore(eventIndexKey(roomId), "-inf", getSignalCutoff(now));
-  indexPipeline.zrange(eventIndexKey(roomId), `(${since}` as `(${number}`, "+inf", { byScore: true });
-  const indexResults = await indexPipeline.exec();
-  const eventIds = (indexResults[4] ?? []) as string[];
-
-  let rawEvents: unknown[];
-  let presence: Record<string, number> | null;
-  let streams: Record<string, string> | null;
-  const statePipeline = store.pipeline();
-  if (eventIds.length) {
-    statePipeline.mget(...eventIds.map((eventId) => eventPayloadKey(roomId, eventId)));
-    statePipeline.hgetall(presenceKey(roomId));
-    statePipeline.hgetall(streamsKey(roomId));
-    [rawEvents, presence, streams] = await statePipeline.exec() as [unknown[], Record<string, number> | null, Record<string, string> | null];
-  } else {
-    statePipeline.hgetall(presenceKey(roomId));
-    statePipeline.hgetall(streamsKey(roomId));
-    [presence, streams] = await statePipeline.exec() as [Record<string, number> | null, Record<string, string> | null];
-    rawEvents = [];
-  }
+  const snapshot = await store.eval(
+    READ_ROOM_REALTIME_SCRIPT,
+    [presenceKey(roomId), streamsKey(roomId), eventIndexKey(roomId), roomActivityThrottleKey(roomId)],
+    [userId, now, getSignalCutoff(now), since, 180, 3_600],
+  ) as [unknown, unknown, unknown, unknown];
+  const rawEvents = Array.isArray(snapshot?.[0]) ? snapshot[0] : [];
+  const presence = parseRealtimeHash(snapshot?.[1]);
+  const streams = parseRealtimeHash(snapshot?.[2]);
 
   const parsedEvents = rawEvents
     .map(parseStoredSignal)
@@ -191,7 +200,10 @@ export async function readRoomRealtime(roomId: string, userId: string, since: nu
     }
   });
 
-  return { events, onlineUserIds, activeStreams, cursor };
+  return {
+    realtime: { events, onlineUserIds, activeStreams, cursor },
+    activityRefreshDue: Number(snapshot?.[3]) === 1,
+  };
 }
 
 export async function enforceRateLimit(key: string, limit: number, windowSeconds: number) {
