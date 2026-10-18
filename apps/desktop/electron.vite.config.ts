@@ -1,11 +1,16 @@
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
-import { defineConfig, externalizeDepsPlugin } from "electron-vite";
+import { defineConfig } from "electron-vite";
 
 export default defineConfig({
-  main: { plugins: [externalizeDepsPlugin()] },
+  main: {
+    build: {
+      externalizeDeps: {
+        exclude: ["@janjalive/realtime-protocol"],
+      },
+    },
+  },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
         external: ["electron"],

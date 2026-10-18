@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { listPackage } from "@electron/asar";
+import { extractFile, listPackage } from "@electron/asar";
 
 const archive = path.resolve(
   process.cwd(),
@@ -36,6 +36,13 @@ if (missing.length > 0 || forbidden.length > 0) {
     ...forbidden,
   ];
   throw new Error(`Packaged ASAR verification failed:\n- ${failures.join("\n- ")}`);
+}
+
+const mainSource = extractFile(archive, path.join("out", "main", "index.js")).toString("utf8");
+const externalWorkspaceImports = ["@janjalive/realtime-protocol", "@janjalive/webrtc"]
+  .filter((dependency) => mainSource.includes(dependency));
+if (externalWorkspaceImports.length > 0) {
+  throw new Error(`Packaged main process still imports workspace dependencies: ${externalWorkspaceImports.join(", ")}`);
 }
 
 const helper = path.join(
