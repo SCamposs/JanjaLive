@@ -13,7 +13,7 @@ This document records engineering evidence for the native desktop-audio path. It
 
 No audio is written to disk or sent through the application backend. The helper has no network server and exits on stdin EOF.
 
-## Automated and local evidence — 2026-10-17
+## Automated and local evidence — 2026-10-18
 
 Environment: Windows build 26200, x64, native helper compiled with the installed MSVC and Windows SDK.
 
@@ -21,10 +21,12 @@ Environment: Windows build 26200, x64, native helper compiled with the installed
 - The PE is x64 with ASLR/high-entropy VA, DEP/NX, CET compatibility and Control Flow Guard instrumentation.
 - System-loopback activation emits the expected `JNJA` version 1 format frame: 48 kHz, stereo, signed 16-bit PCM.
 - Process-loopback activation emits the same format and exits cleanly when stdin closes.
+- The release-built system helper was started through inherited pipes, emitted its 20-byte protocol header/format frame, returned exit code `0` after stdin EOF and left no `janjalive-audio-helper` process behind.
 - A generated 440 Hz target process produced non-silent process-loopback PCM (`peak 2788`, `RMS 1883` in one smoke run).
 - Isolation smoke test played 440 Hz in the selected process and 880 Hz in an unrelated process. Process mode measured amplitudes `1251` versus `1`, while system mode measured both tones (`1134` and `1392`). This proves the native application mode excludes the unrelated process in the tested environment.
 - An Electron AudioWorklet smoke test converted framed PCM into a live `MediaStreamTrack`; analyser RMS was `0.2600`.
 - The packaged app contains the helper under `app.asar.unpacked`, passes ASAR/content verification, preserves all nine Electron fuses and mounts the packaged renderer successfully.
+- Source switching keeps the active broadcast helper separate from the pending preview helper; canceling a preview no longer stops the current broadcast audio, and renderer destruction stops every helper session it owns.
 - The release build compiles the helper from checked-in source. Electron-builder discovers the unpacked helper as a signable `.exe`; signature verification covers the main executable, helper and installer whenever signing is configured.
 
 ## Still required before release
