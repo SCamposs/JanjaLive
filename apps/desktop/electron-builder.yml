@@ -5,7 +5,10 @@ directories:
   output: dist
 files:
   - out/**/*
+  - native/audio-helper/bin/janjalive-audio-helper.exe
   - "!**/*.map"
+asarUnpack:
+  - native/audio-helper/bin/janjalive-audio-helper.exe
 afterPack: scripts/after-pack.cjs
 protocols:
   - name: JanjaLive

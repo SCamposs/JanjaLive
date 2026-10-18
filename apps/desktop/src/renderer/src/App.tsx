@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent as ReactFocusEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Play, Scaling, Trash2, UserMinus, Volume2, VolumeX, X } from "lucide-react";
 import { playRoomCue, type ConnectionStatus, type StreamMetadata } from "@janjalive/webrtc";
-import type { AuthStatus, CaptureSource, RoomSnapshot, RoomSummary, UpdaterStatus } from "../../shared/contracts";
+import type { AuthStatus, CaptureSource, NativeAudioMode, RoomSnapshot, RoomSummary, UpdaterStatus } from "../../shared/contracts";
 import { useRoomMedia } from "./use-room-media";
+import { startNativeAudioCapture, type NativeAudioCapture } from "./native-audio";
 
 type Resolution = "720p" | "1080p" | "1440p" | "source";
 type Quality = "auto" | "high" | "custom";
@@ -43,7 +44,8 @@ export function App() {
   const [fps, setFps] = useState<30 | 60>(60);
   const [quality, setQuality] = useState<Quality>("auto");
   const [customBitrate, setCustomBitrate] = useState(10);
-  const [systemAudio, setSystemAudio] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [captureAudioMode, setCaptureAudioMode] = useState<NativeAudioMode | "unavailable">("none");
   const [sharing, setSharing] = useState(false);
   const [selectedStreamer, setSelectedStreamer] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +57,10 @@ export function App() {
   const pendingInviteRef = useRef<string | null>(null);
   const handledMembershipRevisionRef = useRef(0);
   const knownStreamsRef = useRef<Set<string> | null>(null);
+  const activeStreamRef = useRef<MediaStream | null>(null);
+  const pendingCaptureRef = useRef<MediaStream | null>(null);
+  const pendingNativeAudioRef = useRef<NativeAudioCapture | null>(null);
+  const broadcastNativeAudioRef = useRef<NativeAudioCapture | null>(null);
   const realtime = useRoomMedia(room?.access === "authorized" ? room.room.id : null);
 
   const handleUpdateStatus = useCallback((next: UpdaterStatus) => {
@@ -113,8 +119,14 @@ export function App() {
   useEffect(() => {
     if (!realtime.roomUnavailable) return;
     const timeout = setTimeout(() => {
+      activeStreamRef.current = null;
+      pendingCaptureRef.current = null;
       capture?.getTracks().forEach((track) => track.stop());
       localStream?.getTracks().forEach((track) => track.stop());
+      void pendingNativeAudioRef.current?.stop();
+      void broadcastNativeAudioRef.current?.stop();
+      pendingNativeAudioRef.current = null;
+      broadcastNativeAudioRef.current = null;
       setCapture(null);
       setLocalStream(null);
       setSharing(false);
@@ -156,20 +168,45 @@ export function App() {
 
   async function selectSource(source: CaptureSource) {
     setError(null);
+    const audioMode: NativeAudioMode = audioEnabled
+      ? source.kind === "window" ? "application" : "system"
+      : "none";
+    let stream: MediaStream | null = null;
     try {
-      await window.janja.capture.selectSource({ token: source.token, withSystemAudio: systemAudio });
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: systemAudio });
-      } catch (audioError) {
-        if (!systemAudio) throw audioError;
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      await window.janja.capture.selectSource({ token: source.token, audioMode });
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const previousAudio = pendingNativeAudioRef.current;
+      pendingNativeAudioRef.current = null;
+      await previousAudio?.stop();
+
+      if (audioMode !== "none") {
+        const nativeAudio = await startNativeAudioCapture(stream, () => {
+          setCaptureAudioMode("unavailable");
+          setError("O áudio ficou indisponível. A transmissão continua somente com vídeo.");
+        });
+        pendingNativeAudioRef.current = nativeAudio;
+        setCaptureAudioMode(nativeAudio?.mode ?? "unavailable");
+      } else {
+        setCaptureAudioMode("none");
       }
       await window.janja.capture.cancelSelection();
+      pendingCaptureRef.current = stream;
       setCapture(stream);
       setCaptureName(source.name);
       setSources(null);
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (pendingCaptureRef.current === stream) {
+          pendingCaptureRef.current = null;
+          void pendingNativeAudioRef.current?.stop();
+          pendingNativeAudioRef.current = null;
+          setCapture(null);
+          setCaptureAudioMode("none");
+          return;
+        }
+        if (activeStreamRef.current !== stream) return;
+        activeStreamRef.current = null;
+        void broadcastNativeAudioRef.current?.stop();
+        broadcastNativeAudioRef.current = null;
         void realtime.stopBroadcast();
         setCapture(null);
         setLocalStream(null);
@@ -177,14 +214,22 @@ export function App() {
         setSelectedStreamer(null);
       }, { once: true });
     } catch {
+      stream?.getTracks().forEach((track) => track.stop());
+      pendingCaptureRef.current = null;
+      await pendingNativeAudioRef.current?.stop();
+      pendingNativeAudioRef.current = null;
       await window.janja.capture.cancelSelection();
       setError("Não foi possível capturar essa fonte. Escolha novamente.");
     }
   }
 
   function cancelCapture() {
+    pendingCaptureRef.current = null;
     capture?.getTracks().forEach((track) => track.stop());
+    void pendingNativeAudioRef.current?.stop();
+    pendingNativeAudioRef.current = null;
     setCapture(null);
+    setCaptureAudioMode("none");
   }
 
   async function startSharing() {
@@ -215,24 +260,42 @@ export function App() {
       frameRate: settings?.frameRate ?? fps,
       hasAudio: capture.getAudioTracks().some((track) => track.readyState === "live"),
     };
+    const previousStream = localStream;
+    const previousAudio = broadcastNativeAudioRef.current;
+    const nextAudio = pendingNativeAudioRef.current;
     if (sharing) await realtime.replaceBroadcast(capture, metadata, bitrate);
     else {
       await realtime.startBroadcast(capture, metadata, bitrate);
       await playRoomCue("stream-start", true);
     }
     setLocalStream(capture);
+    activeStreamRef.current = capture;
+    pendingCaptureRef.current = null;
+    pendingNativeAudioRef.current = null;
+    broadcastNativeAudioRef.current = nextAudio;
     setCapture(null);
     setSharing(true);
     setSelectedStreamer(auth.user.id);
+    if (previousStream && previousStream !== capture) previousStream.getTracks().forEach((track) => track.stop());
+    if (previousAudio && previousAudio !== nextAudio) await previousAudio.stop();
   }
 
   async function stopSharing() {
     if (sharing) await realtime.stopBroadcast();
+    activeStreamRef.current = null;
+    pendingCaptureRef.current = null;
     capture?.getTracks().forEach((track) => track.stop());
     localStream?.getTracks().forEach((track) => track.stop());
+    await Promise.all([
+      pendingNativeAudioRef.current?.stop(),
+      broadcastNativeAudioRef.current?.stop(),
+    ]);
+    pendingNativeAudioRef.current = null;
+    broadcastNativeAudioRef.current = null;
     setCapture(null);
     setLocalStream(null);
     setSharing(false);
+    setCaptureAudioMode("none");
     if (auth.state === "signed-in" && selectedStreamer === auth.user.id) setSelectedStreamer(null);
   }
 
@@ -303,9 +366,9 @@ export function App() {
         : <AccessGate room={room} onUpdate={setRoom} onRequest={async () => { await window.janja.rooms.requestAccess(room.room.id); setRoom({ ...room, access: "pending" }); }} />
       ) : <Home rooms={rooms} onOpen={async (roomId) => setRoom(await window.janja.rooms.get(roomId))} onOpenSnapshot={setRoom} onRefresh={refreshRooms} />}
 
-      {capture && <CaptureConfig stream={capture} previewRef={previewRef} name={captureName} resolution={resolution} fps={fps} quality={quality} customBitrate={customBitrate} onResolution={setResolution} onFps={setFps} onQuality={setQuality} onCustomBitrate={setCustomBitrate} onCancel={cancelCapture} onStart={startSharing} />}
+      {capture && <CaptureConfig previewRef={previewRef} name={captureName} audioMode={captureAudioMode} resolution={resolution} fps={fps} quality={quality} customBitrate={customBitrate} onResolution={setResolution} onFps={setFps} onQuality={setQuality} onCustomBitrate={setCustomBitrate} onCancel={cancelCapture} onStart={startSharing} />}
 
-      {sources && <SourcePicker sources={groupedSources} systemAudio={systemAudio} onSystemAudio={setSystemAudio} onSelect={selectSource} onClose={() => { setSources(null); void window.janja.capture.cancelSelection(); }} />}
+      {sources && <SourcePicker sources={groupedSources} audioEnabled={audioEnabled} onAudioEnabled={setAudioEnabled} onSelect={selectSource} onClose={() => { setSources(null); void window.janja.capture.cancelSelection(); }} />}
 
       {update.state === "ready" && updateDialogOpen && <UpdateDialog version={update.version} onClose={() => setUpdateDialogOpen(false)} />}
 
@@ -567,12 +630,13 @@ function Member({ member, online, streaming = false, selected = false, onWatch, 
   return <div className="desktop-member">{member.image ? <img src={member.image} alt="" /> : <span>{member.name[0]}</span>}<div><strong>{member.name}</strong><small>{streaming ? `${member.role === "OWNER" ? "Dono · " : ""}Transmitindo` : member.role === "OWNER" ? "Dono" : online ? "Online" : "Offline"}</small></div><div className="member-end">{streaming && onWatch && <button className="member-watch" data-tooltip={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} aria-label={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} disabled={selected} type="button" onClick={onWatch}><Play size={13} fill="currentColor" /></button>}{onRemove && <button className="member-remove" data-tooltip={`Remover ${member.name}`} aria-label={`Remover ${member.name}`} type="button" onClick={onRemove}><UserMinus size={14} /></button>}<i data-online={online} /></div></div>;
 }
 
-function CaptureConfig({ stream, previewRef, name, resolution, fps, quality, customBitrate, onResolution, onFps, onQuality, onCustomBitrate, onCancel, onStart }: { stream: MediaStream; previewRef: React.RefObject<HTMLVideoElement | null>; name: string; resolution: Resolution; fps: 30 | 60; quality: Quality; customBitrate: number; onResolution: (value: Resolution) => void; onFps: (value: 30 | 60) => void; onQuality: (value: Quality) => void; onCustomBitrate: (value: number) => void; onCancel: () => void; onStart: () => Promise<void> }) {
-  return <div className="modal-backdrop"><section className="capture-panel capture-modal"><video ref={previewRef} autoPlay muted playsInline /><div className="capture-title"><strong>{name}</strong><span>{stream.getAudioTracks().length ? "Áudio do sistema" : "Áudio do sistema indisponível"}</span></div><div className="capture-settings"><OptionGroup label="Resolução" value={resolution} values={["720p", "1080p", "1440p", "source"]} labels={{ source: "Fonte" }} onChange={(value) => onResolution(value as Resolution)} /><OptionGroup label="FPS" value={String(fps)} values={["30", "60"]} onChange={(value) => onFps(value === "60" ? 60 : 30)} /><div><OptionGroup label="Qualidade" value={quality} values={["auto", "high", "custom"]} labels={{ auto: "Auto", high: "Alta", custom: "Personalizada" }} onChange={(value) => onQuality(value as Quality)} />{quality === "custom" && <label className="custom-bitrate"><span>Mbps</span><input type="number" min="2" max="25" value={customBitrate} onChange={(event) => onCustomBitrate(Number(event.target.value))} /></label>}</div><div className="capture-actions"><button className="quiet-button" type="button" onClick={onCancel}>Cancelar</button><button className="primary-button" type="button" onClick={() => void onStart()}>Compartilhar</button></div></div></section></div>;
+function CaptureConfig({ previewRef, name, audioMode, resolution, fps, quality, customBitrate, onResolution, onFps, onQuality, onCustomBitrate, onCancel, onStart }: { previewRef: React.RefObject<HTMLVideoElement | null>; name: string; audioMode: NativeAudioMode | "unavailable"; resolution: Resolution; fps: 30 | 60; quality: Quality; customBitrate: number; onResolution: (value: Resolution) => void; onFps: (value: 30 | 60) => void; onQuality: (value: Quality) => void; onCustomBitrate: (value: number) => void; onCancel: () => void; onStart: () => Promise<void> }) {
+  const audioLabel = audioMode === "application" ? "Áudio da aplicação" : audioMode === "system" ? "Áudio do sistema" : audioMode === "unavailable" ? "Áudio indisponível — somente vídeo" : "Somente vídeo";
+  return <div className="modal-backdrop"><section className="capture-panel capture-modal"><video ref={previewRef} autoPlay muted playsInline /><div className="capture-title"><strong>{name}</strong><span>{audioLabel}</span></div><div className="capture-settings"><OptionGroup label="Resolução" value={resolution} values={["720p", "1080p", "1440p", "source"]} labels={{ source: "Fonte" }} onChange={(value) => onResolution(value as Resolution)} /><OptionGroup label="FPS" value={String(fps)} values={["30", "60"]} onChange={(value) => onFps(value === "60" ? 60 : 30)} /><div><OptionGroup label="Qualidade" value={quality} values={["auto", "high", "custom"]} labels={{ auto: "Auto", high: "Alta", custom: "Personalizada" }} onChange={(value) => onQuality(value as Quality)} />{quality === "custom" && <label className="custom-bitrate"><span>Mbps</span><input type="number" min="2" max="25" value={customBitrate} onChange={(event) => onCustomBitrate(Number(event.target.value))} /></label>}</div><div className="capture-actions"><button className="quiet-button" type="button" onClick={onCancel}>Cancelar</button><button className="primary-button" type="button" onClick={() => void onStart()}>Compartilhar</button></div></div></section></div>;
 }
 
-function SourcePicker({ sources, systemAudio, onSystemAudio, onSelect, onClose }: { sources: { windows: CaptureSource[]; screens: CaptureSource[] }; systemAudio: boolean; onSystemAudio: (value: boolean) => void; onSelect: (source: CaptureSource) => Promise<void>; onClose: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="source-dialog" role="dialog" aria-modal="true" aria-labelledby="source-title"><header><div><h2 id="source-title">Compartilhe sua tela</h2><p>Escolha uma aplicação ou monitor.</p></div><button type="button" onClick={onClose} aria-label="Fechar">×</button></header><label className="audio-toggle"><input type="checkbox" checked={systemAudio} onChange={(event) => onSystemAudio(event.target.checked)} /><span>Áudio do sistema</span></label><SourceGroup title="Aplicações" sources={sources.windows} onSelect={onSelect} /><SourceGroup title="Telas" sources={sources.screens} onSelect={onSelect} /></section></div>;
+function SourcePicker({ sources, audioEnabled, onAudioEnabled, onSelect, onClose }: { sources: { windows: CaptureSource[]; screens: CaptureSource[] }; audioEnabled: boolean; onAudioEnabled: (value: boolean) => void; onSelect: (source: CaptureSource) => Promise<void>; onClose: () => void }) {
+  return <div className="modal-backdrop" role="presentation"><section className="source-dialog" role="dialog" aria-modal="true" aria-labelledby="source-title"><header><div><h2 id="source-title">Compartilhe sua tela</h2><p>Escolha uma aplicação ou monitor.</p></div><button type="button" onClick={onClose} aria-label="Fechar">×</button></header><label className="audio-toggle"><input type="checkbox" checked={audioEnabled} onChange={(event) => onAudioEnabled(event.target.checked)} /><span><strong>Incluir áudio</strong><small>{audioEnabled ? "Áudio da aplicação em janelas · Áudio do sistema em telas" : "Somente vídeo"}</small></span></label><SourceGroup title="Aplicações" sources={sources.windows} onSelect={onSelect} /><SourceGroup title="Telas" sources={sources.screens} onSelect={onSelect} /></section></div>;
 }
 
 function SourceGroup({ title, sources, onSelect }: { title: string; sources: CaptureSource[]; onSelect: (source: CaptureSource) => Promise<void> }) {

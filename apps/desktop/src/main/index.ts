@@ -17,6 +17,7 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import electronUpdater from "electron-updater";
+import { z } from "zod";
 import {
   authExchangeResponseSchema,
   authStatusSchema,
@@ -24,12 +25,14 @@ import {
   captureSelectionSchema,
   iceServersSchema,
   membershipActionSchema,
+  nativeAudioStartResultSchema,
   parseRealtimePoll,
   roomCreateInputSchema,
   roomSnapshotSchema,
   roomSummarySchema,
   updaterStatusSchema,
   type AuthStatus,
+  type NativeAudioMode,
   type UpdaterStatus,
 } from "../shared/contracts";
 import { findDeepLink, type DesktopDeepLink } from "../shared/security";
@@ -37,6 +40,7 @@ import { ExpiringGrantStore } from "../shared/expiring-grants";
 import { getProtocolRegistration } from "../shared/protocol-registration";
 import { API_ORIGIN, DESKTOP_AUTH_URLS, isAllowedRemoteRequest } from "../shared/network-policy";
 import { canGrantDesktopPermission } from "../shared/permission-policy";
+import { NativeAudioManager } from "./native-audio";
 
 const { autoUpdater } = electronUpdater;
 
@@ -53,7 +57,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 type SourceGrant = { source: DesktopCapturerSource; ownerId: number; expiresAt: number };
-type PendingSelection = SourceGrant & { withSystemAudio: boolean };
+type PendingSelection = SourceGrant & { audioMode: NativeAudioMode };
 type PendingAuth = { state: string; verifier: string; expiresAt: number };
 
 let mainWindow: BrowserWindow | null = null;
@@ -65,7 +69,8 @@ let pendingAuth: PendingAuth | null = null;
 let authExchangeInFlight: Promise<"complete"> | null = null;
 const sourceGrants = new ExpiringGrantStore<DesktopCapturerSource>();
 const pendingSelections = new Map<number, PendingSelection>();
-const audioFallbackSelections = new Map<number, SourceGrant>();
+const confirmedAudioSelections = new Map<number, PendingSelection>();
+const nativeAudio = new NativeAudioManager();
 
 const rendererContentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -312,13 +317,34 @@ function registerIpc() {
     const input = captureSelectionSchema.parse(payload);
     const source = sourceGrants.take(input.token, ownerId);
     if (!source) throw new Error("CAPTURE_SELECTION_EXPIRED");
-    pendingSelections.set(ownerId, { source, ownerId, withSystemAudio: input.withSystemAudio, expiresAt: Date.now() + SELECTION_TTL_MS });
+    if (input.audioMode === "application" && !source.id.startsWith("window:")) throw new Error("INVALID_AUDIO_MODE_FOR_SOURCE");
+    if (input.audioMode === "system" && !source.id.startsWith("screen:")) throw new Error("INVALID_AUDIO_MODE_FOR_SOURCE");
+    confirmedAudioSelections.delete(ownerId);
+    pendingSelections.set(ownerId, { source, ownerId, audioMode: input.audioMode, expiresAt: Date.now() + SELECTION_TTL_MS });
+  });
+
+  ipcMain.handle("capture:start-native-audio", async (event) => {
+    const ownerId = assertTrustedSender(event);
+    const selection = confirmedAudioSelections.get(ownerId);
+    confirmedAudioSelections.delete(ownerId);
+    if (!selection || selection.expiresAt <= Date.now() || selection.audioMode === "none") {
+      return nativeAudioStartResultSchema.parse({ status: "unavailable", reason: "source-ended" });
+    }
+    return nativeAudioStartResultSchema.parse(
+      await nativeAudio.start(ownerId, selection.source, selection.audioMode, event.sender),
+    );
+  });
+
+  ipcMain.handle("capture:stop-native-audio", async (event, sessionId: unknown) => {
+    const ownerId = assertTrustedSender(event);
+    confirmedAudioSelections.delete(ownerId);
+    await nativeAudio.stop(ownerId, z.string().uuid().parse(sessionId));
   });
 
   ipcMain.handle("capture:cancel-selection", (event) => {
     const ownerId = assertTrustedSender(event);
     pendingSelections.delete(ownerId);
-    audioFallbackSelections.delete(ownerId);
+    confirmedAudioSelections.delete(ownerId);
   });
 
   ipcMain.handle("auth:start", async (event) => {
@@ -474,9 +500,10 @@ function registerIpc() {
     updateStatus({ state: "checking" });
     await autoUpdater.checkForUpdates();
   });
-  ipcMain.handle("updater:restart-and-install", (event) => {
+  ipcMain.handle("updater:restart-and-install", async (event) => {
     assertTrustedSender(event);
     if (updaterStatus.state !== "ready") throw new Error("UPDATE_NOT_READY");
+    await nativeAudio.stopAll();
     autoUpdater.quitAndInstall(false, true);
   });
 }
@@ -486,8 +513,7 @@ function configureSession() {
   const hasCaptureGrant = (ownerId: number) => {
     const now = Date.now();
     const selection = pendingSelections.get(ownerId);
-    const fallback = audioFallbackSelections.get(ownerId);
-    return Boolean((selection && selection.expiresAt > now) || (fallback && fallback.expiresAt > now));
+    return Boolean(selection && selection.expiresAt > now);
   };
   activeSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
     const allowed = canGrantDesktopPermission({
@@ -520,22 +546,16 @@ function configureSession() {
     if (!window || request.frame !== window.webContents.mainFrame || !rendererUrlIsTrusted(request.frame.url)) return callback({});
     const selection = pendingSelections.get(window.webContents.id);
     pendingSelections.delete(window.webContents.id);
-    if (!selection || selection.expiresAt <= Date.now()) {
-      const fallback = audioFallbackSelections.get(window.webContents.id);
-      audioFallbackSelections.delete(window.webContents.id);
-      if (!fallback || fallback.expiresAt <= Date.now()) return callback({});
-      return callback({ video: fallback.source });
-    }
-    if (selection.withSystemAudio) {
-      audioFallbackSelections.set(window.webContents.id, {
-        source: selection.source,
-        ownerId: selection.ownerId,
+    if (!selection || selection.expiresAt <= Date.now()) return callback({});
+    if (selection.audioMode !== "none") {
+      confirmedAudioSelections.set(window.webContents.id, {
+        ...selection,
         expiresAt: Date.now() + SELECTION_TTL_MS,
       });
     } else {
-      audioFallbackSelections.delete(window.webContents.id);
+      confirmedAudioSelections.delete(window.webContents.id);
     }
-    callback({ video: selection.source, ...(selection.withSystemAudio ? { audio: "loopback" as const } : {}) });
+    callback({ video: selection.source });
   });
 
   activeSession.webRequest.onBeforeRequest((details, callback) => {
@@ -550,7 +570,7 @@ function configureSession() {
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [
-          `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; media-src 'self' blob:; connect-src ${API_ORIGIN}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
+          `default-src 'self'; script-src 'self'; worker-src 'self'; style-src 'self'; img-src 'self' data: https://cdn.discordapp.com; media-src 'self' blob:; connect-src ${API_ORIGIN}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
         ],
       },
     });
@@ -596,6 +616,12 @@ function createWindow() {
     },
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const rendererOwnerId = mainWindow.webContents.id;
+  mainWindow.webContents.once("destroyed", () => {
+    pendingSelections.delete(rendererOwnerId);
+    confirmedAudioSelections.delete(rendererOwnerId);
+    void nativeAudio.stopOwner(rendererOwnerId);
+  });
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (!rendererUrlIsTrusted(url)) event.preventDefault();
   });
@@ -678,5 +704,6 @@ if (!gotSingleInstanceLock) {
     setTimeout(() => { if (app.isPackaged) void autoUpdater.checkForUpdates(); }, 5_000);
   });
 
+  app.once("before-quit", () => { void nativeAudio.stopAll(); });
   app.on("window-all-closed", () => app.quit());
 }

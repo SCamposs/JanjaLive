@@ -1,9 +1,29 @@
 import { z } from "zod";
 
+export const nativeAudioModeSchema = z.enum(["none", "application", "system"]);
+
 export const captureSelectionSchema = z.object({
   token: z.string().uuid(),
-  withSystemAudio: z.boolean(),
+  audioMode: nativeAudioModeSchema,
 }).strict();
+
+export const nativeAudioStartResultSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("started"),
+    sessionId: z.string().uuid(),
+    mode: nativeAudioModeSchema.exclude(["none"]),
+    sampleRate: z.number().int().min(8_000).max(192_000),
+    channels: z.number().int().min(1).max(8),
+    bitsPerSample: z.literal(16),
+  }).strict(),
+  z.object({
+    status: z.literal("unavailable"),
+    reason: z.enum(["unsupported-platform", "unsupported-windows", "helper-unavailable", "source-ended", "capture-failed"]),
+  }).strict(),
+]);
+
+export type NativeAudioMode = z.infer<typeof nativeAudioModeSchema>;
+export type NativeAudioStartResult = z.infer<typeof nativeAudioStartResultSchema>;
 
 export const updaterStatusSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),
@@ -203,7 +223,9 @@ export type JanjaDesktopApi = {
   };
   capture: {
     listSources(): Promise<CaptureSource[]>;
-    selectSource(input: { token: string; withSystemAudio: boolean }): Promise<void>;
+    selectSource(input: { token: string; audioMode: NativeAudioMode }): Promise<void>;
+    startNativeAudio(): Promise<NativeAudioStartResult>;
+    stopNativeAudio(sessionId: string): Promise<void>;
     cancelSelection(): Promise<void>;
   };
   auth: {

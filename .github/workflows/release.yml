@@ -40,6 +40,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Build native Windows audio helper from source
+        run: pnpm --filter @janjalive/desktop build:native-audio
       - name: Verify tag and package version
         shell: pwsh
         run: |

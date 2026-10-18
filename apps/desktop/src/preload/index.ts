@@ -1,6 +1,22 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AuthStatus, JanjaDesktopApi, UpdaterStatus } from "../shared/contracts";
 
+ipcRenderer.on("capture:native-audio-port", (event, payload: unknown) => {
+  const sessionId = payload && typeof payload === "object" && typeof (payload as { sessionId?: unknown }).sessionId === "string"
+    ? (payload as { sessionId: string }).sessionId
+    : null;
+  const port = event.ports[0];
+  if (!sessionId || !port) {
+    port?.close();
+    return;
+  }
+  window.postMessage(
+    { type: "janjalive:native-audio-port", sessionId },
+    window.location.origin,
+    [port],
+  );
+});
+
 const api: JanjaDesktopApi = {
   app: {
     getVersion: () => ipcRenderer.invoke("app:get-version"),
@@ -19,6 +35,8 @@ const api: JanjaDesktopApi = {
   capture: {
     listSources: () => ipcRenderer.invoke("capture:list-sources"),
     selectSource: (input) => ipcRenderer.invoke("capture:select-source", input),
+    startNativeAudio: () => ipcRenderer.invoke("capture:start-native-audio"),
+    stopNativeAudio: (sessionId) => ipcRenderer.invoke("capture:stop-native-audio", sessionId),
     cancelSelection: () => ipcRenderer.invoke("capture:cancel-selection"),
   },
   auth: {

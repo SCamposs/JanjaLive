@@ -21,6 +21,11 @@ Checked items are implemented in source. All items must be checked again against
 - [x] capture requires an explicit, expiring, one-use source selection
 - [x] the renderer cannot submit an Electron source ID
 - [x] video frames never cross IPC
+- [x] renderer cannot submit a PID or HWND for native audio capture
+- [x] native audio helper has fixed modes, inherited pipes, bounded binary frames, no network server, no persistence and no elevation
+- [x] helper build comes from checked-in source during Windows release CI
+- [x] packaged-content verification requires the helper executable outside ASAR
+- [x] updater install stops the helper before quitting
 - [x] updater provider is fixed and cannot be overridden by the renderer
 - [x] an installed older client discovers and downloads a newer GitHub release whose SHA-512 matches its updater metadata
 - [ ] restart-and-install updates an installed client and relaunches the new version
@@ -35,7 +40,7 @@ Checked items are implemented in source. All items must be checked again against
 - [x] dependency audit has been reviewed
 - [x] CI and release workflows run a full-history Gitleaks scan
 - [ ] desktop-to-web, web-to-desktop and desktop-to-desktop media tests pass
-- [ ] 720p30, 720p60, 1080p60, 1440p60 and system-audio tests pass
+- [ ] 720p30, 720p60, 1080p60, 1440p60, application-audio and system-audio tests pass
 - [ ] revocation, reconnect, sleep/resume, app close and network interruption tests pass
 
 ## Dependency audit note

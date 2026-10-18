@@ -69,6 +69,13 @@ Run this short gate before the broader matrix. It specifically covers failures o
 - [ ] Source mode does not upscale.
 - [ ] Auto, High, and Custom quality are accepted without breaking playback.
 - [ ] System audio says active only when an audio track exists.
+- [ ] A selected application says **Áudio da aplicação** and a selected monitor says **Áudio do sistema**.
+- [ ] Disabling audio says **Somente vídeo** and starts no helper process.
+- [ ] On Windows build 20348 or newer, application audio includes the selected process tree but excludes unrelated music, Discord and notification sounds.
+- [ ] Desktop broadcaster → desktop viewer: the receiver actually hears application audio.
+- [ ] Desktop broadcaster → web viewer: the receiver actually hears application audio.
+- [ ] Monitor sharing with **Áudio do sistema** sends the system mix; application sharing does not.
+- [ ] Unsupported Windows or an audio activation failure keeps video working and clearly reports audio unavailable.
 - [ ] Native **Stop sharing** immediately removes the live card.
 
 ## Room and lifecycle checklist
@@ -99,6 +106,18 @@ Run this short gate before the broader matrix. It specifically covers failures o
 - [ ] Accepting the update restarts the application.
 - [ ] After relaunch, the title bar and in-app version both show the new version.
 - [ ] Authentication and the saved room list remain available after the update.
+- [ ] An active native audio helper terminates before restart-and-install and no helper remains after relaunch.
+
+## Native audio lifecycle
+
+- [ ] Canceling the preview terminates the helper and stops the generated audio track.
+- [ ] **Trocar tela** replaces the helper session without duplicate audio or a ghost track.
+- [ ] Closing the selected application ends audio safely without stopping video unexpectedly.
+- [ ] Changing the default output device during monitor audio fails safely or resumes without duplicate audio.
+- [ ] Viewer mute and volume controls affect received native audio.
+- [ ] Stopping the share, leaving the room and quitting the app leave no helper process behind.
+- [ ] The broadcaster does not hear its captured output echoed back through the local preview.
+- [ ] 1080p60 video remains stable with native audio active.
 
 ## Resilience
 

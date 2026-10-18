@@ -67,11 +67,15 @@ Screen video and optional system audio travel through WebRTC. Vercel, Neon, and 
 
 Capture begins only after the user clicks **Compartilhar tela**. The browser-native picker is authoritative. JanjaLive shows the returned `MediaStream` in a large local preview, then applies best-effort constraints only after confirmation. Canceling stops every track. The native stop button is observed through `track.onended`.
 
-On desktop, `desktopCapturer` stays in the main process. The renderer receives sanitized names, thumbnails and opaque expiring tokens—not Electron source IDs. Selecting one token creates a one-use grant for the top-level JanjaLive frame. `setDisplayMediaRequestHandler` consumes that grant and returns the selected source, with Windows loopback audio only when requested. Raw frames remain in Chromium and never cross IPC.
+On desktop, `desktopCapturer` stays in the main process. The renderer receives sanitized names, thumbnails and opaque expiring tokens—not Electron source IDs. Selecting one token creates a one-use grant for the top-level JanjaLive frame. `setDisplayMediaRequestHandler` consumes that grant and returns only the selected video source. Raw video frames remain in Chromium and never cross IPC.
 
 ## 9. Audio
 
-`getDisplayMedia({ audio: true })` requests system/source audio. The UI reports a track only when the browser actually returns one. No microphone or camera is requested. Windows Chrome/Edge is the primary target; source and browser restrictions are expected elsewhere.
+On the web, `getDisplayMedia({ audio: true })` requests source audio and the UI reports a track only when the browser actually returns one. Source and browser restrictions are expected.
+
+On Windows desktop, audio is optional and separate from Chromium display capture. For an application window, the main process derives the trusted HWND from the selected `DesktopCapturerSource`; a small native helper resolves its owning PID and uses WASAPI process loopback with `PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE`. For a monitor, the helper captures the current default render endpoint only when the user explicitly enables **Áudio do sistema**. **Somente vídeo** starts no helper.
+
+The helper emits bounded 16-bit PCM frames over inherited stdout. Electron main validates a fixed binary protocol and forwards it through one session-scoped `MessagePort`; an `AudioWorklet` converts PCM to the `MediaStreamTrack` added to the existing video stream. The pipe is not signaling or network transport, and audio is never persisted. Closing the pipe, stopping capture, quitting, or installing an update terminates the helper. Application loopback requires Windows build 20348 or newer; an unsupported or failed audio path leaves video running and is reported as unavailable.
 
 ## 10. Quality control
 

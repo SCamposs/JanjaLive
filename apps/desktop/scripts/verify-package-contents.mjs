@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { listPackage } from "@electron/asar";
 
 const archive = path.resolve(
@@ -37,4 +38,17 @@ if (missing.length > 0 || forbidden.length > 0) {
   throw new Error(`Packaged ASAR verification failed:\n- ${failures.join("\n- ")}`);
 }
 
-console.log(`Verified ${entries.length} ASAR entries with no sensitive or redundant package content`);
+const helper = path.join(
+  path.dirname(archive),
+  "app.asar.unpacked",
+  "native",
+  "audio-helper",
+  "bin",
+  "janjalive-audio-helper.exe",
+);
+const helperBytes = await readFile(helper).catch(() => null);
+if (!helperBytes || helperBytes.length < 2 || helperBytes[0] !== 0x4d || helperBytes[1] !== 0x5a) {
+  throw new Error("Packaged native audio helper is missing or is not a Windows executable");
+}
+
+console.log(`Verified ${entries.length} ASAR entries and the packaged native audio helper`);

@@ -33,7 +33,7 @@ On Windows desktop, Electron lists screens and application windows in JanjaLive'
 
 Neither client calls `getUserMedia`, camera APIs, microphone APIs, file pickers, directory APIs or clipboard read APIs. The desktop client can write a newly generated invite link to the clipboard only after the room owner asks it to. Camera and microphone permissions are denied.
 
-System or tab audio is requested with the display picker and exists only when the browser returns an audio track. JanjaLive never captures microphone audio.
+On the web, system or tab audio is requested with the display picker and exists only when the browser returns an audio track. On Windows desktop, optional application audio is captured from the selected application's process tree; optional monitor audio captures the system mix. PCM moves only through local inherited pipes and memory long enough to create the outgoing WebRTC audio track, and is never written to disk. JanjaLive never captures microphone audio.
 
 ## Media path
 

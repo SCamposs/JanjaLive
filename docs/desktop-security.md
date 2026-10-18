@@ -22,7 +22,9 @@ The renderer is assumed to be compromisable through a future UI bug. A renderer 
 
 `desktopCapturer` runs only in the main process. A source list gives the renderer a short-lived random token, sanitized name, type and thumbnail—not the persistent Electron source ID. Selecting a token creates a one-use grant tied to the current `webContents`; `getDisplayMedia` consumes it within 30 seconds. Missing, expired, replayed or foreign grants are denied. No source is selected automatically.
 
-Video and audio tracks stay inside Chromium. Frames never cross IPC and are never written to disk. Windows system audio uses Electron's supported `loopback` capture only when the user enables it.
+Video frames stay inside Chromium and never cross IPC. Optional Windows audio is captured by the bundled `janjalive-audio-helper.exe`: application shares use the selected window's owning process tree, while monitor shares may use the default system render endpoint. The HWND is derived from the main-process-owned `DesktopCapturerSource`; the renderer never supplies an HWND or PID.
+
+The helper has no network listener, driver, service, elevation path, filesystem output or generic command surface. It accepts one fixed capture mode, emits bounded PCM frames over an inherited binary pipe, and exits when that pipe closes. Main validates every frame before forwarding it on a session-scoped one-way `MessagePort`. The renderer converts PCM into a `MediaStreamTrack` through an `AudioWorklet`; PCM is not logged or persisted. Unsupported Windows builds and helper failures fail closed to video-only capture.
 
 ## Deep links
 
@@ -59,6 +61,9 @@ Electron-builder 26.15.3 is the current stable `latest` release used here. Signe
 | Tampered update or artifact | Fixed provider, HTTPS, SHA-512, future signed manifest and Authenticode | Stable builder currently lacks signed manifests; unsigned Windows builds show Unknown Publisher |
 | Dependency compromise | Exact versions, pnpm lockfile, limited build-script allowlist, CI audit and secret scan | Registry or maintainer compromise before review |
 | Accidental capture | Explicit source choice, preview, one-use grant, no persistence | The user can still select a sensitive window |
+| Wrong application audio | Main-owned source token, HWND validation, OS resolution to the owning process, process-tree loopback | A window can close between selection and activation; capture then fails closed |
+| Native helper abuse | Fixed executable path, fixed arguments, inherited pipes only, bounded binary frames, no renderer PID/HWND | A future native memory-safety bug remains native-code risk |
+| Orphaned audio capture | stdin EOF terminates helper; explicit stop runs before updater install and normal capture teardown | A hard OS failure can prevent orderly cleanup until Windows reclaims the process |
 | Malicious source title | Control characters removed, length limited, React escaping | Thumbnail can contain sensitive screen content while picker is open |
 | Signaling abuse | Authentication, membership checks, Zod schemas, rate limits and TTLs | P2P peers necessarily process negotiated WebRTC data |
 

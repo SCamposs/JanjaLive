@@ -21,5 +21,8 @@ export default defineConfig({
     base: "./",
     publicDir: resolve("../../public"),
     plugins: [react()],
+    build: {
+      assetsInlineLimit: 0,
+    },
   },
 });

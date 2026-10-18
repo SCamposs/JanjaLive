@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "apps/desktop/out/**",
     "apps/desktop/dist/**",
+    ".tooling/**",
   ]),
   {
     files: ["apps/desktop/scripts/**/*.cjs"],

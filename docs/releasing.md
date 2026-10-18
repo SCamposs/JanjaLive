@@ -8,7 +8,7 @@ Windows releases are built only by `.github/workflows/release.yml` after a seman
 2. Run `pnpm install --frozen-lockfile` and `pnpm check:all`.
 3. Run `pnpm audit --audit-level moderate` and review every result.
 4. Run a full-history Gitleaks scan plus a scan of current source and `apps/desktop/out`.
-5. Build `pnpm desktop:package`; it re-reads all Electron fuses, audits the ASAR allowlist/denylist, and verifies the generated installer against the version, path, size and SHA-512 in `latest.yml`. Then review the checklist in `desktop-security-checklist.md`.
+5. Build `pnpm desktop:package`; it compiles the native Windows audio helper from checked-in source, re-reads all Electron fuses, audits the ASAR and packaged helper, and verifies the generated installer against the version, path, size and SHA-512 in `latest.yml`. Then review the checklist in `desktop-security-checklist.md`.
 6. Confirm the packaged-app smoke test reaches the mounted local renderer without an Electron error dialog.
 7. Complete the manual interoperability matrix in `manual-webrtc-test.md`.
 
@@ -21,13 +21,13 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The tag workflow installs the frozen lockfile, scans the full history, runs all web and desktop checks, builds the x64 per-user NSIS installer, verifies the fuse wire and update artifacts, runs the packaged-app smoke test, and publishes the installer, block map and updater metadata to the matching GitHub Release. Only the publishing job receives `contents: write`; it does not receive signing, package, action or OIDC permissions.
+The tag workflow installs the frozen lockfile, compiles the native audio helper with MSVC, scans the full history, runs all web and desktop checks, builds the x64 per-user NSIS installer, verifies the fuse wire, packaged helper and update artifacts, runs the packaged-app smoke test, and publishes the installer, block map and updater metadata to the matching GitHub Release. Only the publishing job receives `contents: write`; it does not receive signing, package, action or OIDC permissions.
 
 ## Update trust and signing
 
 The updater provider is compiled as the official GitHub repository. Electron-builder 26.15.3 verifies the downloaded file against the SHA-512 value in `latest.yml`, but its stable line does not support signed Ed25519 manifests. The repository and GitHub account therefore remain part of the update trust boundary.
 
-The v0.1 Windows build is intentionally unsigned because the project has no paid Authenticode certificate. Windows may display **Unknown Publisher**. Never tell users to disable SmartScreen. When a real certificate is available, store its base64 `.pfx` value in the `WIN_CSC_LINK` GitHub Actions secret and its password in `WIN_CSC_KEY_PASSWORD`; never commit either value. Electron-builder signs both the application and installer, and the release job refuses publication unless Windows reports both signatures as valid. Adopt signed update manifests after the feature reaches the stable electron-builder release used by the project.
+The v0.1 Windows build is intentionally unsigned because the project has no paid Authenticode certificate. Windows may display **Unknown Publisher**. Never tell users to disable SmartScreen. When a real certificate is available, store its base64 `.pfx` value in the `WIN_CSC_LINK` GitHub Actions secret and its password in `WIN_CSC_KEY_PASSWORD`; never commit either value. Electron-builder signs the application, bundled audio helper and installer, and the release job refuses publication unless Windows reports all three signatures as valid. Adopt signed update manifests after the feature reaches the stable electron-builder release used by the project.
 
 `MINIMUM_DESKTOP_VERSION` is an optional emergency backend gate. Leave it unset normally. Setting it to a stable `x.y.z` version makes older or unidentified desktop clients receive HTTP 426 and show an update-required state.
 
