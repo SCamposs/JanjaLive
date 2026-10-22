@@ -1,9 +1,6 @@
 # Single-owner operations
 
-JanjaLive has one operational owner, not a role system. The production identity is the conjunction of:
-
-- JanjaLive user ID `50864623-b2c2-49b1-8162-0be7adb3a4cd`
-- Discord user ID `325447679368757249`
+JanjaLive has one operational owner, not a role system. The production identity is the conjunction of one internal JanjaLive user ID and its linked Discord user ID. Keep the concrete production identifiers only in the encrypted deployment configuration; do not commit them to the repository.
 
 Both values must match the authenticated database records. A username, display name, hidden link, or knowledge of `/admin` never grants access.
 
@@ -14,8 +11,8 @@ The web header renders a small shield shortcut only after this server-side check
 Configure these as encrypted server-side variables in Vercel Production (and only in Preview when deliberately testing the panel):
 
 ```text
-ADMIN_USER_ID=50864623-b2c2-49b1-8162-0be7adb3a4cd
-ADMIN_DISCORD_USER_ID=325447679368757249
+ADMIN_USER_ID=<internal JanjaLive user UUID>
+ADMIN_DISCORD_USER_ID=<linked Discord numeric user ID>
 ```
 
 Do not prefix either variable with `NEXT_PUBLIC_`. They are not needed in Cloudflare or in the desktop build.
