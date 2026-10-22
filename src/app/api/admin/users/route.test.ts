@@ -31,12 +31,23 @@ describe("GET /api/admin/users", () => {
 
   it("lists users only after owner verification and disables caching", async () => {
     mocks.requireAdmin.mockResolvedValue({ id: "owner" });
-    mocks.listAdminUsers.mockResolvedValue([{ id: "user" }]);
+    mocks.listAdminUsers.mockResolvedValue({ users: [{ id: "user" }], page: 2, pageSize: 25, total: 40, totalPages: 2, order: "oldest" });
 
-    const response = await GET(new Request("https://www.janja.live/api/admin/users?q=discord-user"));
+    const response = await GET(new Request("https://www.janja.live/api/admin/users?q=discord-user&order=oldest&page=2"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(mocks.listAdminUsers).toHaveBeenCalledWith("discord-user");
+    expect(mocks.listAdminUsers).toHaveBeenCalledWith({ search: "discord-user", order: "oldest", page: 2 });
+    expect(await response.json()).toMatchObject({ page: 2, total: 40, order: "oldest" });
+  });
+
+  it("falls back to the first and newest page for invalid pagination input", async () => {
+    mocks.requireAdmin.mockResolvedValue({ id: "owner" });
+    mocks.listAdminUsers.mockResolvedValue({ users: [], page: 1, pageSize: 25, total: 0, totalPages: 1, order: "newest" });
+
+    const response = await GET(new Request("https://www.janja.live/api/admin/users?order=random&page=none"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.listAdminUsers).toHaveBeenCalledWith({ search: "", order: "newest", page: 1 });
   });
 });

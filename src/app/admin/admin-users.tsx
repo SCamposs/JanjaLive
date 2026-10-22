@@ -16,22 +16,51 @@ type AdminUser = {
   accessChangedAt: Date | string | null;
 };
 
-export function AdminUsers({ initialUsers, ownerUserId }: { initialUsers: AdminUser[]; ownerUserId: string }) {
-  const [users, setUsers] = useState(initialUsers);
+type AdminUserOrder = "newest" | "oldest";
+
+type AdminUserPage = {
+  users: AdminUser[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  order: AdminUserOrder;
+};
+
+export function AdminUsers({ initialData, ownerUserId }: { initialData: AdminUserPage; ownerUserId: string }) {
+  const [data, setData] = useState(initialData);
   const [query, setQuery] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [order, setOrder] = useState<AdminUserOrder>(initialData.order);
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function search(event: React.FormEvent) {
-    event.preventDefault();
+  async function loadUsers(page: number, nextOrder: AdminUserOrder, search: string) {
+    setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/admin/users?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+      const params = new URLSearchParams({ q: search, order: nextOrder, page: String(page) });
+      const response = await fetch(`/api/admin/users?${params}`, { cache: "no-store" });
       if (!response.ok) throw new Error("SEARCH_FAILED");
-      setUsers(((await response.json()) as { users: AdminUser[] }).users);
+      setData((await response.json()) as AdminUserPage);
     } catch {
       setError("Não foi possível carregar os usuários.");
+    } finally {
+      setLoading(false);
     }
+  }
+
+  async function search(event: React.FormEvent) {
+    event.preventDefault();
+    const nextQuery = query.trim();
+    setAppliedQuery(nextQuery);
+    await loadUsers(1, order, nextQuery);
+  }
+
+  async function changeOrder(nextOrder: AdminUserOrder) {
+    setOrder(nextOrder);
+    await loadUsers(1, nextOrder, appliedQuery);
   }
 
   async function changeAccess(user: AdminUser) {
@@ -46,7 +75,10 @@ export function AdminUsers({ initialUsers, ownerUserId }: { initialUsers: AdminU
         body: JSON.stringify({ action }),
       });
       if (!response.ok) throw new Error("ACTION_FAILED");
-      setUsers((current) => current.map((item) => item.id === user.id ? { ...item, accountStatus: action === "BAN" ? "BANNED" : "ACTIVE" } : item));
+      setData((current) => ({
+        ...current,
+        users: current.users.map((item) => item.id === user.id ? { ...item, accountStatus: action === "BAN" ? "BANNED" : "ACTIVE" } : item),
+      }));
     } catch {
       setError("Não foi possível alterar o acesso. Tente novamente.");
     } finally {
@@ -58,11 +90,15 @@ export function AdminUsers({ initialUsers, ownerUserId }: { initialUsers: AdminU
     <div className="admin-users">
       <form className="admin-search" onSubmit={search}>
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nome, ID interno ou Discord ID" aria-label="Buscar usuários" />
-        <button className="button secondary" type="submit">Buscar</button>
+        <select value={order} onChange={(event) => void changeOrder(event.target.value as AdminUserOrder)} aria-label="Ordenar usuários" disabled={loading}>
+          <option value="newest">Mais recentes</option>
+          <option value="oldest">Mais antigos</option>
+        </select>
+        <button className="button secondary" type="submit" disabled={loading}>Buscar</button>
       </form>
       {error && <p className="admin-error" role="alert">{error}</p>}
-      <div className="admin-user-list">
-        {users.map((user) => {
+      <div className="admin-user-list" aria-busy={loading}>
+        {data.users.map((user) => {
           const name = user.displayName || user.username || user.name || "Usuário";
           const image = user.avatar || user.image;
           const owner = user.id === ownerUserId;
@@ -71,7 +107,16 @@ export function AdminUsers({ initialUsers, ownerUserId }: { initialUsers: AdminU
             <div className="admin-user-action"><span className={user.accountStatus === "BANNED" ? "banned" : "active"}>{owner ? "Proprietário" : user.accountStatus === "BANNED" ? "Banido" : "Ativo"}</span><button className={user.accountStatus === "BANNED" ? "button secondary compact" : "button danger compact"} type="button" disabled={owner || busy === user.id} onClick={() => void changeAccess(user)}>{user.accountStatus === "BANNED" ? "Desbanir" : "Banir"}</button></div>
           </article>;
         })}
+        {data.users.length === 0 && <p className="admin-empty">Nenhum usuário encontrado.</p>}
       </div>
+      <nav className="admin-pagination" aria-label="Paginação de usuários">
+        <span>{data.total === 0 ? "0 usuários" : `${(data.page - 1) * data.pageSize + 1}–${Math.min(data.page * data.pageSize, data.total)} de ${data.total}`}</span>
+        <div>
+          <button className="button secondary compact" type="button" disabled={loading || data.page <= 1} onClick={() => void loadUsers(data.page - 1, order, appliedQuery)}>Anterior</button>
+          <span>Página {data.page} de {data.totalPages}</span>
+          <button className="button secondary compact" type="button" disabled={loading || data.page >= data.totalPages} onClick={() => void loadUsers(data.page + 1, order, appliedQuery)}>Próxima</button>
+        </div>
+      </nav>
     </div>
   );
 }

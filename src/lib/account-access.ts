@@ -1,4 +1,4 @@
-import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, asc, countDistinct, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { accounts, adminAuditLog, desktopSessions, roomMembers, rooms, sessions, users } from "@/db/schema";
 import { setRealtimeAccountAccess } from "./realtime";
@@ -23,8 +23,20 @@ export async function getActiveUserById(userId: string): Promise<AuthenticatedUs
   };
 }
 
-export async function listAdminUsers(search = "") {
-  const normalized = search.trim().slice(0, 128);
+export type AdminUserOrder = "newest" | "oldest";
+
+export type AdminUserListOptions = {
+  search?: string;
+  order?: AdminUserOrder;
+  page?: number;
+  pageSize?: number;
+};
+
+export async function listAdminUsers(options: AdminUserListOptions = {}) {
+  const normalized = (options.search ?? "").trim().slice(0, 128);
+  const order: AdminUserOrder = options.order === "oldest" ? "oldest" : "newest";
+  const page = Math.max(1, Math.trunc(options.page ?? 1));
+  const pageSize = Math.min(50, Math.max(1, Math.trunc(options.pageSize ?? 25)));
   const condition = normalized
     ? or(
         ilike(users.displayName, `%${normalized}%`),
@@ -34,7 +46,15 @@ export async function listAdminUsers(search = "") {
         ilike(accounts.providerAccountId, `%${normalized}%`),
       )
     : undefined;
-  return getDb().select({
+  const db = getDb();
+  const [{ total }] = await db.select({ total: countDistinct(users.id) })
+    .from(users)
+    .leftJoin(accounts, and(eq(accounts.userId, users.id), eq(accounts.provider, "discord")))
+    .where(condition);
+  const totalUsers = Number(total);
+  const totalPages = Math.max(1, Math.ceil(totalUsers / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const usersPage = await db.select({
     id: users.id,
     discordId: sql<string | null>`coalesce(${accounts.providerAccountId}, ${users.discordId})`,
     username: users.username,
@@ -47,7 +67,18 @@ export async function listAdminUsers(search = "") {
     accessChangedAt: users.accessChangedAt,
   }).from(users)
     .leftJoin(accounts, and(eq(accounts.userId, users.id), eq(accounts.provider, "discord")))
-    .where(condition).orderBy(users.createdAt).limit(100);
+    .where(condition)
+    .orderBy(order === "oldest" ? asc(users.createdAt) : desc(users.createdAt), asc(users.id))
+    .limit(pageSize)
+    .offset((currentPage - 1) * pageSize);
+  return {
+    users: usersPage,
+    page: currentPage,
+    pageSize,
+    total: totalUsers,
+    totalPages,
+    order,
+  };
 }
 
 export async function setUserAccess(input: {

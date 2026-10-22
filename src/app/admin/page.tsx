@@ -10,8 +10,8 @@ export const metadata = { title: "Controle | JanjaLive", robots: { index: false,
 async function loadAdminPage() {
   try {
     const admin = await requireAdmin();
-    const users = await listAdminUsers();
-    return { admin, users };
+    const usersPage = await listAdminUsers();
+    return { admin, usersPage };
   } catch {
     return null;
   }
@@ -25,7 +25,7 @@ export default async function AdminPage() {
       <header className="admin-header"><Brand /><span>Controle de acesso</span></header>
       <section className="admin-card">
         <div><h1>Usuários</h1><p>Banimento de acesso e revogação imediata de sessões.</p></div>
-        <AdminUsers initialUsers={data.users} ownerUserId={data.admin.id} />
+        <AdminUsers initialData={data.usersPage} ownerUserId={data.admin.id} />
       </section>
     </main>
   );
