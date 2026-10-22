@@ -37,13 +37,17 @@ Presence is derived from authenticated WebSockets attached to the room Durable O
 
 The client obtains a short-lived room-scoped token from Vercel and connects directly to a hibernatable WebSocket on Cloudflare. One Durable Object serializes each room's presence, stream announcements and signaling fan-out. The client reconnects with exponential backoff and receives a fresh presence and active-stream snapshot after reconnecting. Upstash polling remains only as an explicit rollback provider during migration.
 
-Vercel checks the Auth.js or desktop session, active room and sender membership before issuing a 60-second connection token. The Worker validates its signature, issuer, audience and room claim before accepting a socket. Administrative events use a separate internal secret. SDP and ICE candidates are never logged or copied to PostgreSQL.
+Vercel checks the Auth.js or desktop session, active room and sender membership before issuing a 60-second connection token. The Worker validates its signature, issuer, audience, issue time and room claim before accepting a socket. Each room Durable Object persists separate, versioned account- and membership-revocation transitions and rejects a token issued at or before either active cutoff; an older restore event cannot erase a newer revocation, and room closure is durable as well. Administrative events use a separate internal secret. SDP and ICE candidates are never logged or copied to PostgreSQL.
+
+The Worker accepts released `janjalive-v1` clients and current `janjalive-v2` clients during rollout. Internally it gives legacy negotiation a stable pair session, translates a legacy reply to the current watch session when needed, and strips `mediaSessionId` before sending to a strict v1 recipient. This is why the Worker is deployed before Vercel or a new desktop release.
 
 ## 6. WebRTC negotiation
 
 Web and desktop both use the workspace package `@janjalive/webrtc`. Platform adapters provide only signaling requests and ICE configuration; peer creation, offer/answer handling, candidate buffering, lifecycle cleanup, retry timing and stream state live in the shared core. Runtime Zod schemas on both boundaries are exercised against the same protocol fixtures so either client cannot silently drift from the other.
 
 When a viewer clicks **Assistir**, it sends `watch:request` to one broadcaster. Only then does the broadcaster create one `RTCPeerConnection`, attach its chosen screen stream, and exchange offer, answer, and ICE candidates through signaling. Other available streams consume no viewer bandwidth.
+
+The Durable Object binds offer, answer and ICE traffic to a bounded watch session and rate-limits signaling per user across sockets. It releases the viewer's session when watching stops, negotiation fails or times out, and when the broadcaster stops or disconnects. The shared web/desktop core also refuses to allocate a peer from unsolicited ICE, limits active peers and pending sessions, and caps candidates buffered before an offer. These bounds preserve one inbound and one outbound direction for the same pair without allowing arbitrary session identifiers to allocate unbounded native resources.
 
 ```mermaid
 sequenceDiagram
@@ -91,13 +95,17 @@ The UI offers resolution, frame rate, and simple Auto/High/Custom quality. Inter
 - Directed signaling is restricted to active members of the same room.
 - Security headers disable framing, camera, and microphone access.
 - Logs redact keys associated with credentials, invitations, SDP, ICE, cookies, and IP addresses.
+- The `/admin` surface uses one server-configured owner identity. Every read and mutation verifies both the internal user ID and the linked Discord provider ID; knowing the route does not grant access.
+- Account bans are stored in PostgreSQL, checked by the shared web/desktop API guard, revoke Auth.js and desktop sessions, prevent new realtime/TURN authorization, and create durable per-room account cutoffs before active sockets close through the Vercel-to-Worker internal boundary.
 - Vercel Web Analytics records anonymous aggregate page views after sensitive route values are redacted. No custom analytics events, session replay, recording, VOD, chat, or media storage are included.
 
 WebRTC media transport is encrypted. P2P peers may still learn network-address information during ICE negotiation; JanjaLive is deliberately intended for small trusted groups.
 
 ## 12. Failure and reconnect behavior
 
-Realtime WebSockets reconnect with capped backoff. Active streams and presence are resynchronized from the Durable Object's live connection attachments. Existing working media connections are kept alive. If no direct route can be established and no TURN fallback exists, the viewer sees a clear failure message.
+Realtime WebSockets reconnect with capped backoff. A reconnect restores presence, an already-consented local publication and active watch requests without restarting capture. Active streams and presence are resynchronized from the Durable Object's live connection attachments; a bounded grace period prevents one transient empty snapshot from being treated as an intentional stop. An explicit `stream:stop` remains immediate. Existing working media connections are kept alive. If no direct route can be established and no TURN fallback exists, the viewer sees a clear failure message.
+
+Send and receive media use independent directional peer sessions identified in signaling. Stopping a watch closes only its inbound session, while stopping a broadcast closes only outbound sessions, so two broadcasters can watch each other without sharing a destructive peer lifecycle.
 
 ## 13. P2P scalability limits
 

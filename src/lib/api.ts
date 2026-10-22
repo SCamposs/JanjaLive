@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { getDesktopUserFromToken } from "@/lib/desktop-auth";
 import { isDesktopVersionSupported } from "@/lib/desktop-version";
+import { getActiveUserById } from "@/lib/account-access";
 
 export async function requireUser(request?: Request) {
   const authorization = request?.headers.get("authorization");
@@ -13,12 +14,12 @@ export async function requireUser(request?: Request) {
     )) throw new Error("DESKTOP_UPDATE_REQUIRED");
     const desktopUser = await getDesktopUserFromToken(match[1]);
     if (!desktopUser) throw new Error("UNAUTHENTICATED");
-    return desktopUser;
+    return getActiveUserById(desktopUser.id);
   }
 
   const session = await auth();
   if (!session?.user?.id) throw new Error("UNAUTHENTICATED");
-  return session.user;
+  return getActiveUserById(session.user.id);
 }
 
 export function apiError(error: unknown): Response {
@@ -29,9 +30,13 @@ export function apiError(error: unknown): Response {
     OWNER_IMMUTABLE: 400,
     RATE_LIMITED: 429,
     UNAUTHENTICATED: 401,
+    ACCOUNT_DISABLED: 403,
+    ADMIN_SELF_BAN: 400,
+    USER_NOT_FOUND: 404,
     DESKTOP_UPDATE_REQUIRED: 426,
     ROOM_FORBIDDEN: 403,
     OWNER_REQUIRED: 403,
+    ORIGIN_FORBIDDEN: 403,
     ROOM_UNAVAILABLE: 404,
     REALTIME_NOT_CONFIGURED: 503,
     REALTIME_TRANSPORT_REQUIRED: 426,

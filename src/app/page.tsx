@@ -1,6 +1,7 @@
 import { ArrowRight } from "lucide-react";
 import { auth, signIn } from "@/auth";
 import { AccountMenu } from "@/components/account-menu";
+import { AdminShortcut } from "@/components/admin-shortcut";
 import { Brand } from "@/components/brand";
 import { CreateRoomForm } from "@/components/create-room-form";
 import { LandingNoirBackground } from "@/components/landing-noir-background";
@@ -8,20 +9,30 @@ import { LegalFooter } from "@/components/legal-footer";
 import { NoirInterference } from "@/components/noir-interference";
 import { RoomList } from "@/components/room-list";
 import { listAvailableRooms } from "@/lib/rooms";
+import { getActiveUserById } from "@/lib/account-access";
+import { requireAdmin } from "@/lib/admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const session = await auth();
   if (session?.user) {
-    const displayName = session.user.name?.split(" ")[0] ?? "Conta Discord";
-    const availableRooms = session.user.id ? await listAvailableRooms(session.user.id) : [];
+    const activeUser = session.user.id ? await getActiveUserById(session.user.id).catch(() => null) : null;
+    if (!activeUser) {
+      return <main className="landing-page"><LandingNoirBackground /><header className="landing-header"><Brand /></header><section className="login-shell"><div className="login-card"><h1>Acesso indisponível</h1><p>Esta conta não pode usar o JanjaLive.</p><AccountMenu image={session.user.image} name={session.user.name || "Conta Discord"} /></div></section></main>;
+    }
+    const displayName = activeUser.name.split(" ")[0] ?? "Conta Discord";
+    const availableRooms = await listAvailableRooms(activeUser.id);
+    const isAdmin = await requireAdmin().then(() => true).catch(() => false);
 
     return (
       <main className="home-shell signed-in-home">
         <header className="landing-header">
           <Brand />
-          <AccountMenu image={session.user.image} name={displayName} />
+          <div className="header-actions">
+            {isAdmin && <AdminShortcut />}
+            <AccountMenu image={activeUser.image} name={displayName} />
+          </div>
         </header>
         <div className="home-content">
           <section className="home-intro">

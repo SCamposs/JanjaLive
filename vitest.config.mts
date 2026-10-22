@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.{ts,tsx}", "packages/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "packages/**/*.test.{ts,tsx}", "apps/realtime-worker/src/**/*.test.ts"],
     maxWorkers: 4,
     coverage: {
       provider: "v8",

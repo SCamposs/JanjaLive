@@ -18,6 +18,7 @@ import { getWebDisplayCaptureOptions } from "@/lib/display-capture";
 import type { RoomSnapshot } from "@/lib/rooms";
 import { QUALITY_PROFILES } from "@/lib/quality";
 import { AccountMenu } from "./account-menu";
+import { AdminShortcut } from "./admin-shortcut";
 import { Brand } from "./brand";
 import { NoirInterference } from "./noir-interference";
 import { ScreenShareDialog } from "./screen-share-dialog";
@@ -29,9 +30,10 @@ import { useRoomMedia } from "@/hooks/use-room-media";
 type Props = {
   snapshot: RoomSnapshot;
   currentUser: { id: string; name?: string | null; image?: string | null };
+  isAdmin?: boolean;
 };
 
-export function RoomExperience({ snapshot, currentUser }: Props) {
+export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props) {
   const router = useRouter();
   const realtime = useRoomMedia(snapshot.room.id, currentUser.id);
   const [capture, setCapture] = useState<MediaStream | null>(null);
@@ -215,6 +217,7 @@ export function RoomExperience({ snapshot, currentUser }: Props) {
           </div>
         </div>
         <div className="header-actions">
+          {isAdmin && <AdminShortcut />}
           <button className="button secondary compact" type="button" onClick={copyInvite}>
             {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? "Copiado" : "Convidar"}
           </button>

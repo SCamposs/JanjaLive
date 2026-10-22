@@ -285,36 +285,42 @@ export async function manageRoomMember(input: {
   if (!canManageRoom(owner)) throw new Error("OWNER_REQUIRED");
   assertCanTargetMember(input.ownerId, input.userId);
   const transition = getMembershipTransition(input.action);
+  const changedAt = new Date();
 
   if (transition.membership === "active") {
+    const [target] = await db.select({ accountStatus: users.accountStatus })
+      .from(users).where(eq(users.id, input.userId)).limit(1);
+    if (!target) throw new Error("USER_NOT_FOUND");
+    if (target.accountStatus !== "ACTIVE") throw new Error("ACCOUNT_DISABLED");
     await db.batch([
       db
         .insert(roomMembers)
         .values({ roomId: input.roomId, userId: input.userId, role: "MEMBER" })
         .onConflictDoUpdate({
           target: [roomMembers.roomId, roomMembers.userId],
-          set: { revokedAt: null, approvedAt: new Date(), role: "MEMBER" },
+          set: { revokedAt: null, approvedAt: changedAt, role: "MEMBER" },
         }),
       db
         .update(joinRequests)
-        .set({ status: "APPROVED", resolvedAt: new Date(), resolvedBy: input.ownerId })
+        .set({ status: "APPROVED", resolvedAt: changedAt, resolvedBy: input.ownerId })
         .where(and(eq(joinRequests.roomId, input.roomId), eq(joinRequests.userId, input.userId))),
     ]);
-    return;
+    return changedAt.getTime();
   }
 
   if (transition.request === "REJECTED") {
     await db
       .update(joinRequests)
-      .set({ status: "REJECTED", resolvedAt: new Date(), resolvedBy: input.ownerId })
+      .set({ status: "REJECTED", resolvedAt: changedAt, resolvedBy: input.ownerId })
       .where(and(eq(joinRequests.roomId, input.roomId), eq(joinRequests.userId, input.userId)));
-    return;
+    return changedAt.getTime();
   }
 
   await db
     .update(roomMembers)
-    .set({ revokedAt: new Date() })
+    .set({ revokedAt: changedAt })
     .where(and(eq(roomMembers.roomId, input.roomId), eq(roomMembers.userId, input.userId)));
+  return changedAt.getTime();
 }
 
 export async function regenerateRoomInvite(roomId: string, ownerId: string) {
@@ -330,9 +336,13 @@ export async function regenerateRoomInvite(roomId: string, ownerId: string) {
 }
 
 export async function closeRoom(roomId: string, ownerId: string) {
-  const { member } = await assertAuthorizedRoom(roomId, ownerId);
-  if (!canManageRoom(member)) throw new Error("OWNER_REQUIRED");
-  await getDb().update(rooms).set({ closedAt: new Date() }).where(eq(rooms.id, roomId));
+  const db = getDb();
+  const [room] = await db.select({ ownerId: rooms.ownerId, closedAt: rooms.closedAt })
+    .from(rooms).where(eq(rooms.id, roomId)).limit(1);
+  if (!room) throw new Error("ROOM_UNAVAILABLE");
+  if (room.ownerId !== ownerId) throw new Error("OWNER_REQUIRED");
+  if (room.closedAt) return;
+  await db.update(rooms).set({ closedAt: new Date() }).where(and(eq(rooms.id, roomId), isNull(rooms.closedAt)));
 }
 
 export async function deleteRoom(roomId: string, ownerId: string) {

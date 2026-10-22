@@ -30,26 +30,39 @@ const candidateSchema = z.object({
   usernameFragment: z.string().nullable().optional(),
 }).strict();
 
+const mediaSessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{16,128}$/);
+
 export const clientSignalingEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("presence:join") }).strict(),
   z.object({ type: z.literal("presence:leave") }).strict(),
   z.object({ type: z.literal("stream:start"), metadata: streamMetadataSchema }).strict(),
   z.object({ type: z.literal("stream:stop") }).strict(),
-  z.object({ type: z.literal("watch:request"), targetUserId: z.string().min(1).max(128) }).strict(),
-  z.object({ type: z.literal("watch:stop"), targetUserId: z.string().min(1).max(128) }).strict(),
+  z.object({
+    type: z.literal("watch:request"),
+    targetUserId: z.string().min(1).max(128),
+    mediaSessionId: mediaSessionIdSchema,
+  }).strict(),
+  z.object({
+    type: z.literal("watch:stop"),
+    targetUserId: z.string().min(1).max(128),
+    mediaSessionId: mediaSessionIdSchema,
+  }).strict(),
   z.object({
     type: z.literal("webrtc:offer"),
     targetUserId: z.string().min(1).max(128),
+    mediaSessionId: mediaSessionIdSchema,
     description: sessionDescriptionSchema,
   }).strict(),
   z.object({
     type: z.literal("webrtc:answer"),
     targetUserId: z.string().min(1).max(128),
+    mediaSessionId: mediaSessionIdSchema,
     description: sessionDescriptionSchema,
   }).strict(),
   z.object({
     type: z.literal("webrtc:ice-candidate"),
     targetUserId: z.string().min(1).max(128),
+    mediaSessionId: mediaSessionIdSchema,
     candidate: candidateSchema,
   }).strict(),
 ]);

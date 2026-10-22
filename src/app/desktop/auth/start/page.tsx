@@ -5,6 +5,7 @@ import { auth, signIn } from "@/auth";
 import { Brand } from "@/components/brand";
 import { LegalFooter } from "@/components/legal-footer";
 import { createDesktopAuthGrant } from "@/lib/desktop-auth";
+import { getActiveUserById } from "@/lib/account-access";
 import { DesktopAuthComplete } from "./desktop-auth-complete";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export default async function DesktopAuthStartPage({
     );
   }
 
+  await getActiveUserById(session.user.id).catch(() => redirect("/"));
   const code = await createDesktopAuthGrant({
     userId: session.user.id,
     state: parsed.data.state,

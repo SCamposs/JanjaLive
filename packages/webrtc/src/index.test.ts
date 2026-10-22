@@ -9,6 +9,9 @@ import {
   getRoomPollInterval,
   getRoomSignalDirective,
   isTransientPeerSignal,
+  MAX_PENDING_CANDIDATES_PER_SESSION,
+  MAX_PENDING_MEDIA_SESSIONS_PER_REMOTE,
+  queuePendingCandidate,
   replacePeerTracks,
   shouldApplyRemoteAnswer,
   shouldPauseRoomPolling,
@@ -79,12 +82,114 @@ describe("shared room media lifecycle", () => {
       activeStreams: [],
     });
     expect(getSession).toHaveBeenCalledOnce();
-    expect(WebSocketStub.last?.protocols).toEqual(["janjalive-v1", "janjalive-token.signed-token"]);
+    expect(WebSocketStub.last?.protocols).toEqual(["janjalive-v2", "janjalive-token.signed-token"]);
     expect(WebSocketStub.last?.send).toHaveBeenCalledWith(JSON.stringify({
       type: "signal",
       payload: { type: "presence:join" },
     }));
     transport.close?.("room-a");
+  });
+
+  it("restores presence, publication and watch intent after the signaling socket reconnects", async () => {
+    class WebSocketStub extends EventTarget {
+      static OPEN = 1;
+      static instances: WebSocketStub[] = [];
+      readyState = 0;
+      send = vi.fn();
+      constructor() {
+        super();
+        WebSocketStub.instances.push(this);
+        queueMicrotask(() => {
+          this.readyState = WebSocketStub.OPEN;
+          this.dispatchEvent(new Event("open"));
+          this.dispatchEvent(new MessageEvent("message", {
+            data: JSON.stringify({ type: "snapshot", onlineUserIds: [], activeStreams: [] }),
+          }));
+        });
+      }
+      close(code = 1000) {
+        this.readyState = 3;
+        this.dispatchEvent(new CloseEvent("close", { code }));
+      }
+    }
+    vi.stubGlobal("WebSocket", WebSocketStub);
+    const transport = createAdaptiveRoomMediaTransport({
+      getSession: vi.fn().mockResolvedValue({
+        provider: "cloudflare",
+        url: "https://realtime.example.com",
+        token: "signed-token",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+      legacySend: vi.fn(),
+      legacyPoll: vi.fn(),
+      getIceServers: vi.fn().mockResolvedValue([]),
+      isRoomUnavailable: () => false,
+    });
+    const metadata = { preset: "1080p60" as const, width: 1920, height: 1080, frameRate: 60, hasAudio: true };
+    const mediaSessionId = "session-reconnect-01";
+
+    await transport.send("room-a", { type: "presence:join" });
+    await transport.send("room-a", { type: "stream:start", metadata });
+    await transport.send("room-a", { type: "watch:request", targetUserId: "friend", mediaSessionId });
+    WebSocketStub.instances[0]?.close(1006);
+    await transport.poll("room-a", 0);
+
+    const replayed = WebSocketStub.instances[1]?.send.mock.calls.map(([message]) => JSON.parse(message as string).payload);
+    expect(replayed).toEqual(expect.arrayContaining([
+      { type: "presence:join" },
+      { type: "stream:start", metadata },
+      { type: "watch:request", targetUserId: "friend", mediaSessionId },
+    ]));
+    transport.close?.("room-a");
+  });
+
+  it("invalidates a stale in-flight socket when the logical client changes rooms", async () => {
+    class WebSocketStub extends EventTarget {
+      static OPEN = 1;
+      static instances: WebSocketStub[] = [];
+      readyState = 0;
+      send = vi.fn();
+      closed = false;
+      constructor() { super(); WebSocketStub.instances.push(this); }
+      open() {
+        this.readyState = WebSocketStub.OPEN;
+        this.dispatchEvent(new Event("open"));
+      }
+      close(code = 1000) {
+        this.closed = true;
+        this.readyState = 3;
+        this.dispatchEvent(new CloseEvent("close", { code }));
+      }
+    }
+    vi.stubGlobal("WebSocket", WebSocketStub);
+    const transport = createAdaptiveRoomMediaTransport({
+      getSession: vi.fn().mockResolvedValue({
+        provider: "cloudflare",
+        url: "https://realtime.example.com",
+        token: "signed-token",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+      legacySend: vi.fn(),
+      legacyPoll: vi.fn(),
+      getIceServers: vi.fn().mockResolvedValue([]),
+      isRoomUnavailable: () => false,
+    });
+
+    const staleSend = transport.send("room-a", { type: "presence:join" });
+    await waitFor(() => expect(WebSocketStub.instances).toHaveLength(1));
+    const currentSend = transport.send("room-b", { type: "presence:join" });
+    await waitFor(() => expect(WebSocketStub.instances).toHaveLength(2));
+    WebSocketStub.instances[1]?.open();
+    await currentSend;
+    WebSocketStub.instances[0]?.open();
+
+    await expect(staleSend).rejects.toThrow("REALTIME_CONNECTION_SUPERSEDED");
+    expect(WebSocketStub.instances[0]?.closed).toBe(true);
+    expect(WebSocketStub.instances[1]?.send).toHaveBeenCalledWith(JSON.stringify({
+      type: "signal",
+      payload: { type: "presence:join" },
+    }));
+    transport.close?.("room-b");
   });
 
   it("ends the room locally when it is closed or access is revoked", () => {
@@ -98,13 +203,12 @@ describe("shared room media lifecycle", () => {
     });
   });
 
-  it("closes only the sender peer when watching or streaming stops", () => {
-    expect(getRoomSignalDirective({ type: "watch:stop", targetUserId: "user" })).toEqual({
-      closeSender: true,
+  it("keeps ordinary media events separate from room lifecycle events", () => {
+    expect(getRoomSignalDirective({ type: "watch:stop", targetUserId: "user", mediaSessionId: "session-fixture-01" })).toEqual({
       membershipChanged: false,
       roomUnavailable: false,
     });
-    expect(getRoomSignalDirective({ type: "stream:stop" }).closeSender).toBe(true);
+    expect(getRoomSignalDirective({ type: "stream:stop" }).roomUnavailable).toBe(false);
   });
 
   it("caps reconnect backoff without creating a hot retry loop", () => {
@@ -121,10 +225,23 @@ describe("shared room media lifecycle", () => {
   });
 
   it("does not replay peer negotiation into a newly opened room session", () => {
-    expect(isTransientPeerSignal({ type: "webrtc:ice-candidate", targetUserId: "user", candidate: { candidate: "candidate" } })).toBe(true);
-    expect(isTransientPeerSignal({ type: "watch:request", targetUserId: "user" })).toBe(true);
+    expect(isTransientPeerSignal({ type: "webrtc:ice-candidate", targetUserId: "user", mediaSessionId: "session-fixture-01", candidate: { candidate: "candidate" } })).toBe(true);
+    expect(isTransientPeerSignal({ type: "watch:request", targetUserId: "user", mediaSessionId: "session-fixture-01" })).toBe(true);
     expect(isTransientPeerSignal({ type: "room:closed" })).toBe(false);
     expect(isTransientPeerSignal({ type: "stream:start", metadata: { preset: "720p30", width: 1280, height: 720, frameRate: 30, hasAudio: false } })).toBe(false);
+  });
+
+  it("bounds early ICE by sender, session and candidate count", () => {
+    const pending = new Map();
+    for (let index = 0; index < MAX_PENDING_CANDIDATES_PER_SESSION; index += 1) {
+      expect(queuePendingCandidate(pending, "session-candidate-cap", "sender", { candidate: `candidate:${index}` })).toBe(true);
+    }
+    expect(queuePendingCandidate(pending, "session-candidate-cap", "sender", { candidate: "overflow" })).toBe(false);
+    for (let index = 1; index < MAX_PENDING_MEDIA_SESSIONS_PER_REMOTE; index += 1) {
+      expect(queuePendingCandidate(pending, `session-sender-${index}`, "sender", { candidate: "candidate" })).toBe(true);
+    }
+    expect(queuePendingCandidate(pending, "session-sender-overflow", "sender", { candidate: "candidate" })).toBe(false);
+    expect(queuePendingCandidate(pending, "session-candidate-cap", "different-sender", { candidate: "candidate" })).toBe(false);
   });
 
   it("polls faster only while negotiating a peer connection", () => {
@@ -232,7 +349,7 @@ describe("shared room media lifecycle", () => {
         senderUserId: "streamer",
         sentAt: Date.now() - 10_000,
         cursor: 41,
-        payload: { type: "webrtc:ice-candidate", targetUserId: "viewer", candidate: { candidate: "candidate" } },
+        payload: { type: "webrtc:ice-candidate", targetUserId: "viewer", mediaSessionId: "session-fixture-01", candidate: { candidate: "candidate" } },
       }],
       onlineUserIds: ["streamer", "viewer"],
       activeStreams: [],
@@ -243,6 +360,46 @@ describe("shared room media lifecycle", () => {
     await waitFor(() => expect(result.current.connectionStatus).toBe("good"));
 
     expect(PeerStub.created).toBe(0);
+    unmount();
+  });
+
+  it("buffers bounded early ICE without allocating peers for unknown sessions", async () => {
+    vi.useFakeTimers();
+    class PeerStub {
+      static created = 0;
+      connectionState: RTCPeerConnectionState = "new";
+      signalingState: RTCSignalingState = "stable";
+      onconnectionstatechange: (() => void) | null = null;
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      constructor() { PeerStub.created += 1; }
+      close() { this.connectionState = "closed"; }
+    }
+    vi.stubGlobal("RTCPeerConnection", PeerStub);
+    const now = Date.now();
+    const unsolicited = Array.from({ length: 40 }, (_, index) => ({
+      id: `candidate-${index}`,
+      senderUserId: "attacker",
+      sentAt: now,
+      cursor: index + 1,
+      payload: {
+        type: "webrtc:ice-candidate" as const,
+        targetUserId: "viewer",
+        mediaSessionId: `unknown-session-${String(index).padStart(2, "0")}`,
+        candidate: { candidate: `candidate:${index}` },
+      },
+    }));
+    const poll = vi.fn()
+      .mockResolvedValueOnce({ events: [], onlineUserIds: ["viewer", "attacker"], activeStreams: [], cursor: 0 } satisfies RealtimePoll)
+      .mockResolvedValueOnce({ events: unsolicited, onlineUserIds: ["viewer", "attacker"], activeStreams: [], cursor: 40 } satisfies RealtimePoll)
+      .mockImplementation(() => new Promise(() => undefined));
+    const transport = createTransport(poll);
+    const { unmount } = renderHook(() => useRoomMediaCore({ roomId: "room-a", transport }));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+
+    expect(PeerStub.created).toBe(0);
+    expect(poll).toHaveBeenCalledTimes(2);
     unmount();
   });
 
@@ -266,7 +423,12 @@ describe("shared room media lifecycle", () => {
     expect(transport.send).toHaveBeenCalledWith("room-a", {
       type: "watch:request",
       targetUserId: "streamer",
+      mediaSessionId: expect.any(String),
     });
+    const watchRequest = vi.mocked(transport.send).mock.calls.map(([, payload]) => payload)
+      .find((payload) => payload.type === "watch:request");
+    expect(watchRequest).toMatchObject({ type: "watch:request", mediaSessionId: expect.any(String) });
+    const mediaSessionId = watchRequest && "mediaSessionId" in watchRequest ? watchRequest.mediaSessionId : "";
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
@@ -274,8 +436,17 @@ describe("shared room media lifecycle", () => {
     expect(transport.send).toHaveBeenCalledWith("room-a", {
       type: "watch:request",
       targetUserId: "streamer",
+      mediaSessionId: expect.any(String),
     });
     expect(vi.mocked(transport.send).mock.calls.filter(([, payload]) => payload.type === "watch:request")).toHaveLength(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(17_000);
+    });
+    expect(transport.send).toHaveBeenCalledWith("room-a", {
+      type: "watch:stop",
+      targetUserId: "streamer",
+      mediaSessionId,
+    });
     unmount();
   });
 
@@ -335,7 +506,7 @@ describe("shared room media lifecycle", () => {
           senderUserId: "viewer",
           sentAt: now,
           cursor: 1,
-          payload: { type: "watch:request", targetUserId: "broadcaster" },
+          payload: { type: "watch:request", targetUserId: "broadcaster", mediaSessionId: "session-fixture-01" },
         }],
         onlineUserIds: ["viewer", "broadcaster"],
         activeStreams: [],
@@ -347,7 +518,7 @@ describe("shared room media lifecycle", () => {
           senderUserId: "viewer",
           sentAt: now,
           cursor,
-          payload: { type: "webrtc:answer" as const, targetUserId: "broadcaster", description: answer },
+          payload: { type: "webrtc:answer" as const, targetUserId: "broadcaster", mediaSessionId: "session-fixture-01", description: answer },
         })),
         onlineUserIds: ["viewer", "broadcaster"],
         activeStreams: [],
@@ -380,6 +551,107 @@ describe("shared room media lifecycle", () => {
     expect(PeerStub.lastCreated?.setRemoteDescription).toHaveBeenCalledOnce();
     expect(PeerStub.lastCreated?.signalingState).toBe("stable");
     expect(result.current.connectionStatus).not.toBe("unstable");
+    unmount();
+  });
+
+  it("keeps directional broadcast and watch lifecycles independent for the same remote user", async () => {
+    vi.useFakeTimers();
+    class PeerStub {
+      static instances: PeerStub[] = [];
+      connectionState: RTCPeerConnectionState = "new";
+      signalingState: RTCSignalingState = "stable";
+      localDescription: RTCSessionDescription | null = null;
+      remoteDescription: RTCSessionDescription | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+      onicecandidate: ((event: RTCPeerConnectionIceEvent) => void) | null = null;
+      ontrack: ((event: RTCTrackEvent) => void) | null = null;
+      closed = false;
+      private senders: RTCRtpSender[] = [];
+      constructor() { PeerStub.instances.push(this); }
+      getSenders() { return this.senders; }
+      addTrack() {
+        const sender = { getParameters: () => ({ encodings: [{}] }), setParameters: vi.fn().mockResolvedValue(undefined) } as unknown as RTCRtpSender;
+        this.senders.push(sender);
+        return sender;
+      }
+      createOffer() { return Promise.resolve({ type: "offer" as const, sdp: "offer-sdp" }); }
+      setLocalDescription(description: RTCSessionDescriptionInit) { this.localDescription = description as RTCSessionDescription; this.signalingState = "have-local-offer"; return Promise.resolve(); }
+      addIceCandidate() { return Promise.resolve(); }
+      close() { this.closed = true; this.connectionState = "closed"; }
+    }
+    vi.stubGlobal("RTCPeerConnection", PeerStub);
+    const now = Date.now();
+    const poll = vi.fn()
+      .mockResolvedValueOnce({ events: [], onlineUserIds: ["local", "friend"], activeStreams: [], cursor: 0 } satisfies RealtimePoll)
+      .mockResolvedValueOnce({
+        events: [{ id: "watch", senderUserId: "friend", sentAt: now, cursor: 1, payload: { type: "watch:request", targetUserId: "local", mediaSessionId: "outbound-session-01" } }],
+        onlineUserIds: ["local", "friend"], activeStreams: [], cursor: 1,
+      } satisfies RealtimePoll)
+      .mockImplementation(() => new Promise(() => undefined));
+    const transport = createTransport(poll);
+    const { result, unmount } = renderHook(() => useRoomMediaCore({ roomId: "room-a", transport }));
+    const stopTrack = vi.fn();
+    const stream = { getTracks: () => [{ kind: "video", stop: stopTrack }] } as unknown as MediaStream;
+
+    await act(async () => {
+      await result.current.startBroadcast(stream, { preset: "1080p60", width: 1920, height: 1080, frameRate: 60, hasAudio: false }, 10_000_000);
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    await act(async () => { await result.current.watch("friend"); });
+
+    expect(PeerStub.instances).toHaveLength(2);
+    expect(PeerStub.instances[0]?.getSenders()).toHaveLength(1);
+    expect(PeerStub.instances[1]?.getSenders()).toHaveLength(0);
+    await act(async () => { await result.current.stopWatching("friend"); });
+    expect(PeerStub.instances[0]?.closed).toBe(false);
+    expect(PeerStub.instances[1]?.closed).toBe(true);
+    expect(stopTrack).not.toHaveBeenCalled();
+
+    await act(async () => { await result.current.watch("friend"); });
+    expect(PeerStub.instances).toHaveLength(3);
+    await act(async () => { await result.current.stopBroadcast(); });
+    expect(PeerStub.instances[0]?.closed).toBe(true);
+    expect(PeerStub.instances[2]?.closed).toBe(false);
+    expect(stopTrack).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it("keeps a stream through one transient empty snapshot, then expires it after a bounded grace", async () => {
+    vi.useFakeTimers();
+    const activeStream = { streamerUserId: "friend", preset: "1080p60" as const, width: 1920, height: 1080, frameRate: 60, hasAudio: true, startedAt: Date.now() };
+    const poll = vi.fn()
+      .mockResolvedValueOnce({ events: [], onlineUserIds: ["friend"], activeStreams: [activeStream], cursor: 0 } satisfies RealtimePoll)
+      .mockResolvedValueOnce({ events: [], onlineUserIds: [], activeStreams: [], cursor: 0 } satisfies RealtimePoll)
+      .mockImplementation(() => new Promise(() => undefined));
+    const transport = createTransport(poll);
+    const { result, unmount } = renderHook(() => useRoomMediaCore({ roomId: "room-a", transport }));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current.activeStreams).toEqual([activeStream]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(result.current.activeStreams).toEqual([activeStream]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+    expect(result.current.activeStreams).toEqual([]);
+    unmount();
+  });
+
+  it("treats an explicit stream stop as immediate even during snapshot recovery grace", async () => {
+    vi.useFakeTimers();
+    const activeStream = { streamerUserId: "friend", preset: "1080p60" as const, width: 1920, height: 1080, frameRate: 60, hasAudio: false, startedAt: Date.now() };
+    const poll = vi.fn()
+      .mockResolvedValueOnce({ events: [], onlineUserIds: ["friend"], activeStreams: [activeStream], cursor: 0 } satisfies RealtimePoll)
+      .mockResolvedValueOnce({
+        events: [{ id: "stop", senderUserId: "friend", sentAt: Date.now(), cursor: 1, payload: { type: "stream:stop" } }],
+        onlineUserIds: ["friend"], activeStreams: [], cursor: 1,
+      } satisfies RealtimePoll)
+      .mockImplementation(() => new Promise(() => undefined));
+    const transport = createTransport(poll);
+    const { result, unmount } = renderHook(() => useRoomMediaCore({ roomId: "room-a", transport }));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(result.current.activeStreams).toEqual([activeStream]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(result.current.activeStreams).toEqual([]);
     unmount();
   });
 });

@@ -15,21 +15,24 @@ const signals = [
     metadata: { preset: "1080p60", width: 1920, height: 1080, frameRate: 60, hasAudio: true },
   },
   { type: "stream:stop" },
-  { type: "watch:request", targetUserId: "friend" },
-  { type: "watch:stop", targetUserId: "friend" },
+  { type: "watch:request", targetUserId: "friend", mediaSessionId: "session-fixture-01" },
+  { type: "watch:stop", targetUserId: "friend", mediaSessionId: "session-fixture-01" },
   {
     type: "webrtc:offer",
     targetUserId: "friend",
+    mediaSessionId: "session-fixture-01",
     description: { type: "offer", sdp: "v=0" },
   },
   {
     type: "webrtc:answer",
     targetUserId: "friend",
+    mediaSessionId: "session-fixture-01",
     description: { type: "answer", sdp: "v=0" },
   },
   {
     type: "webrtc:ice-candidate",
     targetUserId: "friend",
+    mediaSessionId: "session-fixture-01",
     candidate: { candidate: "candidate:fixture", sdpMid: "0", sdpMLineIndex: 0 },
   },
 ] satisfies ClientSignal[];

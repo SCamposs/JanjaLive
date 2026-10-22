@@ -22,6 +22,13 @@
       "when": 1790952396455,
       "tag": "0002_common_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792628883479,
+      "tag": "0003_large_yellow_claw",
+      "breakpoints": true
     }
   ]
 }

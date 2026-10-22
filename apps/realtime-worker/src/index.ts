@@ -4,9 +4,26 @@ import {
   clientSignalingEventSchema,
   signalingEventSchema,
   type ActiveStream,
+  type ClientSignal,
   type ServerSignal,
   type StreamMetadata,
 } from "@janjalive/realtime-protocol";
+import {
+  activeRevocationCutoff,
+  applyRevocationTransition,
+  authorizeMediaSignal,
+  consumeSignalBudget,
+  hasUserSignalBudget,
+  isTokenRevoked,
+  removeBroadcastSessions,
+  removeWatchedSession,
+  resolveLegacyMediaSessionId,
+  stripMediaSessionIdForLegacy,
+  type SignalingConnectionState,
+  type RevocationTransitionState,
+  type SocketProtocol,
+} from "./connection-policy";
+import { normalizeLegacyMediaSessionId } from "./legacy-media-session";
 
 type Env = {
   ROOMS: DurableObjectNamespace<RoomDurableObject>;
@@ -19,19 +36,29 @@ type Env = {
 type RealtimeClaims = {
   roomId: string;
   sub: string;
+  issuedAt: number;
 };
 
-type ConnectionState = {
-  userId: string;
+type ConnectionState = SignalingConnectionState & {
   connectedAt: number;
   stream?: StreamMetadata & { startedAt: number };
 };
 
 const TOKEN_ISSUER = "https://www.janja.live";
 const TOKEN_AUDIENCE = "janjalive-realtime";
-const PROTOCOL = "janjalive-v1";
+const LEGACY_PROTOCOL = "janjalive-v1";
+const PROTOCOL = "janjalive-v2";
 const TOKEN_PROTOCOL_PREFIX = "janjalive-token.";
 const MAX_MESSAGE_BYTES = 180_000;
+const ROOM_CLOSED_KEY = "room:closed";
+
+function accountRevocationKey(userId: string) {
+  return `account-revoked:${userId}`;
+}
+
+function membershipRevocationKey(userId: string) {
+  return `membership-revoked:${userId}`;
+}
 
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -48,8 +75,9 @@ function bearerMatches(request: Request, secret: string) {
 
 function tokenFromProtocols(request: Request) {
   const protocols = request.headers.get("sec-websocket-protocol")?.split(",").map((value) => value.trim()) ?? [];
-  if (!protocols.includes(PROTOCOL)) return null;
-  return protocols.find((value) => value.startsWith(TOKEN_PROTOCOL_PREFIX))?.slice(TOKEN_PROTOCOL_PREFIX.length) ?? null;
+  const protocol = protocols.includes(PROTOCOL) ? PROTOCOL : protocols.includes(LEGACY_PROTOCOL) ? LEGACY_PROTOCOL : null;
+  const token = protocols.find((value) => value.startsWith(TOKEN_PROTOCOL_PREFIX))?.slice(TOKEN_PROTOCOL_PREFIX.length) ?? null;
+  return protocol && token ? { protocol: protocol as SocketProtocol, token } : null;
 }
 
 async function verifyRealtimeToken(token: string, env: Env): Promise<RealtimeClaims> {
@@ -58,10 +86,10 @@ async function verifyRealtimeToken(token: string, env: Env): Promise<RealtimeCla
     issuer: TOKEN_ISSUER,
     audience: TOKEN_AUDIENCE,
     maxTokenAge: "2m",
-    requiredClaims: ["roomId", "sub", "jti"],
+    requiredClaims: ["roomId", "sub", "jti", "iat"],
   });
-  if (typeof payload.sub !== "string" || typeof payload.roomId !== "string") throw new Error("INVALID_CLAIMS");
-  return { roomId: payload.roomId, sub: payload.sub };
+  if (typeof payload.sub !== "string" || typeof payload.roomId !== "string" || !Number.isInteger(payload.iat)) throw new Error("INVALID_CLAIMS");
+  return { roomId: payload.roomId, sub: payload.sub, issuedAt: payload.iat! };
 }
 
 function internalRoomRequest(request: Request, roomId: string, pathname: string) {
@@ -83,13 +111,15 @@ export default {
     if (url.pathname === "/connect") {
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return json({ error: "UPGRADE_REQUIRED" }, 426);
       if (!allowedOrigin(request, env)) return json({ error: "ORIGIN_FORBIDDEN" }, 403);
-      const token = tokenFromProtocols(request);
-      if (!token) return json({ error: "TOKEN_REQUIRED" }, 401);
+      const session = tokenFromProtocols(request);
+      if (!session) return json({ error: "TOKEN_REQUIRED" }, 401);
       try {
-        const claims = await verifyRealtimeToken(token, env);
+        const claims = await verifyRealtimeToken(session.token, env);
         const headers = new Headers(request.headers);
         headers.set("x-janjalive-user-id", claims.sub);
         headers.set("x-janjalive-room-id", claims.roomId);
+        headers.set("x-janjalive-token-issued-at", String(claims.issuedAt));
+        headers.set("x-janjalive-protocol", session.protocol);
         const stub = env.ROOMS.getByName(claims.roomId);
         return stub.fetch(new Request("https://room.internal/connect", { headers }));
       } catch {
@@ -101,7 +131,7 @@ export default {
       return json({ error: "NOT_FOUND" }, 404);
     }
 
-    const roomMatch = /^\/internal\/rooms\/([0-9a-f-]{36})\/(event|presence)$/.exec(url.pathname);
+    const roomMatch = /^\/internal\/rooms\/([0-9a-f-]{36})\/(access|event|presence)$/.exec(url.pathname);
     if (roomMatch) {
       const [, roomId, action] = roomMatch;
       const stub = env.ROOMS.getByName(roomId!);
@@ -134,8 +164,22 @@ export class RoomDurableObject extends DurableObject<Env> {
     return this.ctx.getWebSockets().filter((socket) => socket.readyState === WebSocket.OPEN);
   }
 
-  private state(socket: WebSocket) {
-    return socket.deserializeAttachment() as ConnectionState | null;
+  private state(socket: WebSocket): ConnectionState | null {
+    const value = socket.deserializeAttachment() as Partial<ConnectionState> | null;
+    if (!value?.userId) return null;
+    return {
+      connectedAt: value.connectedAt ?? Date.now(),
+      userId: value.userId,
+      protocol: value.protocol === PROTOCOL ? PROTOCOL : LEGACY_PROTOCOL,
+      mediaSessions: value.mediaSessions ?? [],
+      signalWindowStartedAt: value.signalWindowStartedAt ?? Date.now(),
+      signalCount: value.signalCount ?? 0,
+      ...(value.stream ? { stream: value.stream } : {}),
+    };
+  }
+
+  private states() {
+    return this.sockets().map((socket) => this.state(socket)).filter((state): state is ConnectionState => Boolean(state));
   }
 
   private snapshot() {
@@ -157,18 +201,30 @@ export class RoomDurableObject extends DurableObject<Env> {
     for (const socket of this.sockets()) socket.send(message);
   }
 
+  private releaseBroadcastSessions(broadcasterUserId: string) {
+    for (const viewerSocket of this.sockets()) {
+      const viewerState = this.state(viewerSocket);
+      if (!viewerState) continue;
+      removeBroadcastSessions(viewerState, broadcasterUserId);
+      viewerSocket.serializeAttachment(viewerState);
+    }
+  }
+
   private emit(senderUserId: string, payload: ServerSignal) {
     const now = Date.now();
     this.lastCursor = Math.max(this.lastCursor + 1, now * 1_000);
-    const message = JSON.stringify({
-      type: "event",
-      event: { id: crypto.randomUUID(), senderUserId, sentAt: now, cursor: this.lastCursor, payload },
-    });
+    const id = crypto.randomUUID();
     const targetUserId = "targetUserId" in payload ? payload.targetUserId : null;
     for (const socket of this.sockets()) {
       const state = this.state(socket);
       if (!state || state.userId === senderUserId || (targetUserId && state.userId !== targetUserId)) continue;
-      socket.send(message);
+      const recipientPayload = state.protocol === LEGACY_PROTOCOL && "mediaSessionId" in payload
+        ? stripMediaSessionIdForLegacy(payload as ClientSignal)
+        : payload;
+      socket.send(JSON.stringify({
+        type: "event",
+        event: { id, senderUserId, sentAt: now, cursor: this.lastCursor, payload: recipientPayload },
+      }));
     }
   }
 
@@ -176,23 +232,94 @@ export class RoomDurableObject extends DurableObject<Env> {
     const url = new URL(request.url);
     if (url.pathname === "/connect") {
       const userId = request.headers.get("x-janjalive-user-id");
-      if (!userId || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return json({ error: "INVALID_CONNECT" }, 400);
+      const issuedAt = Number(request.headers.get("x-janjalive-token-issued-at"));
+      const protocol = request.headers.get("x-janjalive-protocol") === PROTOCOL ? PROTOCOL : LEGACY_PROTOCOL;
+      if (!userId || !Number.isInteger(issuedAt) || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return json({ error: "INVALID_CONNECT" }, 400);
+      const [accountRevocation, membershipRevocation] = await Promise.all([
+        this.ctx.storage.get<RevocationTransitionState | number>(accountRevocationKey(userId)),
+        this.ctx.storage.get<RevocationTransitionState | number>(membershipRevocationKey(userId)),
+      ]);
+      const accountRevokedAt = activeRevocationCutoff(accountRevocation);
+      const membershipRevokedAt = activeRevocationCutoff(membershipRevocation);
+      if (isTokenRevoked(issuedAt, Math.max(accountRevokedAt ?? -1, membershipRevokedAt ?? -1))) {
+        return json({ error: "ACCESS_REVOKED" }, 403);
+      }
+      if (await this.ctx.storage.get<boolean>(ROOM_CLOSED_KEY)) return json({ error: "ROOM_CLOSED" }, 403);
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server, [`user:${userId}`]);
-      server.serializeAttachment({ userId, connectedAt: Date.now() } satisfies ConnectionState);
+      const now = Date.now();
+      server.serializeAttachment({
+        userId,
+        protocol,
+        connectedAt: now,
+        mediaSessions: [],
+        signalWindowStartedAt: now,
+        signalCount: 0,
+      } satisfies ConnectionState);
       this.sendSnapshot();
-      return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": PROTOCOL } });
+      return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": protocol } });
     }
 
     if (url.pathname === "/presence" && request.method === "GET") {
       return json({ active: this.sockets().length > 0 });
     }
 
+    if (url.pathname === "/access" && request.method === "POST") {
+      const body = await request.json().catch(() => null) as {
+        action?: unknown;
+        changedAt?: unknown;
+        senderUserId?: unknown;
+        targetUserId?: unknown;
+      } | null;
+      if (
+        !body
+        || (body.action !== "BAN" && body.action !== "UNBAN")
+        || typeof body.senderUserId !== "string" || body.senderUserId.length < 1 || body.senderUserId.length > 128
+        || typeof body.targetUserId !== "string" || body.targetUserId.length < 1 || body.targetUserId.length > 128
+        || !Number.isSafeInteger(body.changedAt)
+        || Number(body.changedAt) <= 0
+      ) return json({ error: "INVALID_ACCESS_EVENT" }, 400);
+      const key = accountRevocationKey(body.targetUserId);
+      const current = await this.ctx.storage.get<RevocationTransitionState>(key);
+      const next = applyRevocationTransition(current, body.action === "BAN" ? "REVOKE" : "RESTORE", Number(body.changedAt));
+      await this.ctx.storage.put(key, next);
+      if (body.action === "BAN" && next.revoked && next.changedAt === Number(body.changedAt)) {
+        this.emit(body.senderUserId, { type: "room:revoked", targetUserId: body.targetUserId });
+        for (const socket of this.ctx.getWebSockets(`user:${body.targetUserId}`)) socket.close(4003, "Access revoked");
+      }
+      return json({ ok: true }, 202);
+    }
+
     if (url.pathname === "/event" && request.method === "POST") {
-      const body = await request.json().catch(() => null) as { senderUserId?: unknown; payload?: unknown } | null;
+      const body = await request.json().catch(() => null) as { changedAt?: unknown; senderUserId?: unknown; payload?: unknown } | null;
       const parsed = signalingEventSchema.safeParse(body?.payload);
       if (!body || typeof body.senderUserId !== "string" || !parsed.success) return json({ error: "INVALID_EVENT" }, 400);
+      let shouldEmit = true;
+      if (parsed.data.type === "room:revoked") {
+        const key = membershipRevocationKey(parsed.data.targetUserId);
+        const current = await this.ctx.storage.get<RevocationTransitionState>(key);
+        const changedAt = Number.isSafeInteger(body.changedAt) && Number(body.changedAt) > 0 ? Number(body.changedAt) : Date.now();
+        const next = applyRevocationTransition(current, "REVOKE", changedAt);
+        shouldEmit = next.revoked && next.changedAt === changedAt;
+        await this.ctx.storage.put(key, next);
+      } else if (parsed.data.type === "room:approved") {
+        const key = membershipRevocationKey(parsed.data.targetUserId);
+        const current = await this.ctx.storage.get<RevocationTransitionState>(key);
+        if (Number.isSafeInteger(body.changedAt) && Number(body.changedAt) > 0) {
+          const changedAt = Number(body.changedAt);
+          const next = applyRevocationTransition(current, "RESTORE", changedAt);
+          shouldEmit = !next.revoked && next.changedAt === changedAt;
+          await this.ctx.storage.put(key, next);
+        } else if (!current) {
+          await this.ctx.storage.put(key, applyRevocationTransition(undefined, "RESTORE", Date.now()));
+        } else {
+          shouldEmit = false;
+        }
+      } else if (parsed.data.type === "room:closed") {
+        await this.ctx.storage.put(ROOM_CLOSED_KEY, true);
+      }
+      if (!shouldEmit) return json({ ok: true, stale: true }, 202);
       this.emit(body.senderUserId, parsed.data);
       if (parsed.data.type === "room:revoked") {
         for (const socket of this.ctx.getWebSockets(`user:${parsed.data.targetUserId}`)) socket.close(4003, "Access revoked");
@@ -212,6 +339,11 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
     const state = this.state(socket);
     if (!state) return socket.close(4001, "Session missing");
+    const now = Date.now();
+    if (!hasUserSignalBudget(this.states(), state.userId, now) || !consumeSignalBudget(state, now)) {
+      socket.close(1008, "Signal rate exceeded");
+      return;
+    }
     let raw: { type?: unknown; payload?: unknown };
     try {
       raw = JSON.parse(message) as { type?: unknown; payload?: unknown };
@@ -219,29 +351,49 @@ export class RoomDurableObject extends DurableObject<Env> {
       socket.close(1008, "Invalid message");
       return;
     }
-    const parsed = raw?.type === "signal" ? clientSignalingEventSchema.safeParse(raw.payload) : null;
+    const normalizedPayload = raw?.type === "signal"
+      ? await normalizeLegacyMediaSessionId(raw.payload, state.userId)
+      : raw.payload;
+    const parsed = raw?.type === "signal" ? clientSignalingEventSchema.safeParse(normalizedPayload) : null;
     if (!parsed?.success) return socket.close(1008, "Invalid message");
 
-    const payload = parsed.data;
+    const states = this.states();
+    const wasLegacy = normalizedPayload !== raw.payload;
+    const payload = wasLegacy ? resolveLegacyMediaSessionId(states, state, parsed.data) : parsed.data;
+    if (!authorizeMediaSignal(states, state, payload)) {
+      socket.serializeAttachment(state);
+      return;
+    }
     if (payload.type === "stream:start") {
       state.stream = { ...payload.metadata, startedAt: Date.now() };
-      socket.serializeAttachment(state);
     } else if (payload.type === "stream:stop") {
       delete state.stream;
-      socket.serializeAttachment(state);
+      this.releaseBroadcastSessions(state.userId);
     }
     this.emit(state.userId, payload);
+    removeWatchedSession(state, payload);
+    socket.serializeAttachment(state);
     if (payload.type === "stream:start" || payload.type === "stream:stop") this.sendSnapshot();
     if (payload.type === "presence:leave") socket.close(1000, "Left room");
   }
 
   webSocketClose(socket: WebSocket) {
+    const state = this.state(socket);
     socket.close();
+    if (state && !this.sockets().some((current) => {
+      const currentState = this.state(current);
+      return currentState?.userId === state.userId && Boolean(currentState.stream);
+    })) this.releaseBroadcastSessions(state.userId);
     this.sendSnapshot();
   }
 
   webSocketError(socket: WebSocket) {
+    const state = this.state(socket);
     socket.close(1011, "Socket error");
+    if (state && !this.sockets().some((current) => {
+      const currentState = this.state(current);
+      return currentState?.userId === state.userId && Boolean(currentState.stream);
+    })) this.releaseBroadcastSessions(state.userId);
     this.sendSnapshot();
   }
 }

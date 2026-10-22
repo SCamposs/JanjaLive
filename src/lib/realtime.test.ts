@@ -1,12 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getRealtimeCredentials,
   getRealtimeProvider,
   getSignalCursor,
   getSignalCutoff,
   parseRealtimeHash,
+  publishSignal,
+  setRealtimeAccountAccess,
   SIGNAL_RETENTION_MS,
 } from "./realtime";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe("realtime credentials", () => {
   it("selects Cloudflare only when the feature flag enables it", () => {
@@ -33,6 +40,64 @@ describe("realtime credentials", () => {
       KV_REST_API_URL: "https://vercel.upstash.io",
       KV_REST_API_TOKEN: "vercel-token",
     })).toEqual({ url: "https://native.upstash.io", token: "native-token" });
+  });
+
+  it("publishes durable account access changes to the room Worker", async () => {
+    vi.stubEnv("REALTIME_PROVIDER", "cloudflare");
+    vi.stubEnv("CLOUDFLARE_REALTIME_URL", "https://realtime.example.com");
+    vi.stubEnv("REALTIME_TOKEN_SECRET", "token-secret");
+    vi.stubEnv("REALTIME_INTERNAL_SECRET", "internal-secret");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await setRealtimeAccountAccess({
+      roomId: "11111111-1111-4111-8111-111111111111",
+      senderUserId: "owner",
+      targetUserId: "target",
+      action: "BAN",
+      changedAt: 1_700_000_000_000,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://realtime.example.com/internal/rooms/11111111-1111-4111-8111-111111111111/access",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          roomId: "11111111-1111-4111-8111-111111111111",
+          senderUserId: "owner",
+          targetUserId: "target",
+          action: "BAN",
+          changedAt: 1_700_000_000_000,
+        }),
+      }),
+    );
+  });
+
+  it("versions room membership transitions sent to the Worker", async () => {
+    vi.stubEnv("REALTIME_PROVIDER", "cloudflare");
+    vi.stubEnv("CLOUDFLARE_REALTIME_URL", "https://realtime.example.com");
+    vi.stubEnv("REALTIME_TOKEN_SECRET", "token-secret");
+    vi.stubEnv("REALTIME_INTERNAL_SECRET", "internal-secret");
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await publishSignal(
+      "11111111-1111-4111-8111-111111111111",
+      "owner",
+      { type: "room:revoked", targetUserId: "target" },
+      { changedAt: 1_700_000_000_000 },
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://realtime.example.com/internal/rooms/11111111-1111-4111-8111-111111111111/event",
+      expect.objectContaining({
+        body: JSON.stringify({
+          senderUserId: "owner",
+          payload: { type: "room:revoked", targetUserId: "target" },
+          changedAt: 1_700_000_000_000,
+        }),
+      }),
+    );
   });
 });
 

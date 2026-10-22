@@ -8,9 +8,9 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
     const owner = await requireUser(request);
     const { roomId } = await context.params;
     const input = membershipActionSchema.parse(await request.json());
-    await manageRoomMember({ roomId, ownerId: owner.id, ...input });
+    const changedAt = await manageRoomMember({ roomId, ownerId: owner.id, ...input });
     const eventType = input.action === "approve" ? "room:approved" : input.action === "reject" ? "room:rejected" : "room:revoked";
-    await publishSignal(roomId, owner.id, { type: eventType, targetUserId: input.userId }).catch(() => undefined);
+    await publishSignal(roomId, owner.id, { type: eventType, targetUserId: input.userId }, { changedAt });
     return Response.json({ ok: true });
   } catch (error) {
     return apiError(error);

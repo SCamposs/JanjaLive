@@ -7,7 +7,7 @@ const validEvent = {
   senderUserId: "friend",
   sentAt: 1_000,
   cursor: 1_000_001,
-  payload: { type: "watch:request", targetUserId: "viewer" },
+  payload: { type: "watch:request", targetUserId: "viewer", mediaSessionId: "desktop-session-01" },
 };
 
 const normalizedEvent = {

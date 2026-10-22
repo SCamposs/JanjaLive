@@ -138,14 +138,19 @@ function streamsKey(roomId: string) {
   return `janjalive:room:${roomId}:streams`;
 }
 
-export async function publishSignal(roomId: string, senderUserId: string, payload: SignalingEvent) {
+export async function publishSignal(
+  roomId: string,
+  senderUserId: string,
+  payload: SignalingEvent,
+  options: { changedAt?: number } = {},
+) {
   const provider = getRealtimeProvider();
   if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
   if (provider === "cloudflare") {
     await cloudflareRequest(`/internal/rooms/${encodeURIComponent(roomId)}/event`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ senderUserId, payload }),
+      body: JSON.stringify({ senderUserId, payload, changedAt: options.changedAt ?? Date.now() }),
     });
     return { id: nanoid(), roomId, senderUserId, sentAt: Date.now(), cursor: 0, payload } satisfies StoredSignal;
   }
@@ -185,6 +190,31 @@ export async function publishSignal(roomId: string, senderUserId: string, payloa
   }
 
   return signal;
+}
+
+export async function setRealtimeAccountAccess(input: {
+  roomId: string;
+  senderUserId: string;
+  targetUserId: string;
+  action: "BAN" | "UNBAN";
+  changedAt: number;
+}) {
+  const provider = getRealtimeProvider();
+  if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
+  if (provider === "cloudflare") {
+    await cloudflareRequest(`/internal/rooms/${encodeURIComponent(input.roomId)}/access`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    return;
+  }
+  if (input.action === "BAN") {
+    await publishSignal(input.roomId, input.senderUserId, {
+      type: "room:revoked",
+      targetUserId: input.targetUserId,
+    });
+  }
 }
 
 function parseStoredSignal(value: unknown): StoredSignal | null {

@@ -17,6 +17,8 @@ export const joinRequestStatusEnum = pgEnum("join_request_status", [
   "APPROVED",
   "REJECTED",
 ]);
+export const accountStatusEnum = pgEnum("account_status", ["ACTIVE", "BANNED"]);
+export const adminActionEnum = pgEnum("admin_action", ["BAN", "UNBAN"]);
 
 export const users = pgTable(
   "users",
@@ -30,10 +32,28 @@ export const users = pgTable(
     email: text("email").unique(),
     emailVerified: timestamp("email_verified", { mode: "date", withTimezone: true }),
     image: text("image"),
+    accountStatus: accountStatusEnum("account_status").default("ACTIVE").notNull(),
+    accessChangedAt: timestamp("access_changed_at", { mode: "date", withTimezone: true }),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [uniqueIndex("users_discord_id_unique").on(table.discordId)],
+);
+
+export const adminAuditLog = pgTable(
+  "admin_audit_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    action: adminActionEnum("action").notNull(),
+    targetUserId: text("target_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+    actorUserId: text("actor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("admin_audit_target_idx").on(table.targetUserId, table.createdAt),
+    index("admin_audit_actor_idx").on(table.actorUserId, table.createdAt),
+  ],
 );
 
 export const accounts = pgTable(

@@ -64,3 +64,6 @@ JanjaLive strips query strings and fragments and replaces `/room/<invite>` and `
 - Review provider access logs and retention settings before inviting real users.
 - Do not enable request-body logging, session replay, custom analytics containing application data or error-reporting tools that capture application payloads.
 - Run the manual two-browser privacy checklist in `docs/manual-webrtc-test.md` before production use.
+## Operational access control
+
+JanjaLive stores whether an account is active or banned, when that state last changed, and a minimal owner action record containing the action, target account, owner account, timestamp and an optional short reason. This exists only for abuse control. It does not add IP, device, location, room viewing, stream, screen, audio, SDP or ICE history.

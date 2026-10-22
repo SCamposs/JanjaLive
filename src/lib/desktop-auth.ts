@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import { desktopAuthGrants, desktopSessions, users } from "@/db/schema";
+import { getActiveUserById } from "./account-access";
 
 const AUTH_GRANT_TTL_MS = 5 * 60 * 1_000;
 const DESKTOP_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -37,6 +38,7 @@ export async function createDesktopAuthGrant(input: {
   state: string;
   codeChallenge: string;
 }) {
+  await getActiveUserById(input.userId);
   if (!BASE64URL_SECRET.test(input.state) || !BASE64URL_SECRET.test(input.codeChallenge)) {
     throw new Error("INVALID_DESKTOP_AUTH");
   }
@@ -71,6 +73,7 @@ export async function exchangeDesktopAuthGrant(input: DesktopAuthExchangeInput):
     .limit(1);
 
   if (!grant) throw new Error("INVALID_DESKTOP_AUTH");
+  await getActiveUserById(grant.userId);
   if (!desktopSecretsMatch(grant.stateHash, hashDesktopSecret(input.state)) || !desktopSecretsMatch(grant.codeChallenge, getPkceChallenge(input.verifier))) {
     throw new Error("INVALID_DESKTOP_AUTH");
   }

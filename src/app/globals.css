@@ -24,6 +24,25 @@
   --warning: oklch(77.34% .1098 72.9);
 }
 
+.admin-shell { min-height: 100vh; padding: 28px; background: #080808; color: #f5f2ed; }
+.admin-header { max-width: 980px; margin: 0 auto 24px; display: flex; align-items: center; justify-content: space-between; color: #8e8983; font-size: 13px; }
+.admin-card { max-width: 980px; margin: 0 auto; border: 1px solid #262321; border-radius: 14px; padding: 24px; background: #0d0c0c; }
+.admin-card h1 { margin: 0 0 6px; font-size: 24px; }
+.admin-card p { margin: 0; color: #918b85; }
+.admin-users { margin-top: 24px; }
+.admin-search { display: flex; gap: 8px; margin-bottom: 16px; }
+.admin-search input { flex: 1; min-width: 0; padding: 11px 12px; border: 1px solid #302c29; border-radius: 8px; background: #111; color: inherit; }
+.admin-user-list { display: grid; gap: 8px; }
+.admin-user { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid #211f1d; border-radius: 10px; }
+.admin-user-identity, .admin-user-action { display: flex; align-items: center; gap: 12px; }
+.admin-user-identity img, .admin-user-identity > span { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; background: #211f1d; }
+.admin-user-identity div { display: grid; gap: 2px; }
+.admin-user-identity small { color: #817b75; font-size: 11px; overflow-wrap: anywhere; }
+.admin-user-action > span { font-size: 12px; color: #8da883; }
+.admin-user-action > span.banned { color: #df7c84; }
+.admin-error { margin: 0 0 14px; color: #df7c84; font-size: 13px; }
+@media (max-width: 680px) { .admin-shell { padding: 16px; } .admin-card { padding: 16px; } .admin-user { align-items: flex-start; flex-direction: column; } .admin-user-action { width: 100%; justify-content: space-between; } }
+
 * { box-sizing: border-box; }
 html, body { min-height: 100%; }
 body {
