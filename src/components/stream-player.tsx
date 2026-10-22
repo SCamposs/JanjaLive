@@ -52,7 +52,7 @@ function usePlayerControlsAutoHide() {
       scheduleHide();
       return;
     }
-    setControlsVisible((visible) => !visible);
+    setControlsVisible(true);
     scheduleHide();
   }, [clearHideTimer, scheduleHide, showControls]);
 
@@ -67,6 +67,7 @@ function usePlayerControlsAutoHide() {
       onPointerEnter: showControls,
       onPointerMove: handlePointerMove,
       onPointerDownCapture: handlePointerDown,
+      onTouchStartCapture: showControls,
       onPointerLeave: scheduleHide,
       onFocusCapture: () => {
         clearHideTimer();

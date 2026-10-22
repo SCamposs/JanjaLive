@@ -74,4 +74,23 @@ describe("StreamPlayer controls", () => {
     expect(container.querySelector(".player-shell")?.getAttribute("data-controls-visible")).toBe("true");
     expect(onStop).toHaveBeenCalledOnce();
   });
+
+  it("shows hidden controls again when the viewer touches the player", () => {
+    const { container } = render(
+      <StreamPlayer
+        stream={{} as MediaStream}
+        streamerName="Amigo"
+        status="good"
+        onStop={vi.fn()}
+      />,
+    );
+    const player = container.querySelector(".player-shell");
+
+    act(() => vi.advanceTimersByTime(2_500));
+    expect(player?.getAttribute("data-controls-visible")).toBe("false");
+
+    fireEvent.touchStart(player!);
+
+    expect(player?.getAttribute("data-controls-visible")).toBe("true");
+  });
 });
