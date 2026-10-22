@@ -27,7 +27,7 @@ function usePlayerControlsAutoHide() {
   }, [scheduleHide]);
 
   useEffect(() => {
-    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) scheduleHide();
+    scheduleHide();
     return clearHideTimer;
   }, [clearHideTimer, scheduleHide]);
 
@@ -49,10 +49,12 @@ function usePlayerControlsAutoHide() {
     clearHideTimer();
     if (event.target instanceof Element && event.target.closest("[data-player-controls]")) {
       setControlsVisible(true);
+      scheduleHide();
       return;
     }
     setControlsVisible((visible) => !visible);
-  }, [clearHideTimer, showControls]);
+    scheduleHide();
+  }, [clearHideTimer, scheduleHide, showControls]);
 
   const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
     if (!event.currentTarget.contains(event.relatedTarget)) scheduleHide();

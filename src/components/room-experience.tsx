@@ -16,12 +16,12 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { playRoomCue } from "@janjalive/webrtc";
 import { getWebDisplayCaptureOptions } from "@/lib/display-capture";
 import type { RoomSnapshot } from "@/lib/rooms";
-import { QUALITY_PROFILES } from "@/lib/quality";
+import { getCaptureConstraints, QUALITY_PROFILES } from "@/lib/quality";
 import { AccountMenu } from "./account-menu";
 import { AdminShortcut } from "./admin-shortcut";
 import { Brand } from "./brand";
 import { NoirInterference } from "./noir-interference";
-import { ScreenShareDialog } from "./screen-share-dialog";
+import { ScreenShareDialog, type ScreenShareOptions } from "./screen-share-dialog";
 import { StreamPlayer } from "./stream-player";
 import { Toast } from "./toast";
 import { UserAvatar } from "./user-avatar";
@@ -36,7 +36,7 @@ type Props = {
 export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props) {
   const router = useRouter();
   const realtime = useRoomMedia(snapshot.room.id, currentUser.id);
-  const [capture, setCapture] = useState<MediaStream | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [selectedStreamer, setSelectedStreamer] = useState<string | null>(null);
@@ -76,6 +76,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   const connectionError = realtime.connectionError === dismissedConnectionError ? null : realtime.connectionError;
   const stopWatching = realtime.stopWatching;
   const knownStreamsRef = useRef<Set<string> | null>(null);
+  const fallbackShareOptionsRef = useRef<ScreenShareOptions | null>(null);
 
   useEffect(() => {
     const current = new Set(remoteActiveStreams.map((stream) => stream.streamerUserId));
@@ -119,49 +120,83 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
     await playRoomCue("leave", true);
   }
 
-  async function beginCapture(includeSystemAudio = true) {
+  function beginCapture() {
     setCaptureError(null);
     setCaptureFallbackAvailable(false);
     if (!canShare) {
       setCaptureError("Este navegador pode assistir, mas não oferece compartilhamento de tela.");
       return;
     }
+    setShareDialogOpen(true);
+  }
+
+  async function startSharing(options: ScreenShareOptions, includeSystemAudio = true) {
+    setCaptureError(null);
+    setCaptureFallbackAvailable(false);
+    fallbackShareOptionsRef.current = options;
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia(getWebDisplayCaptureOptions(includeSystemAudio));
-      stream.getAudioTracks().forEach((track) => {
+      const selectedStream = await navigator.mediaDevices.getDisplayMedia(getWebDisplayCaptureOptions(includeSystemAudio));
+      stream = selectedStream;
+      selectedStream.getAudioTracks().forEach((track) => {
         if (track.readyState !== "live") {
-          stream.removeTrack(track);
+          selectedStream.removeTrack(track);
           track.stop();
         }
       });
-      const [videoTrack] = stream.getVideoTracks();
+      const [videoTrack] = selectedStream.getVideoTracks();
+      if (!videoTrack) throw new Error("CAPTURE_VIDEO_MISSING");
+      const constraints = getCaptureConstraints(options.preset);
+      if (options.preset === "source") constraints.frameRate = { ideal: options.frameRate, max: options.frameRate };
+      await videoTrack.applyConstraints(constraints).catch(() => undefined);
       videoTrack.onended = () => {
         void realtime.stopBroadcast();
-        setCapture(null);
         setLocalStream(null);
         setIsBroadcasting(false);
         setSelectedStreamer((selected) => selected === currentUser.id ? null : selected);
       };
-      setCapture(stream);
+      const settings = videoTrack.getSettings();
+      const metadata = {
+        preset: options.preset,
+        width: settings.width ?? QUALITY_PROFILES[options.preset].width ?? 1920,
+        height: settings.height ?? QUALITY_PROFILES[options.preset].height ?? 1080,
+        frameRate: settings.frameRate ?? options.frameRate,
+        hasAudio: selectedStream.getAudioTracks().length > 0,
+      };
+      const previousStream = localStream;
+      if (isBroadcasting) await realtime.replaceBroadcast(selectedStream, metadata, options.bitrate);
+      else {
+        await realtime.startBroadcast(selectedStream, metadata, options.bitrate);
+        await playRoomCue("stream-start", true);
+      }
+      setLocalStream(selectedStream);
+      setIsBroadcasting(true);
+      setSelectedStreamer(currentUser.id);
+      setShareDialogOpen(false);
+      fallbackShareOptionsRef.current = null;
+      if (previousStream && previousStream !== selectedStream) {
+        previousStream.getVideoTracks().forEach((track) => { track.onended = null; });
+        previousStream.getTracks().forEach((track) => track.stop());
+      }
+      return true;
     } catch (error) {
-      if (error instanceof DOMException && ["NotAllowedError", "AbortError"].includes(error.name)) return;
+      stream?.getVideoTracks().forEach((track) => { track.onended = null; });
+      stream?.getTracks().forEach((track) => track.stop());
+      if (error instanceof DOMException && ["NotAllowedError", "AbortError"].includes(error.name)) return false;
       if (includeSystemAudio && error instanceof DOMException && error.name === "NotReadableError") {
         setCaptureError("Não foi possível iniciar o áudio desta fonte.");
         setCaptureFallbackAvailable(true);
-        return;
+        return false;
       }
       setCaptureError(
         error instanceof DOMException && error.name === "NotReadableError"
           ? "O navegador não conseguiu capturar essa fonte."
-          : "Não foi possível iniciar a captura de tela.",
+          : stream
+            ? "Não foi possível começar a transmissão. Tente novamente."
+            : "Não foi possível iniciar a captura de tela.",
       );
+      return false;
     }
-  }
-
-  function cancelCapture() {
-    capture?.getVideoTracks().forEach((track) => { track.onended = null; });
-    capture?.getTracks().forEach((track) => track.stop());
-    setCapture(null);
   }
 
   async function handleMember(userId: string, action: "approve" | "reject" | "revoke") {
@@ -195,7 +230,6 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   }
 
   async function leaveRoom() {
-    if (capture) cancelCapture();
     if (isBroadcasting) await stopSharing();
     if (selectedStreamer && selectedStreamer !== currentUser.id) {
       await realtime.stopWatching(selectedStreamer);
@@ -239,7 +273,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
             compact
             image={currentUser.image}
             name={currentUser.name ?? "Conta Discord"}
-            signOutDisabled={isBroadcasting || Boolean(capture)}
+            signOutDisabled={isBroadcasting}
           />
         </div>
       </header>
@@ -365,29 +399,9 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
       </div>
 
       <ScreenShareDialog
-        stream={capture}
-        onCancel={cancelCapture}
-        onStart={async ({ stream, preset, bitrate, frameRate }) => {
-          const settings = stream.getVideoTracks()[0]?.getSettings();
-          const metadata = {
-            preset,
-            width: settings?.width ?? QUALITY_PROFILES[preset].width ?? 1920,
-            height: settings?.height ?? QUALITY_PROFILES[preset].height ?? 1080,
-            frameRate: settings?.frameRate ?? frameRate,
-            hasAudio: stream.getAudioTracks().length > 0,
-          };
-          if (isBroadcasting) {
-            localStream?.getVideoTracks().forEach((track) => { track.onended = null; });
-            await realtime.replaceBroadcast(stream, metadata, bitrate);
-          } else {
-            await realtime.startBroadcast(stream, metadata, bitrate);
-            await playRoomCue("stream-start", true);
-          }
-          setLocalStream(stream);
-          setCapture(null);
-          setIsBroadcasting(true);
-          setSelectedStreamer(currentUser.id);
-        }}
+        open={shareDialogOpen}
+        onCancel={() => setShareDialogOpen(false)}
+        onStart={startSharing}
       />
       {(captureError || connectionError) && (
         <Toast
@@ -402,7 +416,10 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
           }}
           action={captureFallbackAvailable ? {
             label: "Tentar sem áudio",
-            onClick: () => void beginCapture(false),
+            onClick: () => {
+              const options = fallbackShareOptionsRef.current;
+              if (options) void startSharing(options, false);
+            },
           } : undefined}
         />
       )}

@@ -55,4 +55,23 @@ describe("StreamPlayer controls", () => {
 
     expect(container.querySelector(".player-shell")?.getAttribute("data-controls-visible")).toBe("true");
   });
+
+  it("keeps touch controls interactive and runs their action", () => {
+    const onStop = vi.fn();
+    const { container } = render(
+      <StreamPlayer
+        stream={{} as MediaStream}
+        streamerName="Amigo"
+        status="good"
+        onStop={onStop}
+      />,
+    );
+    const stopButton = screen.getByRole("button", { name: "Parar de assistir" });
+
+    fireEvent.pointerDown(stopButton, { pointerType: "touch" });
+    fireEvent.click(stopButton);
+
+    expect(container.querySelector(".player-shell")?.getAttribute("data-controls-visible")).toBe("true");
+    expect(onStop).toHaveBeenCalledOnce();
+  });
 });

@@ -1,24 +1,24 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, MonitorUp, ShieldCheck, Volume2, VolumeX, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, MonitorUp, ShieldCheck, Volume2, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import {
   QUALITY_PROFILES,
   clampCustomBitrate,
-  getCaptureConstraints,
   type QualityPreset,
 } from "@/lib/quality";
 
 type Props = {
-  stream: MediaStream | null;
+  open: boolean;
   onCancel: () => void;
-  onStart: (options: {
-    stream: MediaStream;
-    preset: QualityPreset;
-    bitrate: number;
-    frameRate: number;
-  }) => Promise<void>;
+  onStart: (options: ScreenShareOptions) => Promise<boolean>;
+};
+
+export type ScreenShareOptions = {
+  preset: QualityPreset;
+  bitrate: number;
+  frameRate: number;
 };
 
 const RESOLUTIONS = ["720p", "1080p", "1440p", "source"] as const;
@@ -29,8 +29,7 @@ function toPreset(resolution: Resolution, frameRate: 30 | 60): QualityPreset {
   return `${resolution}${frameRate}` as QualityPreset;
 }
 
-export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+export function ScreenShareDialog({ open, onCancel, onStart }: Props) {
   const [resolution, setResolution] = useState<Resolution>("1080p");
   const [frameRate, setFrameRate] = useState<30 | 60>(60);
   const [quality, setQuality] = useState<"auto" | "high" | "custom">("auto");
@@ -38,42 +37,31 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.srcObject = stream;
-  }, [stream]);
-
   const preset = toPreset(resolution, frameRate);
   const profile = QUALITY_PROFILES[preset];
   const bitrate = quality === "custom" ? clampCustomBitrate(customBitrate) : quality === "high" ? Math.min(25_000_000, profile.bitrate * 1.35) : profile.bitrate;
-  const videoTrack = stream?.getVideoTracks()[0];
-  const settings = videoTrack?.getSettings();
-  const hasAudio = Boolean(stream?.getAudioTracks().some((track) => track.readyState === "live"));
 
   const summary = useMemo(() => {
-    const width = settings?.width ?? profile.width;
-    const height = settings?.height ?? profile.height;
-    const dimensions = width && height ? `${width}×${height}` : "Source";
+    const width = profile.width;
+    const height = profile.height;
+    const dimensions = width && height ? `${width}×${height}` : "Resolução original";
     return `${dimensions} · ${frameRate} FPS · ~${Math.round(bitrate / 1_000_000)} Mbps por pessoa`;
-  }, [bitrate, frameRate, profile.height, profile.width, settings?.height, settings?.width]);
+  }, [bitrate, frameRate, profile.height, profile.width]);
 
   async function handleStart() {
-    if (!stream || !videoTrack) return;
     setStarting(true);
     setStartError(null);
     try {
-      const constraints = getCaptureConstraints(preset);
-      if (resolution === "source") constraints.frameRate = { ideal: frameRate, max: frameRate };
-      await videoTrack.applyConstraints(constraints).catch(() => undefined);
-      await onStart({ stream, preset, bitrate, frameRate });
+      await onStart({ preset, bitrate, frameRate });
     } catch {
-      setStartError("Não foi possível iniciar a transmissão. Tente selecionar a fonte novamente.");
+      setStartError("Não foi possível abrir a seleção de tela. Tente novamente.");
     } finally {
       setStarting(false);
     }
   }
 
   return (
-    <Dialog.Root open={Boolean(stream)} onOpenChange={(open) => !open && onCancel()}>
+    <Dialog.Root open={open} onOpenChange={(nextOpen) => !nextOpen && onCancel()}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content className="share-dialog" aria-describedby="share-description">
@@ -81,7 +69,7 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
             <div>
               <Dialog.Title>Compartilhar sua tela</Dialog.Title>
               <Dialog.Description id="share-description">
-                Confira o que será compartilhado antes de começar.
+                Ajuste a qualidade. Depois de escolher a fonte no navegador, a transmissão começará automaticamente.
               </Dialog.Description>
             </div>
             <Dialog.Close className="icon-button" aria-label="Fechar">
@@ -89,11 +77,9 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
             </Dialog.Close>
           </div>
 
-          <div className="share-preview">
-            <video ref={videoRef} autoPlay muted playsInline />
-            <span className="preview-chip">
-              <MonitorUp size={14} /> {settings?.displaySurface === "browser" ? "Aba" : settings?.displaySurface === "window" ? "Janela" : "Tela selecionada"}
-            </span>
+          <div className="share-source-step">
+            <MonitorUp size={20} />
+            <div><strong>Escolha na próxima etapa</strong><span>O navegador pedirá uma aba, janela ou tela.</span></div>
           </div>
 
           <div className="share-controls">
@@ -141,10 +127,10 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
               )}
             </fieldset>
             <div className="audio-status">
-              {hasAudio ? <Volume2 size={17} /> : <VolumeX size={17} />}
+              <Volume2 size={17} />
               <div>
-                <strong>Áudio do sistema</strong>
-                <span>{hasAudio ? "Ativo para esta fonte" : "Para compartilhar áudio, prefira uma guia ou a tela inteira"}</span>
+                <strong>Áudio da fonte</strong>
+                <span>No seletor do navegador, ative o áudio quando a opção estiver disponível.</span>
               </div>
             </div>
           </div>
@@ -163,7 +149,7 @@ export function ScreenShareDialog({ stream, onCancel, onStart }: Props) {
           <div className="dialog-actions">
             <button type="button" className="button ghost" onClick={onCancel}>Cancelar</button>
             <button type="button" className="button primary" onClick={handleStart} disabled={starting}>
-              <MonitorUp size={17} /> {starting ? "Preparando…" : "Começar transmissão"}
+              <MonitorUp size={17} /> {starting ? "Abrindo seletor…" : "Escolher e transmitir"}
             </button>
           </div>
         </Dialog.Content>
