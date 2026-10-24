@@ -22,9 +22,8 @@ win:
         - x64
   artifactName: JanjaLive-Setup-${version}.${ext}
 nsis:
-  oneClick: false
+  oneClick: true
   perMachine: false
-  allowElevation: false
   createDesktopShortcut: false
   createStartMenuShortcut: true
   shortcutName: JanjaLive

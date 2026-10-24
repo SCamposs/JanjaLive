@@ -510,7 +510,7 @@ function registerIpc() {
     assertTrustedSender(event);
     if (updaterStatus.state !== "ready") throw new Error("UPDATE_NOT_READY");
     await nativeAudio.stopAll();
-    autoUpdater.quitAndInstall(false, true);
+    autoUpdater.quitAndInstall(true, true);
   });
 }
 

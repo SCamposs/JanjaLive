@@ -379,12 +379,51 @@ export function App() {
 
 function UpdateDialog({ version, onClose }: { version: string; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState(false);
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
     return () => dialog?.close();
   }, []);
-  return <dialog ref={ref} className="update-dialog" aria-labelledby="update-dialog-title" onCancel={onClose}><h2 id="update-dialog-title">Atualizar JanjaLive?</h2><p>A versão {version} já foi baixada. O aplicativo será reiniciado para concluir a instalação.</p><div><button className="quiet-button" type="button" onClick={onClose}>Agora não</button><button className="primary-button" type="button" onClick={() => void window.janja.updater.restartAndInstall()}>Reiniciar e atualizar</button></div></dialog>;
+  async function installUpdate() {
+    setInstallError(false);
+    setInstalling(true);
+    try {
+      await window.janja.updater.restartAndInstall();
+    } catch {
+      setInstalling(false);
+      setInstallError(true);
+    }
+  }
+  return (
+    <dialog
+      ref={ref}
+      className="update-dialog"
+      data-installing={installing}
+      aria-labelledby="update-dialog-title"
+      onCancel={(event) => { if (installing) event.preventDefault(); else onClose(); }}
+    >
+      {installing ? (
+        <div className="update-installing" aria-live="polite">
+          <img src="/janja-live.png" alt="" />
+          <h2 id="update-dialog-title">Aplicando atualização</h2>
+          <p>O JanjaLive será reaberto em instantes.</p>
+          <div className="update-install-progress" role="progressbar" aria-label="Aplicando atualização"><span /></div>
+        </div>
+      ) : (
+        <>
+          <h2 id="update-dialog-title">Atualizar JanjaLive?</h2>
+          <p>A versão {version} já foi baixada. O aplicativo será reiniciado para concluir a instalação.</p>
+          {installError && <p className="update-install-error" role="alert">Não foi possível iniciar a atualização. Tente novamente.</p>}
+          <div className="update-dialog-actions">
+            <button className="quiet-button" type="button" onClick={onClose}>Agora não</button>
+            <button className="primary-button" type="button" onClick={() => void installUpdate()}>Atualizar e reiniciar</button>
+          </div>
+        </>
+      )}
+    </dialog>
+  );
 }
 
 function Header({ auth, version, update, inRoom, canLogout, onLeaveRoom, onLogout, onShowUpdate }: { auth: AuthStatus; version: string; update: UpdaterStatus; inRoom: boolean; canLogout: boolean; onLeaveRoom: () => void; onLogout: () => Promise<void>; onShowUpdate: () => void }) {
@@ -410,7 +449,7 @@ function Header({ auth, version, update, inRoom, canLogout, onLeaveRoom, onLogou
 }
 
 function Login({ auth }: { auth: AuthStatus }) {
-  return <section className="desktop-login desktop-noir-screen"><img src="/janja-live.png" alt="" /><h1>JanjaLive</h1><p>Entre para abrir suas salas.</p>{auth.state === "connecting" ? <div className="login-actions"><span>Aguardando o navegador…</span><button className="quiet-button" type="button" onClick={() => void window.janja.auth.cancel()}>Cancelar</button></div> : <button className="primary-button" type="button" onClick={() => void window.janja.auth.start()}>Entrar com Discord</button>}</section>;
+  return <section className="desktop-login desktop-noir-screen"><DesktopNoirBackdrop /><img src="/janja-live.png" alt="" /><h1>JanjaLive</h1><p>Entre para abrir suas salas.</p>{auth.state === "connecting" ? <div className="login-actions"><span>Aguardando o navegador…</span><button className="quiet-button" type="button" onClick={() => void window.janja.auth.cancel()}>Cancelar</button></div> : <button className="primary-button" type="button" onClick={() => void window.janja.auth.start()}>Entrar com Discord</button>}</section>;
 }
 
 function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary[]; onOpen: (id: string) => Promise<void>; onOpenSnapshot: (room: RoomSnapshot) => void; onRefresh: () => Promise<void> }) {
@@ -426,6 +465,7 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
     if (nextCode.length === ROOM_CODE_LENGTH) void joinCode(nextCode);
   }
   return <section className="desktop-home desktop-noir-screen">
+    <DesktopNoirBackdrop />
     <div className="home-heading"><h1>Salas</h1><p>Crie uma sala ou entre com um código.</p></div>
     <div className="desktop-room-grid">
       <section className="room-list-card" aria-label="Salas disponíveis">
@@ -491,7 +531,11 @@ function RoomView({ room, currentUserId, sharing, localStream, selectedStreamer,
     const member = members.get(item.streamerUserId);
     const name = member?.name ?? "Amigo";
     return <button type="button" key={item.streamerUserId} onClick={() => onSelectStreamer(item.streamerUserId)}>{member?.image ? <img src={member.image} alt="" /> : <span className="stream-avatar-fallback">{name[0]}</span>}<span><strong>{name}</strong><small><b>AO VIVO</b> {item.preset.replace(/(\d+p)(\d+)/, "$1 · $2 FPS")}{item.hasAudio ? " · Áudio" : ""}</small></span><span className="watch-action">Assistir</span></button>;
-  })}</div> : selectedStreamer ? <div className="desktop-stream-connecting"><span>Conectando à transmissão…</span><button type="button" className="quiet-button" onClick={onStopWatching}>Cancelar</button></div> : <div className="empty-room"><div><h2>Nenhuma transmissão ativa</h2><p>Compartilhe sua tela ou aguarde um amigo começar.</p></div></div>}</div></section><RoomMembers room={room} onlineUserIds={onlineUserIds} currentUserId={currentUserId} activeStreamerIds={new Set(activeStreams.map((item) => item.streamerUserId))} selectedStreamer={selectedStreamer} onWatch={onSelectStreamer} onRoomUpdate={onRoomUpdate} onRoomDeleted={onRoomDeleted} /></div>;
+  })}</div> : selectedStreamer ? <div className="desktop-stream-connecting"><span>Conectando à transmissão…</span><button type="button" className="quiet-button" onClick={onStopWatching}>Cancelar</button></div> : <div className="empty-room"><DesktopNoirBackdrop image="/janja-live-noir-2.png" /><div className="empty-room-copy"><h2>Nenhuma transmissão ativa</h2><p>Compartilhe sua tela ou aguarde um amigo começar.</p></div></div>}</div></section><RoomMembers room={room} onlineUserIds={onlineUserIds} currentUserId={currentUserId} activeStreamerIds={new Set(activeStreams.map((item) => item.streamerUserId))} selectedStreamer={selectedStreamer} onWatch={onSelectStreamer} onRoomUpdate={onRoomUpdate} onRoomDeleted={onRoomDeleted} /></div>;
+}
+
+function DesktopNoirBackdrop({ image = "/janja-live-noir.png" }: { image?: string }) {
+  return <div className="desktop-noir-backdrop" aria-hidden="true"><img className="desktop-noir-frame desktop-noir-frame-base" src={image} alt="" /><img className="desktop-noir-frame desktop-noir-frame-shift desktop-noir-frame-shift-a" src={image} alt="" /><img className="desktop-noir-frame desktop-noir-frame-shift desktop-noir-frame-shift-b" src={image} alt="" /><span className="desktop-noir-scan" /></div>;
 }
 
 function RoomMembers({ room, onlineUserIds, currentUserId, activeStreamerIds, selectedStreamer, onWatch, onRoomUpdate, onRoomDeleted }: { room: RoomSnapshot; onlineUserIds: string[]; currentUserId: string; activeStreamerIds: Set<string>; selectedStreamer: string | null; onWatch: (userId: string) => void; onRoomUpdate: (room: RoomSnapshot) => void; onRoomDeleted: () => void }) {
