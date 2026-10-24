@@ -12,11 +12,11 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .desktop-shell { min-height: 100vh; }
-.app-header { position: relative; z-index: 10; height: 58px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1e1e1e; background: rgba(13,13,13,.96); }
+.app-header { position: relative; z-index: 10; height: 58px; padding-left: calc(env(titlebar-area-x, 0px) + 18px); padding-right: calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100%) + 18px); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1e1e1e; background: rgba(13,13,13,.96); app-region: drag; -webkit-app-region: drag; user-select: none; }
 .brand, .header-actions, .capture-title, .capture-actions, .audio-toggle { display: flex; align-items: center; }
 .brand { gap: 9px; font-size: 15px; font-weight: 600; letter-spacing: -.025em; }
-.brand img { width: 44px; height: 32px; flex: 0 0 auto; object-fit: contain; border-radius: 4px; }
-.header-actions { gap: 9px; }
+.brand img { width: 44px; height: 32px; flex: 0 0 auto; object-fit: contain; border-radius: 4px; -webkit-user-drag: none; }
+.header-actions { gap: 9px; app-region: no-drag; -webkit-app-region: no-drag; }
 .version { color: #8b8882; font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
 .update-checking { width: 14px; height: 14px; display: inline-grid; place-items: center; }
 .update-checking::before { content: ""; width: 8px; height: 8px; border: 1px solid #3b3835; border-top-color: #b8767e; border-radius: 50%; animation: update-checking-spin .7s linear infinite; }
