@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent as R
 import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Play, Scaling, Trash2, UserMinus, UsersRound, Volume2, VolumeX, X } from "lucide-react";
 import { playRoomCue, type ConnectionStatus, type StreamMetadata } from "@janjalive/webrtc";
 import type { AuthStatus, CaptureSource, NativeAudioMode, RoomSnapshot, RoomSummary, UpdaterStatus } from "../../shared/contracts";
+import { SourcePicker } from "./SourcePicker";
+import { acquireCapture } from "./capture-selection";
 import { useRoomMedia } from "./use-room-media";
 import { startNativeAudioCapture, type NativeAudioCapture } from "./native-audio";
 
@@ -37,6 +39,9 @@ export function App() {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [sources, setSources] = useState<CaptureSource[] | null>(null);
+  const [selectingSource, setSelectingSource] = useState<CaptureSource | null>(null);
+  const captureSelectionRef = useRef<AbortController | null>(null);
+  const pickerRequestRef = useRef(0);
   const [capture, setCapture] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [captureName, setCaptureName] = useState("");
@@ -152,42 +157,67 @@ export function App() {
     screens: sources?.filter((source) => source.kind === "screen") ?? [],
   }), [sources]);
 
+  const closePicker = useCallback(() => {
+    pickerRequestRef.current++;
+    captureSelectionRef.current?.abort();
+    captureSelectionRef.current = null;
+    setSelectingSource(null);
+    setSources(null);
+    void window.janja.capture.cancelSelection();
+  }, []);
+
+  useEffect(() => () => {
+    if (captureSelectionRef.current) closePicker();
+  }, [authorizedRoomId, closePicker]);
+
   async function openPicker() {
+    const request = ++pickerRequestRef.current;
     setError(null);
     try {
       setExcludedAudioSource(null);
-      setSources(await window.janja.capture.listSources());
+      const available = await window.janja.capture.listSources();
+      if (pickerRequestRef.current === request) setSources(available);
     } catch {
+      if (pickerRequestRef.current !== request) return;
       setError("Não foi possível listar as telas e aplicações.");
     }
   }
 
   async function selectSource(source: CaptureSource) {
+    if (captureSelectionRef.current) return;
+    const attempt = new AbortController();
+    captureSelectionRef.current = attempt;
+    setSelectingSource(source);
     setError(null);
     const audioMode: NativeAudioMode = audioEnabled
       ? source.kind === "window" ? "application" : excludedAudioSource ? "system-excluding-application" : "system"
       : "none";
     let stream: MediaStream | null = null;
+    let acquiredAudio: NativeAudioCapture | null = null;
     try {
-      await window.janja.capture.selectSource({ token: source.token, audioMode,
+      stream = await acquireCapture(() => window.janja.capture.selectSource({ token: source.token, audioMode,
         ...(audioMode === "system-excluding-application" && excludedAudioSource ? { excludedSourceToken: excludedAudioSource } : {}),
-      });
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      }), () => navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }), attempt.signal);
       const previousAudio = pendingNativeAudioRef.current;
       pendingNativeAudioRef.current = null;
       await previousAudio?.stop();
+      attempt.signal.throwIfAborted();
 
       if (audioMode !== "none") {
         const nativeAudio = await startNativeAudioCapture(stream, () => {
           setCaptureAudioMode("unavailable");
           setError("O áudio ficou indisponível. A transmissão continua somente com vídeo.");
         });
+        acquiredAudio = nativeAudio;
+        attempt.signal.throwIfAborted();
         pendingNativeAudioRef.current = nativeAudio;
         setCaptureAudioMode(nativeAudio?.mode ?? "unavailable");
       } else {
         setCaptureAudioMode("none");
       }
       await window.janja.capture.cancelSelection();
+      attempt.signal.throwIfAborted();
+      if (!stream.getVideoTracks().some((track) => track.readyState === "live")) throw new Error("CAPTURE_WINDOW_CHANGED");
       pendingCaptureRef.current = stream;
       setCapture(stream);
       setCaptureName(source.name);
@@ -211,13 +241,24 @@ export function App() {
         setSharing(false);
         setSelectedStreamers((ids) => ids.filter((id) => auth.state !== "signed-in" || id !== auth.user.id));
       }, { once: true });
-    } catch {
+    } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
+      await acquiredAudio?.stop();
+      if (attempt.signal.aborted || captureSelectionRef.current !== attempt) return;
       pendingCaptureRef.current = null;
-      await pendingNativeAudioRef.current?.stop();
-      pendingNativeAudioRef.current = null;
+      if (pendingNativeAudioRef.current === acquiredAudio) pendingNativeAudioRef.current = null;
       await window.janja.capture.cancelSelection();
-      setError("Não foi possível capturar essa fonte. Escolha novamente.");
+      if (attempt.signal.aborted || captureSelectionRef.current !== attempt) return;
+      const reason = error instanceof Error ? error.message : "";
+      setError(reason.includes("CAPTURE_WINDOW_NOT_READY")
+        ? "A aplicação ainda não está pronta. Volte a ela e tente compartilhar novamente."
+        : reason.includes("CAPTURE_WINDOW_CHANGED") ? "Essa janela foi fechada ou mudou. Escolha a aplicação novamente."
+          : "Não foi possível capturar essa fonte. Escolha novamente.");
+    } finally {
+      if (captureSelectionRef.current === attempt) {
+        captureSelectionRef.current = null;
+        setSelectingSource(null);
+      }
     }
   }
 
@@ -298,6 +339,7 @@ export function App() {
   }
 
   function leaveRoom() {
+    closePicker();
     if (sharing || capture) void stopSharing();
     selectedStreamers.forEach((id) => { void realtime.stopWatching(id); });
     setSelectedStreamers([]);
@@ -351,7 +393,7 @@ export function App() {
 
   return (
     <main className="desktop-shell">
-      <Header auth={auth} version={version} update={update} inRoom={Boolean(room)} canLogout={!sharing && !capture} onLeaveRoom={leaveRoom} onLogout={logout} onShowUpdate={() => setUpdateDialogOpen(true)} />
+      <Header auth={auth} version={version} update={update} inRoom={Boolean(room)} canLogout={!sharing && !capture && !selectingSource} onLeaveRoom={leaveRoom} onLogout={logout} onShowUpdate={() => setUpdateDialogOpen(true)} />
 
       {update.state === "required" && <aside className="update-bar required"><span>Esta versão precisa ser atualizada para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Verificar atualização</button></aside>}
       {update.state === "store" && update.required && <aside className="update-bar required"><span>Atualize o JanjaLive pela Microsoft Store para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Abrir Microsoft Store</button></aside>}
@@ -363,7 +405,7 @@ export function App() {
 
       {capture && <CaptureConfig previewRef={previewRef} name={captureName} audioMode={captureAudioMode} resolution={resolution} fps={fps} quality={quality} customBitrate={customBitrate} onResolution={setResolution} onFps={setFps} onQuality={setQuality} onCustomBitrate={setCustomBitrate} onCancel={cancelCapture} onStart={startSharing} />}
 
-      {sources && <SourcePicker sources={groupedSources} audioEnabled={audioEnabled} onAudioEnabled={setAudioEnabled} excludedAudioSource={excludedAudioSource} onExcludedAudioSource={setExcludedAudioSource} onSelect={selectSource} onClose={() => { setSources(null); void window.janja.capture.cancelSelection(); }} />}
+      {sources && <SourcePicker sources={groupedSources} audioEnabled={audioEnabled} onAudioEnabled={setAudioEnabled} excludedAudioSource={excludedAudioSource} onExcludedAudioSource={setExcludedAudioSource} onSelect={selectSource} selecting={selectingSource} onClose={closePicker} />}
 
       {update.state === "ready" && updateDialogOpen && <UpdateDialog version={update.version} onClose={() => setUpdateDialogOpen(false)} />}
 
@@ -683,18 +725,6 @@ function Member({ member, online, streaming = false, selected = false, onWatch, 
 function CaptureConfig({ previewRef, name, audioMode, resolution, fps, quality, customBitrate, onResolution, onFps, onQuality, onCustomBitrate, onCancel, onStart }: { previewRef: React.RefObject<HTMLVideoElement | null>; name: string; audioMode: NativeAudioMode | "unavailable"; resolution: Resolution; fps: 30 | 60; quality: Quality; customBitrate: number; onResolution: (value: Resolution) => void; onFps: (value: 30 | 60) => void; onQuality: (value: Quality) => void; onCustomBitrate: (value: number) => void; onCancel: () => void; onStart: () => Promise<void> }) {
   const audioLabel = audioMode === "application" ? "Áudio da aplicação" : audioMode === "system-excluding-application" ? "Áudio do sistema · Aplicação excluída" : audioMode === "system" ? "Áudio do sistema" : audioMode === "unavailable" ? "Áudio indisponível — somente vídeo" : "Somente vídeo";
   return <div className="modal-backdrop"><section className="capture-panel capture-modal"><video ref={previewRef} autoPlay muted playsInline /><div className="capture-title"><strong>{name}</strong><span>{audioLabel}</span></div><div className="capture-settings"><OptionGroup label="Resolução" value={resolution} values={["720p", "1080p", "1440p", "source"]} labels={{ source: "Fonte" }} onChange={(value) => onResolution(value as Resolution)} /><OptionGroup label="FPS" value={String(fps)} values={["30", "60"]} onChange={(value) => onFps(value === "60" ? 60 : 30)} /><div><OptionGroup label="Qualidade" value={quality} values={["auto", "high", "custom"]} labels={{ auto: "Auto", high: "Alta", custom: "Personalizada" }} onChange={(value) => onQuality(value as Quality)} />{quality === "custom" && <label className="custom-bitrate"><span>Mbps</span><input type="number" min="2" max="25" value={customBitrate} onChange={(event) => onCustomBitrate(Number(event.target.value))} /></label>}</div><div className="capture-actions"><button className="quiet-button" type="button" onClick={onCancel}>Cancelar</button><button className="primary-button" type="button" onClick={() => void onStart()}>Compartilhar</button></div></div></section></div>;
-}
-
-function SourcePicker({ sources, audioEnabled, onAudioEnabled, excludedAudioSource, onExcludedAudioSource, onSelect, onClose }: { sources: { windows: CaptureSource[]; screens: CaptureSource[] }; audioEnabled: boolean; onAudioEnabled: (value: boolean) => void; excludedAudioSource: string | null; onExcludedAudioSource: (value: string | null) => void; onSelect: (source: CaptureSource) => Promise<void>; onClose: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="source-dialog" role="dialog" aria-modal="true" aria-labelledby="source-title"><header><div><h2 id="source-title">Compartilhe sua tela</h2><p>Escolha uma aplicação ou monitor.</p></div><button type="button" onClick={onClose} aria-label="Fechar">×</button></header><label className="audio-toggle"><input type="checkbox" checked={audioEnabled} onChange={(event) => onAudioEnabled(event.target.checked)} /><span><strong>Incluir áudio</strong><small>{audioEnabled ? "Áudio da aplicação em janelas · Áudio do sistema em telas" : "Somente vídeo"}</small></span></label>
-    <SourceGroup title="Aplicações" sources={sources.windows} onSelect={onSelect} />
-    {audioEnabled && sources.screens.length > 0 && sources.windows.length > 0 && <details className="audio-exclusion"><summary>{excludedAudioSource ? `Sem áudio de: ${sources.windows.find((item) => item.token === excludedAudioSource)?.name}` : "Excluir áudio de uma aplicação"}</summary><p>Ao compartilhar um monitor, escolha o Discord ou outra aplicação para deixar fora do áudio. Abra a janela dela se não aparecer aqui.</p><div className="audio-exclusion-options"><button type="button" aria-pressed={!excludedAudioSource} onClick={() => onExcludedAudioSource(null)}>Incluir todas</button>{sources.windows.map((source) => <button type="button" key={source.token} aria-pressed={excludedAudioSource === source.token} onClick={() => onExcludedAudioSource(source.token)}>{source.name}</button>)}</div></details>}
-    <SourceGroup title="Telas" sources={sources.screens} onSelect={onSelect} /></section></div>;
-}
-
-function SourceGroup({ title, sources, onSelect }: { title: string; sources: CaptureSource[]; onSelect: (source: CaptureSource) => Promise<void> }) {
-  if (!sources.length) return null;
-  return <section className="source-group"><h3>{title}</h3><div className="source-grid">{sources.map((source) => <button type="button" key={source.token} onClick={() => void onSelect(source)}><img src={source.thumbnailDataUrl} alt="" /><span>{source.name}</span></button>)}</div></section>;
 }
 
 function OptionGroup({ label, value, values, labels = {}, onChange }: { label: string; value: string; values: string[]; labels?: Record<string, string>; onChange: (value: string) => void }) {

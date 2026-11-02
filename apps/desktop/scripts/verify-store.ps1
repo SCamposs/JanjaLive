@@ -14,7 +14,7 @@ try {
   $capabilities = @($manifest.SelectNodes("//*[local-name()='Capabilities']/*") | ForEach-Object { $_.Name })
   if ($capabilities -notcontains "runFullTrust") { throw "Native helper capability missing" }
   if (@($capabilities | Where-Object { $_ -notin @("runFullTrust", "internetClient", "privateNetworkClientServer") }).Count) { throw "Unexpected capability" }
-  foreach ($file in @("app/JanjaLive.exe", "app/resources/app.asar", "app/resources/app.asar.unpacked/native/audio-helper/bin/janjalive-audio-helper.exe", "assets/StoreLogo.png", "assets/Square44x44Logo.png", "assets/Square150x150Logo.png", "assets/Wide310x150Logo.png")) {
+  foreach ($file in @("app/JanjaLive.exe", "app/resources/app.asar", "app/resources/app.asar.unpacked/native/audio-helper/bin/janjalive-audio-helper.exe", "app/resources/app.asar.unpacked/native/window-helper/bin/janjalive-window-helper.exe", "assets/StoreLogo.png", "assets/Square44x44Logo.png", "assets/Square150x150Logo.png", "assets/Wide310x150Logo.png")) {
     if (!$archive.GetEntry($file)) { throw "Missing package content: $file" }
   }
   Write-Output "Verified Store package: identity=$($manifest.Package.Identity.Name), version=$($manifest.Package.Identity.Version), protocol, capabilities, native helper and branded assets."

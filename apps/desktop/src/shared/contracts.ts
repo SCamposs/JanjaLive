@@ -71,6 +71,7 @@ export type CaptureSource = {
   name: string;
   kind: "screen" | "window";
   thumbnailDataUrl: string;
+  minimized?: boolean;
 };
 
 const qualityPresetSchema = z.enum([

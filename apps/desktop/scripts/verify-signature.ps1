@@ -5,6 +5,7 @@ $dist = Join-Path $PSScriptRoot "..\dist"
 $artifacts = @(
   (Join-Path $dist "win-unpacked\JanjaLive.exe"),
   (Join-Path $dist "win-unpacked\resources\app.asar.unpacked\native\audio-helper\bin\janjalive-audio-helper.exe"),
+  (Join-Path $dist "win-unpacked\resources\app.asar.unpacked\native\window-helper\bin\janjalive-window-helper.exe"),
   (Join-Path $dist "JanjaLive-Setup-$($package.version).exe")
 )
 $signatureRequired = $env:REQUIRE_WINDOWS_SIGNATURE -eq "true"

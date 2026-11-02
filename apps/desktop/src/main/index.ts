@@ -9,6 +9,7 @@ import {
   desktopCapturer,
   ipcMain,
   net,
+  nativeImage,
   protocol,
   safeStorage,
   session,
@@ -42,6 +43,8 @@ import { getProtocolRegistration } from "../shared/protocol-registration";
 import { API_ORIGIN, DESKTOP_AUTH_URLS, REALTIME_WEBSOCKET_ORIGIN, isAllowedRemoteRequest } from "../shared/network-policy";
 import { canGrantDesktopPermission } from "../shared/permission-policy";
 import { NativeAudioManager } from "./native-audio";
+import { NativeWindows } from "./native-windows";
+import { mergeWindowSources, windowSourceId, type NativeWindow } from "./capture-windows";
 
 const { autoUpdater } = electronUpdater;
 
@@ -57,8 +60,9 @@ protocol.registerSchemesAsPrivileged([
   { scheme: "janja-app", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
 
-type SourceGrant = { source: DesktopCapturerSource; ownerId: number; expiresAt: number };
-type PendingSelection = SourceGrant & { audioMode: NativeAudioMode; excludedSource?: DesktopCapturerSource };
+type GrantedSource = { source: DesktopCapturerSource; nativeWindow?: NativeWindow };
+type SourceGrant = GrantedSource & { ownerId: number; expiresAt: number };
+type PendingSelection = SourceGrant & { signal: AbortSignal; audioMode: NativeAudioMode; excludedSource?: DesktopCapturerSource; excludedNativeWindow?: NativeWindow };
 type PendingAuth = { state: string; verifier: string; expiresAt: number };
 
 let mainWindow: BrowserWindow | null = null;
@@ -68,10 +72,17 @@ let authStatus: AuthStatus = { state: "signed-out" };
 let sessionToken: string | null = null;
 let pendingAuth: PendingAuth | null = null;
 let authExchangeInFlight: Promise<"complete"> | null = null;
-const sourceGrants = new ExpiringGrantStore<DesktopCapturerSource>();
+const sourceGrants = new ExpiringGrantStore<GrantedSource>();
 const pendingSelections = new Map<number, PendingSelection>();
 const confirmedAudioSelections = new Map<number, PendingSelection>();
 const nativeAudio = new NativeAudioManager();
+const nativeWindows = new NativeWindows();
+const capturePreparations = new Map<number, AbortController>();
+const sourceListVersions = new Map<number, number>();
+function abortCapturePreparation(ownerId: number) {
+  capturePreparations.get(ownerId)?.abort();
+  capturePreparations.delete(ownerId);
+}
 
 const rendererContentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
@@ -299,49 +310,91 @@ function registerIpc() {
 
   ipcMain.handle("capture:list-sources", async (event) => {
     const ownerId = assertTrustedSender(event);
-    const sources = await desktopCapturer.getSources({
+    abortCapturePreparation(ownerId);
+    pendingSelections.delete(ownerId);
+    confirmedAudioSelections.delete(ownerId);
+    const listVersion = (sourceListVersions.get(ownerId) ?? 0) + 1;
+    sourceListVersions.set(ownerId, listVersion);
+    const [sources, windows] = await Promise.all([desktopCapturer.getSources({
       types: ["window", "screen"],
       thumbnailSize: { width: 320, height: 180 },
       fetchWindowIcons: false,
-    });
+    }), nativeWindows.list().catch(() => [])]);
+    assertTrustedSender(event);
+    if (sourceListVersions.get(ownerId) !== listVersion) throw new Error("CAPTURE_LIST_REPLACED");
+    const merged = mergeWindowSources(sources, windows, (window): DesktopCapturerSource => ({
+      id: windowSourceId(window), name: window.title, display_id: "", thumbnail: nativeImage.createEmpty(), appIcon: nativeImage.createEmpty(),
+    }));
     const now = Date.now();
     sourceGrants.clearOwner(ownerId, now);
-    return sources.map((source) => {
+    return merged.map((grant) => {
+      const { source } = grant;
       const token = randomUUID();
-      sourceGrants.set(token, { value: source, ownerId, expiresAt: now + SOURCE_TOKEN_TTL_MS });
+      sourceGrants.set(token, { value: grant, ownerId, expiresAt: now + SOURCE_TOKEN_TTL_MS });
       return {
         token,
         name: sanitizeSourceName(source.name),
         kind: source.id.startsWith("screen:") ? "screen" : "window",
-        thumbnailDataUrl: source.thumbnail.toDataURL(),
+        thumbnailDataUrl: source.thumbnail.isEmpty() ? "" : source.thumbnail.toDataURL(),
+        minimized: grant.nativeWindow?.minimized ?? false,
       };
     });
   });
 
-  ipcMain.handle("capture:select-source", (event, payload: unknown) => {
+  ipcMain.handle("capture:select-source", async (event, payload: unknown) => {
     const ownerId = assertTrustedSender(event);
     const input = captureSelectionSchema.parse(payload);
-    const source = sourceGrants.take(input.token, ownerId);
-    if (!source) throw new Error("CAPTURE_SELECTION_EXPIRED");
+    const grant = sourceGrants.take(input.token, ownerId);
+    if (!grant) throw new Error("CAPTURE_SELECTION_EXPIRED");
+    const { source } = grant;
     if (input.audioMode === "application" && !source.id.startsWith("window:")) throw new Error("INVALID_AUDIO_MODE_FOR_SOURCE");
     if ((input.audioMode === "system" || input.audioMode === "system-excluding-application") && !source.id.startsWith("screen:")) throw new Error("INVALID_AUDIO_MODE_FOR_SOURCE");
-    const excludedSource = input.excludedSourceToken ? sourceGrants.take(input.excludedSourceToken, ownerId) ?? undefined : undefined;
+    const excludedGrant = input.excludedSourceToken ? sourceGrants.take(input.excludedSourceToken, ownerId) ?? undefined : undefined;
+    const excludedSource = excludedGrant?.source;
     if (input.audioMode === "system-excluding-application" && !excludedSource?.id.startsWith("window:")) throw new Error("INVALID_AUDIO_EXCLUSION");
     if (input.excludedSourceToken && input.audioMode !== "system-excluding-application") throw new Error("INVALID_AUDIO_EXCLUSION");
-    confirmedAudioSelections.delete(ownerId);
-    pendingSelections.set(ownerId, { source, ownerId, audioMode: input.audioMode, excludedSource, expiresAt: Date.now() + SELECTION_TTL_MS });
+    abortCapturePreparation(ownerId);
+    pendingSelections.delete(ownerId);
+    const preparation = new AbortController();
+    capturePreparations.set(ownerId, preparation);
+    let prepared = false;
+    try {
+      if (grant.nativeWindow) await nativeWindows.prepare(grant.nativeWindow, preparation.signal);
+      if (excludedGrant?.nativeWindow) await nativeWindows.inspect(excludedGrant.nativeWindow, preparation.signal);
+      preparation.signal.throwIfAborted();
+      assertTrustedSender(event);
+      confirmedAudioSelections.delete(ownerId);
+      pendingSelections.set(ownerId, { ...grant, ownerId, signal: preparation.signal, audioMode: input.audioMode, excludedSource,
+        excludedNativeWindow: excludedGrant?.nativeWindow, expiresAt: Date.now() + SELECTION_TTL_MS });
+      prepared = true;
+    } catch (error) {
+      if (!preparation.signal.aborted) throw error;
+    } finally {
+      if (!prepared && capturePreparations.get(ownerId) === preparation) capturePreparations.delete(ownerId);
+    }
   });
 
   ipcMain.handle("capture:start-native-audio", async (event) => {
     const ownerId = assertTrustedSender(event);
     const selection = confirmedAudioSelections.get(ownerId);
     confirmedAudioSelections.delete(ownerId);
-    if (!selection || selection.expiresAt <= Date.now() || selection.audioMode === "none") {
+    if (!selection || selection.signal.aborted || selection.expiresAt <= Date.now() || selection.audioMode === "none") {
       return nativeAudioStartResultSchema.parse({ status: "unavailable", reason: "source-ended" });
     }
-    return nativeAudioStartResultSchema.parse(
+    try {
+      if (selection.nativeWindow) await nativeWindows.inspect(selection.nativeWindow, selection.signal);
+      if (selection.excludedNativeWindow) await nativeWindows.inspect(selection.excludedNativeWindow, selection.signal);
+    } catch {
+      return nativeAudioStartResultSchema.parse({ status: "unavailable", reason: "source-ended" });
+    }
+    const result = nativeAudioStartResultSchema.parse(
       await nativeAudio.start(ownerId, selection.source, selection.audioMode, event.sender, selection.excludedSource),
     );
+    if (selection.signal.aborted && result.status === "started") {
+      await nativeAudio.stop(ownerId, result.sessionId);
+      return nativeAudioStartResultSchema.parse({ status: "unavailable", reason: "source-ended" });
+    }
+    return result;
   });
 
   ipcMain.handle("capture:stop-native-audio", async (event, sessionId: unknown) => {
@@ -352,6 +405,8 @@ function registerIpc() {
 
   ipcMain.handle("capture:cancel-selection", (event) => {
     const ownerId = assertTrustedSender(event);
+    sourceListVersions.set(ownerId, (sourceListVersions.get(ownerId) ?? 0) + 1);
+    abortCapturePreparation(ownerId);
     pendingSelections.delete(ownerId);
     confirmedAudioSelections.delete(ownerId);
   });
@@ -532,7 +587,7 @@ function configureSession() {
   const hasCaptureGrant = (ownerId: number) => {
     const now = Date.now();
     const selection = pendingSelections.get(ownerId);
-    return Boolean(selection && selection.expiresAt > now);
+    return Boolean(selection && !selection.signal.aborted && selection.expiresAt > now);
   };
   activeSession.setPermissionCheckHandler((webContents, permission, _requestingOrigin, details) => {
     const allowed = canGrantDesktopPermission({
@@ -560,12 +615,20 @@ function configureSession() {
     });
     callback(allowed);
   });
-  activeSession.setDisplayMediaRequestHandler((request, callback) => {
+  activeSession.setDisplayMediaRequestHandler(async (request, callback) => {
     const window = mainWindow;
     if (!window || request.frame !== window.webContents.mainFrame || !rendererUrlIsTrusted(request.frame.url)) return callback({});
     const selection = pendingSelections.get(window.webContents.id);
     pendingSelections.delete(window.webContents.id);
-    if (!selection || selection.expiresAt <= Date.now()) return callback({});
+    if (!selection || selection.signal.aborted || selection.expiresAt <= Date.now()) return callback({});
+    try {
+      if (selection.nativeWindow) {
+        const current = await nativeWindows.inspect(selection.nativeWindow, selection.signal);
+        if (current.minimized || current.clientWidth < 2 || current.clientHeight < 2) return callback({});
+      }
+    } catch { return callback({}); }
+    if (selection.signal.aborted || mainWindow !== window || window.isDestroyed() || request.frame !== window.webContents.mainFrame ||
+      !rendererUrlIsTrusted(request.frame.url) || selection.expiresAt <= Date.now()) return callback({});
     if (selection.audioMode !== "none") {
       confirmedAudioSelections.set(window.webContents.id, {
         ...selection,
@@ -645,6 +708,8 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   const rendererOwnerId = mainWindow.webContents.id;
   mainWindow.webContents.once("destroyed", () => {
+    sourceListVersions.delete(rendererOwnerId);
+    abortCapturePreparation(rendererOwnerId);
     pendingSelections.delete(rendererOwnerId);
     confirmedAudioSelections.delete(rendererOwnerId);
     void nativeAudio.stopOwner(rendererOwnerId);
@@ -740,6 +805,6 @@ if (!gotSingleInstanceLock) {
     setTimeout(() => { if (app.isPackaged && !process.windowsStore && !isPackagedSmokeTest) void autoUpdater.checkForUpdates(); }, 5_000);
   });
 
-  app.once("before-quit", () => { void nativeAudio.stopAll(); });
+  app.once("before-quit", () => { for (const ownerId of capturePreparations.keys()) abortCapturePreparation(ownerId); void nativeAudio.stopAll(); });
   app.on("window-all-closed", () => app.quit());
 }
