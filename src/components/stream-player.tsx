@@ -1,5 +1,7 @@
 "use client";
 
+import { TooltipButton } from "@janjalive/ui";
+
 import { Maximize, Minimize2, PictureInPicture2, Scaling, Volume2, VolumeX, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { ConnectionStatus } from "@janjalive/webrtc";
@@ -163,9 +165,9 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
       <div className="player-controls" data-player-controls {...controlsProps}>
         {mode === "remote" && (
           <>
-            <button className="icon-button" data-tooltip={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? "Ativar som" : "Silenciar"}>
+            <TooltipButton className="icon-button" tooltip={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)} aria-label={muted ? "Ativar som" : "Silenciar"}>
               {muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-            </button>
+            </TooltipButton>
             <input
               aria-label="Volume"
               type="range"
@@ -182,18 +184,18 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
           </>
         )}
         <span className="control-spacer" />
-        <button className="icon-button" data-tooltip={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} type="button" onClick={() => setFitMode((value) => value === "contain" ? "cover" : "contain")} aria-label={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"}>
+        <TooltipButton className="icon-button" tooltip={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} type="button" onClick={() => setFitMode((value) => value === "contain" ? "cover" : "contain")} aria-label={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"}>
           <Scaling size={18} />
-        </button>
-        <button className="icon-button" data-tooltip="Picture in Picture" type="button" onClick={togglePictureInPicture} aria-label="Picture in Picture">
+        </TooltipButton>
+        <TooltipButton className="icon-button" tooltip="Picture in Picture" type="button" onClick={togglePictureInPicture} aria-label="Picture in Picture">
           <PictureInPicture2 size={18} />
-        </button>
-        <button className="icon-button" data-tooltip={isFullscreen ? "Sair da tela cheia" : "Tela cheia"} type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}>
+        </TooltipButton>
+        <TooltipButton className="icon-button" tooltip={isFullscreen ? "Sair da tela cheia" : "Tela cheia"} type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}>
           {isFullscreen ? <Minimize2 size={18} /> : <Maximize size={18} />}
-        </button>
-        <button className="stop-button" data-tooltip={mode === "local" ? "Encerrar transmissão" : "Parar de assistir"} type="button" onClick={onStop} aria-label={mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}>
+        </TooltipButton>
+        <TooltipButton className="stop-button" tooltip={mode === "local" ? "Encerrar transmissão" : "Parar de assistir"} type="button" onClick={onStop} aria-label={mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}>
           <X size={16} /> <span>{mode === "local" ? "Encerrar transmissão" : "Parar de assistir"}</span>
-        </button>
+        </TooltipButton>
       </div>
     </div>
   );

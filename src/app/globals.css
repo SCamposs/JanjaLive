@@ -32,14 +32,8 @@
 .admin-users { margin-top: 24px; }
 .admin-search { display: flex; gap: 8px; margin-bottom: 16px; }
 .admin-search input { flex: 1; min-width: 0; }
-.admin-search input, .admin-search select { min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
-.admin-search input:hover, .admin-search select:hover:not(:disabled) { border-color: var(--muted-2); }
-.admin-sort-select { position: relative; display: flex; min-width: 158px; }
-.admin-sort-select select { width: 100%; appearance: none; color-scheme: dark; padding-right: 34px; cursor: pointer; transition: border-color .18s, background .18s; }
-.admin-sort-select select:hover:not(:disabled) { background: var(--surface-2); }
-.admin-sort-select select:disabled { color: var(--disabled); cursor: not-allowed; }
-.admin-sort-select option { background: var(--surface-2); color: var(--text); }
-.admin-sort-select svg { position: absolute; top: 50%; right: 11px; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+.admin-search input, .admin-search .jl-select-trigger { min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.admin-search input:hover, .admin-search .jl-select-trigger:hover:not(:disabled) { border-color: var(--muted-2); }
 .admin-user-list { display: grid; gap: 8px; }
 .admin-user { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid #211f1d; border-radius: 10px; }
 .admin-user-identity, .admin-user-action { display: flex; align-items: center; gap: 12px; }
@@ -146,18 +140,15 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .signed-user { display: flex; align-items: center; gap: 8px; color: var(--text-soft); font-size: 13px; }
 .user-avatar { flex: 0 0 auto; border: 1px solid var(--border); border-radius: 50%; object-fit: cover; }
 .user-avatar.fallback { display: grid; place-items: center; color: var(--text); background: var(--accent-dark); border-color: oklch(35.5% .082 12.3); font-size: 11px; font-weight: 700; }
-.account-menu { position: relative; }
-.account-menu summary { list-style: none; }
-.account-menu summary::-webkit-details-marker { display: none; }
 .account-summary { cursor: pointer; user-select: none; }
 .account-summary > svg { color: var(--muted-2); transition: transform .18s; }
-.account-menu[open] .account-summary > svg { transform: rotate(180deg); }
+.account-summary[data-popup-open] > svg { transform: rotate(180deg); }
 .account-summary.compact .user-avatar { border: 0; }
-.account-popover { z-index: 30; position: absolute; top: calc(100% + 8px); right: 0; width: 190px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); }
+.account-popover { width: 220px; }
 .account-popover strong { display: block; overflow: hidden; padding: 5px 7px 9px; color: var(--text-soft); font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
 .account-popover button { width: 100%; min-height: 34px; padding: 0 7px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; color: var(--text-soft); background: transparent; cursor: pointer; font-size: 12px; }
-.account-popover button:hover:not(:disabled) { color: var(--text); background: var(--surface-3); }
-.account-popover button:disabled { color: var(--disabled); cursor: not-allowed; }
+.account-popover button:hover:not(:disabled), .account-popover button[data-highlighted] { color: var(--text); background: var(--surface-3); }
+.account-popover button:disabled, .account-popover button[data-disabled] { color: var(--disabled); cursor: not-allowed; }
 .account-popover small { display: block; padding: 6px 7px 4px; color: var(--muted-2); font-size: 10px; line-height: 1.4; }
 .account-popover > a { display: block; margin-top: 5px; padding: 9px 5px; color: var(--text-soft); font-size: 11px; border-top: 1px solid var(--border-soft); text-decoration: none; }
 .account-popover > a:hover { color: var(--text); text-decoration: underline; }
@@ -228,9 +219,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .connection-dot.connecting, .connection-dot.reconnecting { animation: pulse 1.4s infinite; }
 .icon-button, .avatar-button { width: 34px; height: 34px; border-radius: 7px; border: 1px solid transparent; color: var(--text-soft); background: transparent; display: inline-grid; place-items: center; cursor: pointer; }
 .icon-button:hover, .avatar-button:hover { border-color: var(--border); background: var(--surface-2); }
-[data-tooltip] { position: relative; }
-[data-tooltip]::after { content: attr(data-tooltip); position: absolute; z-index: 80; left: 50%; bottom: calc(100% + 7px); width: max-content; max-width: 190px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text); background: var(--surface-3); font-size: 10px; font-weight: 550; line-height: 1.25; opacity: 0; pointer-events: none; transform: translate(-50%, 3px); transition: opacity .1s, transform .1s; }
-[data-tooltip]:hover::after, [data-tooltip]:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
 .avatar-button { overflow: hidden; border-radius: 50%; background: var(--accent); color: var(--accent-ink); }
 .avatar-button img { width: 100%; height: 100%; object-fit: cover; }
 .settings-menu { position: relative; }
@@ -499,10 +487,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
   .stream-choice-action { justify-self: start; }
 }
 
-@media (hover: none), (pointer: coarse) {
-  [data-tooltip]::after { display: none; }
-}
-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
@@ -533,3 +517,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 @media (max-width: 700px) { .multilive-grid[data-multiple="true"] { grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(260px, 1fr); } }
 
 .multilive-tile .player-controls { min-width: 0; width: calc(100% - 20px); max-width: 390px; }
+
+.admin-sort-select { min-width: 158px; }
+.account-summary { border: 0; background: transparent; font-family: inherit; }

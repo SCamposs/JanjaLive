@@ -1,0 +1,36 @@
+/* Shared interaction surfaces; host applications retain their existing tokens. */
+.jl-menu-positioner, .jl-select-positioner { z-index: 40; outline: none; }
+.jl-tooltip-positioner { z-index: 80; pointer-events: none; }
+.jl-tooltip, .jl-select-popup, .jl-menu-popup {
+  color: var(--text, #e6e3dc);
+  background: var(--surface-2, #151515);
+  border: 1px solid var(--border, #292929);
+  border-radius: 6px;
+  transform-origin: var(--transform-origin);
+  transition: opacity 150ms ease-out, transform 150ms cubic-bezier(.22,1,.36,1);
+}
+.jl-tooltip[data-starting-style], .jl-tooltip[data-ending-style],
+.jl-select-popup[data-starting-style], .jl-select-popup[data-ending-style],
+.jl-menu-popup[data-starting-style], .jl-menu-popup[data-ending-style] { opacity: 0; transform: translateY(-3px); }
+.jl-tooltip { max-width: min(220px, calc(100vw - 20px)); padding: 6px 8px; font-size: 11px; font-weight: 500; line-height: 1.4; overflow-wrap: anywhere; }
+.jl-menu-popup { padding: 8px; width: 220px; max-width: calc(100vw - 20px); outline: none; }
+.jl-menu-popup [role="menuitem"] { outline: none; }
+.jl-menu-popup [data-highlighted] { background: var(--surface-3, #202020); color: var(--text, #e6e3dc); }
+.jl-menu-popup [data-disabled] { opacity: .45; cursor: not-allowed; }
+.jl-select-trigger { display: inline-flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 0 12px; border: 1px solid var(--border, #292929); border-radius: 6px; background: var(--surface, #0d0d0d); color: var(--text, #e6e3dc); font: inherit; font-size: 13px; cursor: pointer; transition: background 150ms, border-color 150ms; }
+.jl-select-trigger:hover:not(:disabled), .jl-select-trigger[data-popup-open] { background: var(--surface-2, #151515); border-color: var(--muted-2, #8e8983); }
+.jl-select-trigger:focus-visible { outline: 2px solid var(--accent-strong, #b72a42); outline-offset: 3px; }
+.jl-select-trigger:disabled { opacity: .45; cursor: not-allowed; }
+.jl-input { transition: background 150ms, border-color 150ms; }
+.jl-input::placeholder { color: var(--muted, #a09b95); opacity: 1; }
+.jl-input[data-focused] { border-color: var(--text-soft, #b5b1aa); }
+.jl-select-icon { display: flex; color: var(--text-soft, #b5b1aa); transition: transform 150ms; }
+.jl-select-trigger[data-popup-open] .jl-select-icon { transform: rotate(180deg); }
+.jl-select-popup { min-width: var(--anchor-width); max-height: var(--available-height); overflow: auto; outline: none; }
+.jl-select-list { padding: 4px; }
+.jl-select-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 36px; padding: 0 9px; border-radius: 3px; font-size: 13px; cursor: default; outline: none; user-select: none; }
+.jl-select-item[data-highlighted] { background: var(--surface-3, #202020); }
+.jl-select-check { display: flex; color: var(--text, #e6e3dc); }
+@media (prefers-reduced-motion: reduce) {
+  .jl-tooltip, .jl-select-popup, .jl-menu-popup, .jl-select-trigger, .jl-select-icon, .jl-input { transition: none; }
+}

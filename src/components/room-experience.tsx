@@ -1,5 +1,7 @@
 "use client";
 
+import { TooltipButton } from "@janjalive/ui";
+
 import {
   Check,
   Copy,
@@ -443,7 +445,7 @@ function MemberRow({ person, online, streaming, selected, isCurrentUser, isOwner
       <div className="avatar-wrap"><MemberAvatar person={person} /><span data-online={online} /></div>
       <div><strong>{person.name}</strong><span>{streaming ? `${person.role === "OWNER" ? "Dono · " : ""}Transmitindo` : person.role === "OWNER" ? "Dono" : online ? "Online" : "Offline"}</span></div>
       <div className="member-actions">
-        {streaming && !isCurrentUser && <button className="member-watch" data-tooltip={selected ? `Assistindo ${person.name}` : `Assistir ${person.name}`} type="button" disabled={selected} onClick={() => void onWatch(person.userId)} aria-label={selected ? `Assistindo ${person.name}` : `Assistir ${person.name}`}><Play size={13} fill="currentColor" /></button>}
+        {streaming && !isCurrentUser && <TooltipButton className="member-watch" tooltip={selected ? `Assistindo ${person.name}` : `Assistir ${person.name}`} type="button" disabled={selected} onClick={() => void onWatch(person.userId)} aria-label={selected ? `Assistindo ${person.name}` : `Assistir ${person.name}`}><Play size={13} fill="currentColor" /></TooltipButton>}
         {isOwner && person.role !== "OWNER" && <button className="member-menu" type="button" onClick={() => onRevoke(person.userId, "revoke")} aria-label={`Remover ${person.name}`}><X size={15} /></button>}
       </div>
     </div>
