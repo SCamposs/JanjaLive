@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowUpRight, Check, Clock3, Trash2, X } from "lucide-react";
+import { ArrowUpRight, Clock3, LogOut, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { AvailableRoom } from "@/lib/rooms";
-import { Toast } from "./toast";
+import { RoomRemovalDialog } from "@janjalive/ui/room-removal-dialog";
 
 function expiryLabel(remainingMs: number) {
   const hours = Math.ceil(remainingMs / (60 * 60 * 1_000));
@@ -17,7 +17,8 @@ function expiryLabel(remainingMs: number) {
 
 export function RoomList({ rooms }: { rooms: AvailableRoom[] }) {
   const router = useRouter();
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<AvailableRoom | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,16 +26,19 @@ export function RoomList({ rooms }: { rooms: AvailableRoom[] }) {
     return <p className="room-list-empty">Nenhuma sala disponível.</p>;
   }
 
-  async function removeRoom(roomId: string) {
+  async function removeRoom() {
+    if (!selected || deletingId) return;
+    const roomId = selected.id;
+    const owner = selected.role === "OWNER";
     setDeletingId(roomId);
     setError(null);
     try {
-      const response = await fetch(`/api/rooms/${roomId}`, { method: "DELETE" });
+      const response = await fetch(`/api/rooms/${encodeURIComponent(roomId)}${owner ? "" : "/membership"}`, { method: "DELETE" });
       if (!response.ok) throw new Error("DELETE_FAILED");
-      setConfirmingId(null);
+      setDialogOpen(false);
       router.refresh();
     } catch {
-      setError("Não foi possível excluir a sala.");
+      setError(owner ? "Não foi possível excluir a sala. Tente novamente." : "Não foi possível concluir a remoção. Tente novamente.");
     } finally {
       setDeletingId(null);
     }
@@ -44,10 +48,8 @@ export function RoomList({ rooms }: { rooms: AvailableRoom[] }) {
     <>
       <div className="available-room-list">
         {rooms.map((room) => {
-          const confirming = confirmingId === room.id;
-          const deleting = deletingId === room.id;
           return (
-            <article className="available-room" data-confirming={confirming} data-owner={room.role === "OWNER"} key={room.id}>
+            <article className="available-room" data-confirming={dialogOpen && selected?.id === room.id} data-owner={room.role === "OWNER"} key={room.id}>
               <Link className="available-room-link" href={`/join/${room.publicId}`}>
                 <div>
                   <strong>{room.name}</strong>
@@ -56,19 +58,14 @@ export function RoomList({ rooms }: { rooms: AvailableRoom[] }) {
                 <span className="room-expiry"><Clock3 size={13} /> {expiryLabel(room.expiresInMs)}</span>
                 <ArrowUpRight size={17} aria-hidden="true" />
               </Link>
-              {room.role === "OWNER" && (confirming ? (
-                <div className="room-delete-confirmation" aria-label="Confirmar exclusão da sala">
-                  <button type="button" onClick={() => setConfirmingId(null)} disabled={deleting} aria-label="Cancelar exclusão"><X size={14} /></button>
-                  <button className="confirm" type="button" onClick={() => void removeRoom(room.id)} disabled={deleting} aria-label="Excluir sala agora"><Check size={14} /></button>
-                </div>
-              ) : (
-                <button className="room-delete-trigger" type="button" onClick={() => setConfirmingId(room.id)} aria-label={`Excluir ${room.name}`}><Trash2 size={14} /></button>
-              ))}
+              <button className="room-delete-trigger" type="button" onClick={() => { setSelected(room); setError(null); setDialogOpen(true); }} aria-label={room.role === "OWNER" ? `Excluir ${room.name}` : `Remover ${room.name} da minha lista`}>
+                {room.role === "OWNER" ? <Trash2 size={14} /> : <LogOut size={14} />}
+              </button>
             </article>
           );
         })}
       </div>
-      {error && <Toast message={error} onDismiss={() => setError(null)} />}
+      <RoomRemovalDialog room={selected} open={dialogOpen} busy={deletingId !== null} error={error} onClose={() => setDialogOpen(false)} onConfirm={() => void removeRoom()} />
     </>
   );
 }

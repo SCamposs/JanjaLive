@@ -68,7 +68,7 @@ type PendingAuth = { state: string; verifier: string; expiresAt: number };
 let mainWindow: BrowserWindow | null = null;
 let updaterStatus: UpdaterStatus = { state: "idle" };
 let updateRequired = false;
-let authStatus: AuthStatus = { state: "signed-out" };
+let authStatus: AuthStatus = { state: "checking" };
 let sessionToken: string | null = null;
 let pendingAuth: PendingAuth | null = null;
 let authExchangeInFlight: Promise<"complete"> | null = null;
@@ -533,6 +533,10 @@ function registerIpc() {
     assertTrustedSender(event);
     await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}`, { method: "DELETE" });
   });
+  ipcMain.handle("rooms:leave", async (event, roomId: unknown) => {
+    assertTrustedSender(event);
+    await backendRequest(`/api/rooms/${encodeURIComponent(assertRoomId(roomId))}/membership`, { method: "DELETE" });
+  });
   ipcMain.handle("realtime:poll", async (event, roomId: unknown, since: unknown) => {
     assertTrustedSender(event);
     if (typeof since !== "number" || !Number.isSafeInteger(since) || since < 0) throw new Error("INVALID_CURSOR");
@@ -801,7 +805,9 @@ if (!gotSingleInstanceLock) {
     createWindow();
     const initialDeepLink = findDeepLink(process.argv);
     if (initialDeepLink && mainWindow) mainWindow.webContents.once("did-finish-load", () => handleDeepLink(initialDeepLink));
-    void restoreSession();
+    void restoreSession().catch(() => {
+      if (authStatus.state === "checking") updateAuthStatus({ state: "error", message: "Não foi possível verificar sua sessão. Tente entrar novamente." });
+    });
     setTimeout(() => { if (app.isPackaged && !process.windowsStore && !isPackagedSmokeTest) void autoUpdater.checkForUpdates(); }, 5_000);
   });
 

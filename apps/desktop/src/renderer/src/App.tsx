@@ -1,7 +1,12 @@
+import { DesktopDeleteRoomAction } from "./DesktopDeleteRoomAction";
+import { subscribeAuthStatus } from "./auth-session";
+import { DesktopLogin } from "./DesktopLogin";
+import { DesktopNoirBackdrop } from "./DesktopNoirBackdrop";
+import { DesktopRoomList } from "./DesktopRoomList";
 import { DesktopAccountMenu } from "./DesktopAccountMenu";
 import { TooltipButton } from "@janjalive/ui";
 import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent as ReactFocusEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Play, Scaling, Trash2, UserMinus, UsersRound, Volume2, VolumeX, X } from "lucide-react";
+import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Play, Scaling, UserMinus, UsersRound, Volume2, VolumeX, X } from "lucide-react";
 import { playRoomCue, type ConnectionStatus, type StreamMetadata } from "@janjalive/webrtc";
 import type { AuthStatus, CaptureSource, NativeAudioMode, RoomSnapshot, RoomSummary, UpdaterStatus } from "../../shared/contracts";
 import { SourcePicker } from "./SourcePicker";
@@ -28,16 +33,9 @@ const BITRATES: Record<string, number> = {
   source: 12_000_000,
 };
 
-function expiryLabel(remainingMs: number) {
-  const hours = Math.ceil(remainingMs / (60 * 60 * 1_000));
-  if (hours <= 1) return "Expira em menos de 1 hora";
-  if (hours < 24) return `Expira em ${hours} horas`;
-  const days = Math.ceil(hours / 24);
-  return days === 1 ? "Expira amanhã" : `Expira em ${days} dias`;
-}
 
 export function App() {
-  const [auth, setAuth] = useState<AuthStatus>({ state: "signed-out" });
+  const [auth, setAuth] = useState<AuthStatus>({ state: "checking" });
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [sources, setSources] = useState<CaptureSource[] | null>(null);
@@ -110,9 +108,8 @@ export function App() {
     document.title = "JanjaLive";
     void window.janja.app.getVersion().then(setVersion);
     void window.janja.updater.getStatus().then(handleUpdateStatus);
-    void window.janja.auth.getStatus().then(handleAuthStatus);
     const removeUpdater = window.janja.updater.onStatus(handleUpdateStatus);
-    const removeAuth = window.janja.auth.onStatus(handleAuthStatus);
+    const removeAuth = subscribeAuthStatus(window.janja.auth, handleAuthStatus);
     const removeInvite = window.janja.app.onRoomInvite((token) => {
       if (authRef.current.state === "signed-in") void openInvite(token);
       else pendingInviteRef.current = token;
@@ -400,7 +397,7 @@ export function App() {
       {update.state === "required" && <aside className="update-bar required"><span>Esta versão precisa ser atualizada para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Verificar atualização</button></aside>}
       {update.state === "store" && update.required && <aside className="update-bar required"><span>Atualize o JanjaLive pela Microsoft Store para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Abrir Microsoft Store</button></aside>}
 
-      {auth.state !== "signed-in" ? <Login auth={auth} /> : room ? (
+      {auth.state !== "signed-in" ? <DesktopLogin auth={auth} /> : room ? (
         room.access === "authorized" ? <RoomView room={room} currentUserId={auth.user.id} sharing={sharing} localStream={localStream} selectedStreamers={selectedStreamers} remoteStreams={realtime.remoteStreams} activeStreams={activeRemoteStreams} onlineUserIds={realtime.onlineUserIds} viewerUserIds={realtime.viewerUserIds} connectionStatus={realtime.connectionStatus} onRoomUpdate={setRoom} onRoomDeleted={() => { setRoom(null); void refreshRooms(); }} onShare={openPicker} onStopSharing={stopSharing} onSelectStreamer={(userId) => void watchStreamer(userId)} onStopWatching={(userId) => void leaveStream(userId)} />
         : <AccessGate room={room} onUpdate={setRoom} onRequest={async () => { await window.janja.rooms.requestAccess(room.room.id); setRoom({ ...room, access: "pending" }); }} />
       ) : <Home rooms={rooms} onOpen={async (roomId) => setRoom(await window.janja.rooms.get(roomId))} onOpenSnapshot={setRoom} onRefresh={refreshRooms} />}
@@ -469,9 +466,6 @@ function Header({ auth, version, update, inRoom, canLogout, onLeaveRoom, onLogou
   return <header className="app-header"><div className="brand"><img src="/janja-live.png" alt="" /><span>JanjaLive</span></div><div className="header-actions">{inRoom && <TooltipButton className="header-icon-action" tooltip="Sair da sala" tooltipSide="bottom" aria-label="Sair da sala" type="button" onClick={onLeaveRoom}><LogOut size={17} /></TooltipButton>}<span className="version">v{version}</span>{update.state === "checking" && <span className="update-checking" role="status" aria-label="Verificando atualização" />}{update.state === "ready" && <button className="update-indicator" type="button" onClick={onShowUpdate}><span />Nova versão</button>}{auth.state === "signed-in" && <DesktopAccountMenu user={auth.user} canLogout={canLogout} onLogout={onLogout} onSafety={() => void window.janja.app.openSafety()} />}</div></header>;
 }
 
-function Login({ auth }: { auth: AuthStatus }) {
-  return <section className="desktop-login desktop-noir-screen"><DesktopNoirBackdrop /><img src="/janja-live.png" alt="" /><h1>JanjaLive</h1><p>Entre para abrir suas salas.</p>{auth.state === "connecting" ? <div className="login-actions"><span>Aguardando o navegador…</span><button className="quiet-button" type="button" onClick={() => void window.janja.auth.cancel()}>Cancelar</button></div> : <button className="primary-button" type="button" onClick={() => void window.janja.auth.start()}>Entrar com Discord</button>}</section>;
-}
 
 function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary[]; onOpen: (id: string) => Promise<void>; onOpenSnapshot: (room: RoomSnapshot) => void; onRefresh: () => Promise<void> }) {
   const [name, setName] = useState("");
@@ -496,9 +490,7 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
     <DesktopNoirBackdrop />
     <div className="home-heading"><h1>Salas</h1><p>Crie uma sala ou entre com um código.</p></div>
     <div className="desktop-room-grid">
-      <section className="room-list-card" aria-label="Salas disponíveis">
-        {rooms.length ? rooms.map((item) => <button type="button" key={item.id} onClick={() => void onOpen(item.id)}><span><strong>{item.name}</strong><small>{item.role === "OWNER" ? "Sua sala" : "Membro"} · {expiryLabel(item.expiresInMs)}</small></span><b>Abrir</b></button>) : <p>Nenhuma sala disponível.</p>}
-      </section>
+      <DesktopRoomList rooms={rooms} onOpen={onOpen} onRefresh={onRefresh} />
       <section className="new-room-card">
         <h2>Nova sala</h2>
         {createError && <p role="alert">{createError}</p>}
@@ -565,13 +557,9 @@ function RoomView({ room, currentUserId, sharing, localStream, selectedStreamers
   })}</div> : <div className="empty-room"><DesktopNoirBackdrop image="/janja-live-noir-2.png" /><div className="empty-room-copy"><h2>Nenhuma transmissão ativa</h2><p>Compartilhe sua tela ou aguarde um amigo começar.</p></div></div>}</div></section><RoomMembers room={room} onlineUserIds={onlineUserIds} currentUserId={currentUserId} activeStreamerIds={new Set(activeStreams.map((item) => item.streamerUserId))} selectedStreamers={selectedStreamers} onWatch={onSelectStreamer} onRoomUpdate={onRoomUpdate} onRoomDeleted={onRoomDeleted} /></div>;
 }
 
-function DesktopNoirBackdrop({ image = "/janja-live-noir.png" }: { image?: string }) {
-  return <div className="desktop-noir-backdrop" aria-hidden="true"><img className="desktop-noir-frame desktop-noir-frame-base" src={image} alt="" /><img className="desktop-noir-frame desktop-noir-frame-shift desktop-noir-frame-shift-a" src={image} alt="" /><img className="desktop-noir-frame desktop-noir-frame-shift desktop-noir-frame-shift-b" src={image} alt="" /><span className="desktop-noir-scan" /></div>;
-}
 
 function RoomMembers({ room, onlineUserIds, currentUserId, activeStreamerIds, selectedStreamers, onWatch, onRoomUpdate, onRoomDeleted }: { room: RoomSnapshot; onlineUserIds: string[]; currentUserId: string; activeStreamerIds: Set<string>; selectedStreamers: string[]; onWatch: (userId: string) => void; onRoomUpdate: (room: RoomSnapshot) => void; onRoomDeleted: () => void }) {
   const [copied, setCopied] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   async function manage(userId: string, action: "approve" | "reject" | "revoke") {
     onRoomUpdate(await window.janja.rooms.manageMember(room.room.id, { userId, action }));
   }
@@ -580,13 +568,8 @@ function RoomMembers({ room, onlineUserIds, currentUserId, activeStreamerIds, se
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1_800);
   }
-  async function removeRoom() {
-    if (!confirmDelete) return setConfirmDelete(true);
-    await window.janja.rooms.delete(room.room.id);
-    onRoomDeleted();
-  }
   const online = room.members.filter((member) => onlineUserIds.includes(member.userId));
-  return <aside className="desktop-members"><h2>Membros <span>{room.members.length}</span></h2>{room.pending.length > 0 && <section className="member-section pending-members"><h3>Pedidos</h3>{room.pending.map((member) => <div className="pending-member" key={member.userId}><Member member={{ ...member, role: "MEMBER" }} online={false} /><div><TooltipButton tooltip={`Aprovar ${member.name}`} aria-label={`Aprovar ${member.name}`} type="button" onClick={() => void manage(member.userId, "approve")}><Check size={14} /></TooltipButton><TooltipButton tooltip={`Recusar ${member.name}`} aria-label={`Recusar ${member.name}`} type="button" onClick={() => void manage(member.userId, "reject")}><X size={14} /></TooltipButton></div></div>)}</section>}<section className="member-section"><h3>Online</h3>{online.length ? online.map((member) => <Member key={member.userId} member={member} online streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} />) : <p className="members-empty">Ninguém online.</p>}</section><section className="member-section"><h3>Autorizados</h3>{room.members.map((member) => <Member key={member.userId} member={member} online={onlineUserIds.includes(member.userId)} streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} onRemove={room.room.isOwner && member.userId !== currentUserId ? () => void manage(member.userId, "revoke") : undefined} />)}</section>{room.room.isOwner && <footer className="room-owner-actions"><TooltipButton tooltip={copied ? "Convite copiado" : "Copiar novo convite"} aria-label={copied ? "Convite copiado" : "Copiar novo convite"} type="button" onClick={() => void copyInvite()}>{copied ? <Check size={15} /> : <Copy size={15} />}</TooltipButton><TooltipButton tooltip={confirmDelete ? "Confirmar exclusão" : "Excluir sala"} aria-label={confirmDelete ? "Confirmar exclusão" : "Excluir sala"} className="danger-control" type="button" onBlur={() => setConfirmDelete(false)} onClick={() => void removeRoom()}><Trash2 size={15} /></TooltipButton></footer>}</aside>;
+  return <aside className="desktop-members"><h2>Membros <span>{room.members.length}</span></h2>{room.pending.length > 0 && <section className="member-section pending-members"><h3>Pedidos</h3>{room.pending.map((member) => <div className="pending-member" key={member.userId}><Member member={{ ...member, role: "MEMBER" }} online={false} /><div><TooltipButton tooltip={`Aprovar ${member.name}`} aria-label={`Aprovar ${member.name}`} type="button" onClick={() => void manage(member.userId, "approve")}><Check size={14} /></TooltipButton><TooltipButton tooltip={`Recusar ${member.name}`} aria-label={`Recusar ${member.name}`} type="button" onClick={() => void manage(member.userId, "reject")}><X size={14} /></TooltipButton></div></div>)}</section>}<section className="member-section"><h3>Online</h3>{online.length ? online.map((member) => <Member key={member.userId} member={member} online streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} />) : <p className="members-empty">Ninguém online.</p>}</section><section className="member-section"><h3>Autorizados</h3>{room.members.map((member) => <Member key={member.userId} member={member} online={onlineUserIds.includes(member.userId)} streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} onRemove={room.room.isOwner && member.userId !== currentUserId ? () => void manage(member.userId, "revoke") : undefined} />)}</section>{room.room.isOwner && <footer className="room-owner-actions"><TooltipButton tooltip={copied ? "Convite copiado" : "Copiar novo convite"} aria-label={copied ? "Convite copiado" : "Copiar novo convite"} type="button" onClick={() => void copyInvite()}>{copied ? <Check size={15} /> : <Copy size={15} />}</TooltipButton><DesktopDeleteRoomAction room={room.room} onDeleted={onRoomDeleted} /></footer>}</aside>;
 }
 
 function usePlayerControlsAutoHide() {

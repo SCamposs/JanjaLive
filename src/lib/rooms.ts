@@ -320,6 +320,20 @@ export async function manageRoomMember(input: {
   return changedAt.getTime();
 }
 
+export async function leaveRoom(roomId: string, userId: string) {
+  const member = await getMember(roomId, userId);
+  if (!member) throw new Error("ROOM_FORBIDDEN");
+  if (member.role === "OWNER") throw new Error("OWNER_IMMUTABLE");
+  // Keep the membership record: an old invite must not silently restore access.
+  // Repeating a request after a transport failure preserves the revocation time.
+  const [updated] = await getDb().update(roomMembers)
+    .set({ revokedAt: sql`coalesce(${roomMembers.revokedAt}, ${new Date()})` })
+    .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, userId), eq(roomMembers.role, "MEMBER")))
+    .returning({ revokedAt: roomMembers.revokedAt });
+  if (!updated?.revokedAt) throw new Error("ROOM_FORBIDDEN");
+  return updated.revokedAt.getTime();
+}
+
 export async function activateRoomMember(roomId: string, userId: string, restore: boolean) {
   const db = getDb();
   const now = new Date();

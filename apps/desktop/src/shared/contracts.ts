@@ -52,6 +52,7 @@ export const desktopUserSchema = z.object({
 }).strict();
 
 export const authStatusSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("checking") }),
   z.object({ state: z.literal("signed-out") }),
   z.object({ state: z.literal("connecting") }),
   z.object({ state: z.literal("signed-in"), user: desktopUserSchema }),
@@ -257,6 +258,7 @@ export type JanjaDesktopApi = {
     copyCode(code: string): Promise<void>;
     copyInvite(roomId: string): Promise<void>;
     delete(roomId: string): Promise<void>;
+    leave(roomId: string): Promise<void>;
   };
   realtime: {
     getSession(roomId: string): Promise<RealtimeSession>;
