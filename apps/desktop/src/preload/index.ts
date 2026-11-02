@@ -20,6 +20,7 @@ ipcRenderer.on("capture:native-audio-port", (event, payload: unknown) => {
 const api: JanjaDesktopApi = {
   app: {
     getVersion: () => ipcRenderer.invoke("app:get-version"),
+    openSafety: () => ipcRenderer.invoke("app:open-safety"),
     onRoomInvite(listener) {
       const handler = (_event: Electron.IpcRendererEvent, link: unknown) => {
         if (

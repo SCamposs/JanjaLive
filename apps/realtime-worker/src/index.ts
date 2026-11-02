@@ -9,11 +9,12 @@ import {
   type StreamMetadata,
 } from "@janjalive/realtime-protocol";
 import {
-  activeRevocationCutoff,
+  activeRevocationCutoffMs,
   applyRevocationTransition,
   authorizeMediaSignal,
   consumeSignalBudget,
   hasUserSignalBudget,
+  hasConnectionCapacity,
   isTokenRevoked,
   removeBroadcastSessions,
   removeWatchedSession,
@@ -31,16 +32,20 @@ type Env = {
   ALLOWED_ORIGINS: string;
   REALTIME_TOKEN_SECRET: string;
   REALTIME_INTERNAL_SECRET: string;
+  REALTIME_CONNECTIONS_ENABLED?: string;
 };
 
 type RealtimeClaims = {
   roomId: string;
   sub: string;
   issuedAt: number;
+  issuedAtMs: number;
 };
 
 type ConnectionState = SignalingConnectionState & {
   connectedAt: number;
+  tokenIssuedAt?: number;
+  tokenIssuedAtMs?: number;
   stream?: StreamMetadata & { startedAt: number };
 };
 
@@ -89,7 +94,9 @@ async function verifyRealtimeToken(token: string, env: Env): Promise<RealtimeCla
     requiredClaims: ["roomId", "sub", "jti", "iat"],
   });
   if (typeof payload.sub !== "string" || typeof payload.roomId !== "string" || !Number.isInteger(payload.iat)) throw new Error("INVALID_CLAIMS");
-  return { roomId: payload.roomId, sub: payload.sub, issuedAt: payload.iat! };
+  const issuedAtMs = payload.issuedAtMs ?? payload.iat! * 1_000;
+  if (!Number.isSafeInteger(issuedAtMs) || Math.floor(Number(issuedAtMs) / 1_000) !== payload.iat) throw new Error("INVALID_CLAIMS");
+  return { roomId: payload.roomId, sub: payload.sub, issuedAt: payload.iat!, issuedAtMs: Number(issuedAtMs) };
 }
 
 function internalRoomRequest(request: Request, roomId: string, pathname: string) {
@@ -109,6 +116,7 @@ export default {
     if (url.pathname === "/health") return json({ ok: true });
 
     if (url.pathname === "/connect") {
+      if (env.REALTIME_CONNECTIONS_ENABLED === "false") return json({ error: "CONNECTIONS_PAUSED" }, 503);
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return json({ error: "UPGRADE_REQUIRED" }, 426);
       if (!allowedOrigin(request, env)) return json({ error: "ORIGIN_FORBIDDEN" }, 403);
       const session = tokenFromProtocols(request);
@@ -119,6 +127,7 @@ export default {
         headers.set("x-janjalive-user-id", claims.sub);
         headers.set("x-janjalive-room-id", claims.roomId);
         headers.set("x-janjalive-token-issued-at", String(claims.issuedAt));
+        headers.set("x-janjalive-token-issued-ms", String(claims.issuedAtMs));
         headers.set("x-janjalive-protocol", session.protocol);
         const stub = env.ROOMS.getByName(claims.roomId);
         return stub.fetch(new Request("https://room.internal/connect", { headers }));
@@ -169,6 +178,8 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (!value?.userId) return null;
     return {
       connectedAt: value.connectedAt ?? Date.now(),
+      tokenIssuedAt: value.tokenIssuedAt,
+      tokenIssuedAtMs: value.tokenIssuedAtMs,
       userId: value.userId,
       protocol: value.protocol === PROTOCOL ? PROTOCOL : LEGACY_PROTOCOL,
       mediaSessions: value.mediaSessions ?? [],
@@ -233,18 +244,22 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (url.pathname === "/connect") {
       const userId = request.headers.get("x-janjalive-user-id");
       const issuedAt = Number(request.headers.get("x-janjalive-token-issued-at"));
+      const issuedAtMs = Number(request.headers.get("x-janjalive-token-issued-ms")) || issuedAt * 1_000;
       const protocol = request.headers.get("x-janjalive-protocol") === PROTOCOL ? PROTOCOL : LEGACY_PROTOCOL;
       if (!userId || !Number.isInteger(issuedAt) || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return json({ error: "INVALID_CONNECT" }, 400);
       const [accountRevocation, membershipRevocation] = await Promise.all([
         this.ctx.storage.get<RevocationTransitionState | number>(accountRevocationKey(userId)),
         this.ctx.storage.get<RevocationTransitionState | number>(membershipRevocationKey(userId)),
       ]);
-      const accountRevokedAt = activeRevocationCutoff(accountRevocation);
-      const membershipRevokedAt = activeRevocationCutoff(membershipRevocation);
-      if (isTokenRevoked(issuedAt, Math.max(accountRevokedAt ?? -1, membershipRevokedAt ?? -1))) {
+      const accountRevokedAt = activeRevocationCutoffMs(accountRevocation);
+      const membershipRevokedAt = activeRevocationCutoffMs(membershipRevocation);
+      if (isTokenRevoked(issuedAtMs, Math.max(accountRevokedAt ?? -1, membershipRevokedAt ?? -1))) {
         return json({ error: "ACCESS_REVOKED" }, 403);
       }
       if (await this.ctx.storage.get<boolean>(ROOM_CLOSED_KEY)) return json({ error: "ROOM_CLOSED" }, 403);
+      // All awaited storage reads precede this check. Admission and attachment
+      // are synchronous, so another connect cannot take the same final slot.
+      if (!hasConnectionCapacity(this.states(), userId)) return json({ error: "CONNECTION_LIMIT" }, 429);
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server, [`user:${userId}`]);
@@ -253,6 +268,8 @@ export class RoomDurableObject extends DurableObject<Env> {
         userId,
         protocol,
         connectedAt: now,
+        tokenIssuedAt: issuedAt,
+        tokenIssuedAtMs: issuedAtMs,
         mediaSessions: [],
         signalWindowStartedAt: now,
         signalCount: 0,
@@ -285,8 +302,22 @@ export class RoomDurableObject extends DurableObject<Env> {
       const next = applyRevocationTransition(current, body.action === "BAN" ? "REVOKE" : "RESTORE", Number(body.changedAt));
       await this.ctx.storage.put(key, next);
       if (body.action === "BAN" && next.revoked && next.changedAt === Number(body.changedAt)) {
-        this.emit(body.senderUserId, { type: "room:revoked", targetUserId: body.targetUserId });
-        for (const socket of this.ctx.getWebSockets(`user:${body.targetUserId}`)) socket.close(4003, "Access revoked");
+        const sentAt = Date.now();
+        this.lastCursor = Math.max(this.lastCursor + 1, sentAt * 1_000);
+        const message = JSON.stringify({ type: "event", event: {
+          id: crypto.randomUUID(), senderUserId: body.senderUserId, sentAt, cursor: this.lastCursor,
+          payload: { type: "room:revoked", targetUserId: body.targetUserId },
+        } });
+        // Do not send room:revoked to newly authenticated sessions during a
+        // retry of an earlier logout. The cutoff remains durable for old tokens.
+        for (const socket of this.ctx.getWebSockets(`user:${body.targetUserId}`)) {
+          const state = this.state(socket);
+          if (state && isTokenRevoked(state.tokenIssuedAtMs ?? (state.tokenIssuedAt ? state.tokenIssuedAt * 1_000 : state.connectedAt), next.changedAt)) {
+            if (socket.readyState === WebSocket.OPEN) socket.send(message);
+            socket.close(4003, "Access revoked");
+          }
+        }
+        this.sendSnapshot();
       }
       return json({ ok: true }, 202);
     }
@@ -323,6 +354,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       this.emit(body.senderUserId, parsed.data);
       if (parsed.data.type === "room:revoked") {
         for (const socket of this.ctx.getWebSockets(`user:${parsed.data.targetUserId}`)) socket.close(4003, "Access revoked");
+        this.sendSnapshot();
       } else if (parsed.data.type === "room:closed") {
         for (const socket of this.sockets()) socket.close(4004, "Room closed");
       }
@@ -374,7 +406,10 @@ export class RoomDurableObject extends DurableObject<Env> {
     removeWatchedSession(state, payload);
     socket.serializeAttachment(state);
     if (payload.type === "stream:start" || payload.type === "stream:stop") this.sendSnapshot();
-    if (payload.type === "presence:leave") socket.close(1000, "Left room");
+    if (payload.type === "presence:leave") {
+      socket.close(1000, "Left room");
+      this.sendSnapshot();
+    }
   }
 
   webSocketClose(socket: WebSocket) {

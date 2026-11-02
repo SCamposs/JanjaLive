@@ -58,7 +58,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 type SourceGrant = { source: DesktopCapturerSource; ownerId: number; expiresAt: number };
-type PendingSelection = SourceGrant & { audioMode: NativeAudioMode };
+type PendingSelection = SourceGrant & { audioMode: NativeAudioMode; excludedSource?: DesktopCapturerSource };
 type PendingAuth = { state: string; verifier: string; expiresAt: number };
 
 let mainWindow: BrowserWindow | null = null;
@@ -100,6 +100,7 @@ function assertTrustedSender(event: IpcMainInvokeEvent) {
 }
 
 function updateStatus(next: UpdaterStatus) {
+  if (process.windowsStore && next.state === "required") next = { state: "store", required: true };
   updaterStatus = updaterStatusSchema.parse(next);
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("updater:status", updaterStatus);
 }
@@ -287,6 +288,10 @@ function sanitizeSourceName(name: string) {
 }
 
 function registerIpc() {
+  ipcMain.handle("app:open-safety", async (event) => {
+    assertTrustedSender(event);
+    await shell.openExternal(`${API_ORIGIN}/safety`);
+  });
   ipcMain.handle("app:get-version", (event) => {
     assertTrustedSender(event);
     return app.getVersion();
@@ -319,9 +324,12 @@ function registerIpc() {
     const source = sourceGrants.take(input.token, ownerId);
     if (!source) throw new Error("CAPTURE_SELECTION_EXPIRED");
     if (input.audioMode === "application" && !source.id.startsWith("window:")) throw new Error("INVALID_AUDIO_MODE_FOR_SOURCE");
-    if (input.audioMode === "system" && !source.id.startsWith("screen:")) throw new Error("INVALID_AUDIO_MODE_FOR_SOURCE");
+    if ((input.audioMode === "system" || input.audioMode === "system-excluding-application") && !source.id.startsWith("screen:")) throw new Error("INVALID_AUDIO_MODE_FOR_SOURCE");
+    const excludedSource = input.excludedSourceToken ? sourceGrants.take(input.excludedSourceToken, ownerId) ?? undefined : undefined;
+    if (input.audioMode === "system-excluding-application" && !excludedSource?.id.startsWith("window:")) throw new Error("INVALID_AUDIO_EXCLUSION");
+    if (input.excludedSourceToken && input.audioMode !== "system-excluding-application") throw new Error("INVALID_AUDIO_EXCLUSION");
     confirmedAudioSelections.delete(ownerId);
-    pendingSelections.set(ownerId, { source, ownerId, audioMode: input.audioMode, expiresAt: Date.now() + SELECTION_TTL_MS });
+    pendingSelections.set(ownerId, { source, ownerId, audioMode: input.audioMode, excludedSource, expiresAt: Date.now() + SELECTION_TTL_MS });
   });
 
   ipcMain.handle("capture:start-native-audio", async (event) => {
@@ -332,7 +340,7 @@ function registerIpc() {
       return nativeAudioStartResultSchema.parse({ status: "unavailable", reason: "source-ended" });
     }
     return nativeAudioStartResultSchema.parse(
-      await nativeAudio.start(ownerId, selection.source, selection.audioMode, event.sender),
+      await nativeAudio.start(ownerId, selection.source, selection.audioMode, event.sender, selection.excludedSource),
     );
   });
 
@@ -502,12 +510,17 @@ function registerIpc() {
   });
   ipcMain.handle("updater:check", async (event) => {
     assertTrustedSender(event);
+    if (process.windowsStore) {
+      await shell.openExternal("ms-windows-store://downloadsandupdates");
+      return;
+    }
     if (!app.isPackaged) return updateStatus({ state: "up-to-date" });
     updateStatus({ state: "checking" });
     await autoUpdater.checkForUpdates();
   });
   ipcMain.handle("updater:restart-and-install", async (event) => {
     assertTrustedSender(event);
+    if (process.windowsStore) throw new Error("STORE_MANAGED_UPDATES");
     if (updaterStatus.state !== "ready") throw new Error("UPDATE_NOT_READY");
     await nativeAudio.stopAll();
     autoUpdater.quitAndInstall(true, true);
@@ -670,6 +683,14 @@ function createWindow() {
 }
 
 function configureUpdater() {
+  if (isPackagedSmokeTest) {
+    updateStatus({ state: "up-to-date" });
+    return;
+  }
+  if (process.windowsStore) {
+    updateStatus({ state: "store", required: updateRequired });
+    return;
+  }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowPrerelease = false;
@@ -684,6 +705,7 @@ function configureUpdater() {
 function configureDeepLinkProtocol() {
   const registration = getProtocolRegistration({
     isPackagedSmokeTest,
+    isWindowsStore: process.windowsStore,
     isDefaultApp: Boolean(process.defaultApp),
     executable: process.execPath,
     entryPath: process.argv[1] ? resolve(process.argv[1]) : undefined,
@@ -715,7 +737,7 @@ if (!gotSingleInstanceLock) {
     const initialDeepLink = findDeepLink(process.argv);
     if (initialDeepLink && mainWindow) mainWindow.webContents.once("did-finish-load", () => handleDeepLink(initialDeepLink));
     void restoreSession();
-    setTimeout(() => { if (app.isPackaged) void autoUpdater.checkForUpdates(); }, 5_000);
+    setTimeout(() => { if (app.isPackaged && !process.windowsStore && !isPackagedSmokeTest) void autoUpdater.checkForUpdates(); }, 5_000);
   });
 
   app.once("before-quit", () => { void nativeAudio.stopAll(); });

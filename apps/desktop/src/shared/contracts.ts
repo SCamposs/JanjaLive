@@ -4,12 +4,15 @@ import { realtimeSessionSchema, type RealtimeSession } from "@janjalive/realtime
 export { realtimeSessionSchema };
 export type { RealtimeSession };
 
-export const nativeAudioModeSchema = z.enum(["none", "application", "system"]);
+export const nativeAudioModeSchema = z.enum(["none", "application", "system", "system-excluding-application"]);
 
 export const captureSelectionSchema = z.object({
   token: z.string().uuid(),
   audioMode: nativeAudioModeSchema,
-}).strict();
+  excludedSourceToken: z.string().uuid().optional(),
+}).strict().refine((selection) => (selection.audioMode === "system-excluding-application") === Boolean(selection.excludedSourceToken), {
+  message: "A exclusão de áudio exige uma aplicação e só pode ser usada com o áudio do sistema.",
+});
 
 export const nativeAudioStartResultSchema = z.discriminatedUnion("status", [
   z.object({
@@ -31,6 +34,7 @@ export type NativeAudioStartResult = z.infer<typeof nativeAudioStartResultSchema
 
 export const updaterStatusSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("idle") }),
+  z.object({ state: z.literal("store"), required: z.boolean() }),
   z.object({ state: z.literal("checking") }),
   z.object({ state: z.literal("up-to-date") }),
   z.object({ state: z.literal("downloading"), percent: z.number().min(0).max(100) }),
@@ -223,11 +227,12 @@ export type RealtimePoll = z.infer<typeof realtimePollSchema>;
 export type JanjaDesktopApi = {
   app: {
     getVersion(): Promise<string>;
+    openSafety(): Promise<void>;
     onRoomInvite(listener: (token: string) => void): () => void;
   };
   capture: {
     listSources(): Promise<CaptureSource[]>;
-    selectSource(input: { token: string; audioMode: NativeAudioMode }): Promise<void>;
+    selectSource(input: { token: string; audioMode: NativeAudioMode; excludedSourceToken?: string }): Promise<void>;
     startNativeAudio(): Promise<NativeAudioStartResult>;
     stopNativeAudio(sessionId: string): Promise<void>;
     cancelSelection(): Promise<void>;

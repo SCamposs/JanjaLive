@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRealtimePoll } from "./contracts";
+import { captureSelectionSchema, parseRealtimePoll } from "./contracts";
 
 const validEvent = {
   id: "event-1",
@@ -29,6 +29,16 @@ const validStream = {
 };
 
 describe("desktop realtime response boundary", () => {
+  it("only accepts an excluded application token with the explicit system exclusion mode", () => {
+    const token = "00000000-0000-4000-8000-000000000001";
+    const excludedSourceToken = "00000000-0000-4000-8000-000000000002";
+    expect(captureSelectionSchema.safeParse({ token, audioMode: "system-excluding-application", excludedSourceToken }).success).toBe(true);
+    expect(captureSelectionSchema.safeParse({ token, audioMode: "system-excluding-application" }).success).toBe(false);
+    for (const audioMode of ["none", "application", "system"]) {
+      expect(captureSelectionSchema.safeParse({ token, audioMode }).success).toBe(true);
+      expect(captureSelectionSchema.safeParse({ token, audioMode, excludedSourceToken }).success).toBe(false);
+    }
+  });
   it("keeps a fully valid polling response", () => {
     const value = {
       events: [validEvent],

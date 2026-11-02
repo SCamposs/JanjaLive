@@ -1,5 +1,6 @@
 import {
   index,
+  boolean,
   integer,
   pgEnum,
   pgTable,
@@ -34,6 +35,10 @@ export const users = pgTable(
     image: text("image"),
     accountStatus: accountStatusEnum("account_status").default("ACTIVE").notNull(),
     accessChangedAt: timestamp("access_changed_at", { mode: "date", withTimezone: true }),
+    sessionsRevokedAt: timestamp("sessions_revoked_at", { mode: "date", withTimezone: true }),
+    sessionDisconnectPending: boolean("session_disconnect_pending").default(false).notNull(),
+    roomCreationWindowAt: timestamp("room_creation_window_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+    roomCreationCount: integer("room_creation_count").default(0).notNull(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
   },
@@ -132,6 +137,15 @@ export const desktopSessions = pgTable(
     index("desktop_sessions_expires_at_idx").on(table.expiresAt),
   ],
 );
+
+// Only the provider's revocable identifier is retained, never the TURN secret.
+export const turnCredentials = pgTable("turn_credentials", {
+  username: text("username").primaryKey(),
+  keyId: text("key_id").notNull(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  issuedAt: timestamp("issued_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+}, (table) => [index("turn_credentials_user_expiry_idx").on(table.userId, table.expiresAt)]);
 
 export const rooms = pgTable(
   "rooms",

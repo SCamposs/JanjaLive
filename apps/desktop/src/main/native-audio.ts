@@ -30,7 +30,7 @@ function unavailableReason(exitCode: number | null): Extract<NativeAudioStartRes
 export class NativeAudioManager {
   private sessions = new Map<string, NativeAudioSession>();
 
-  async start(ownerId: number, source: DesktopCapturerSource, mode: Exclude<NativeAudioMode, "none">, target: WebContents): Promise<NativeAudioStartResult> {
+  async start(ownerId: number, source: DesktopCapturerSource, mode: Exclude<NativeAudioMode, "none">, target: WebContents, excludedSource?: DesktopCapturerSource): Promise<NativeAudioStartResult> {
     if (process.platform !== "win32") return { status: "unavailable", reason: "unsupported-platform" };
 
     const executable = helperPath();
@@ -43,7 +43,11 @@ export class NativeAudioManager {
       args = ["--window-handle", handle];
     } else {
       if (!source.id.startsWith("screen:")) return { status: "unavailable", reason: "capture-failed" };
-      args = ["--system"];
+      if (mode === "system-excluding-application") {
+        const handle = excludedSource && parseWindowHandle(excludedSource.id);
+        if (!handle) return { status: "unavailable", reason: "source-ended" };
+        args = ["--exclude-window-handle", handle];
+      } else args = ["--system"];
     }
 
     const child = spawn(executable, args, {

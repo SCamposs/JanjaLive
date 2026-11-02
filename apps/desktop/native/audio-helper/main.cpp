@@ -143,11 +143,12 @@ class ActivationHandler final
   ComPtr<IAudioClient> audioClient_;
 };
 
-HRESULT ActivateProcessLoopback(DWORD processId, ComPtr<IAudioClient>& client) {
+HRESULT ActivateProcessLoopback(DWORD processId, bool exclude, ComPtr<IAudioClient>& client) {
   AUDIOCLIENT_ACTIVATION_PARAMS parameters{};
   parameters.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
   parameters.ProcessLoopbackParams.TargetProcessId = processId;
-  parameters.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
+  parameters.ProcessLoopbackParams.ProcessLoopbackMode = exclude
+      ? PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE : PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
 
   PROPVARIANT activationParameters{};
   activationParameters.vt = VT_BLOB;
@@ -213,7 +214,11 @@ bool ParseUnsigned(const wchar_t* value, std::uint64_t& parsed) {
   return true;
 }
 
-ExitCode Capture(bool processMode, std::uint64_t windowHandleValue) {
+ExitCode Capture(bool processMode, bool exclude, std::uint64_t windowHandleValue) {
+  struct ExcludedProcess {
+    HANDLE handle = nullptr;
+    ~ExcludedProcess() { if (handle) CloseHandle(handle); }
+  } excludedProcess;
   ComPtr<IAudioClient> audioClient;
   HRESULT result = E_FAIL;
   if (processMode) {
@@ -224,10 +229,11 @@ ExitCode Capture(bool processMode, std::uint64_t windowHandleValue) {
     DWORD processId = 0;
     GetWindowThreadProcessId(window, &processId);
     if (processId == 0 || processId == GetCurrentProcessId()) return ExitCode::InvalidWindow;
-    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | (exclude ? SYNCHRONIZE : 0), FALSE, processId);
     if (!process) return ExitCode::InvalidWindow;
-    CloseHandle(process);
-    result = ActivateProcessLoopback(processId, audioClient);
+    if (exclude) excludedProcess.handle = process;
+    else CloseHandle(process);
+    result = ActivateProcessLoopback(processId, exclude, audioClient);
   } else {
     result = ActivateSystemLoopback(audioClient);
   }
@@ -290,12 +296,19 @@ ExitCode Capture(bool processMode, std::uint64_t windowHandleValue) {
   HANDLE mmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
   std::vector<std::uint8_t> silence;
   ExitCode exitCode = ExitCode::Success;
-  const HANDLE events[] = {stop, sampleReady};
+  const HANDLE events[] = {stop, sampleReady, excludedProcess.handle};
+  const DWORD eventCount = excludedProcess.handle ? 3 : 2;
 
   bool running = true;
   while (running) {
-    const DWORD wait = WaitForMultipleObjects(2, events, FALSE, INFINITE);
+    const DWORD wait = WaitForMultipleObjects(eventCount, events, FALSE, INFINITE);
     if (wait == WAIT_OBJECT_0) break;
+    // A restarted application has a different process tree. Stop audio rather
+    // than silently capturing it through the old exclusion's system mix.
+    if (wait == WAIT_OBJECT_0 + 2) {
+      exitCode = ExitCode::InvalidWindow;
+      break;
+    }
     if (wait != WAIT_OBJECT_0 + 1) {
       exitCode = ExitCode::CaptureFailed;
       break;
@@ -359,11 +372,15 @@ ExitCode Capture(bool processMode, std::uint64_t windowHandleValue) {
 int wmain(int argc, wchar_t* argv[]) {
   SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
   bool processMode = false;
+  bool exclude = false;
   std::uint64_t windowHandle = 0;
   if (argc == 2 && std::wcscmp(argv[1], L"--system") == 0) {
     processMode = false;
   } else if (argc == 3 && std::wcscmp(argv[1], L"--window-handle") == 0 && ParseUnsigned(argv[2], windowHandle)) {
     processMode = true;
+  } else if (argc == 3 && std::wcscmp(argv[1], L"--exclude-window-handle") == 0 && ParseUnsigned(argv[2], windowHandle)) {
+    processMode = true;
+    exclude = true;
   } else {
     WriteDiagnostic(L"INVALID_ARGUMENTS");
     return static_cast<int>(ExitCode::InvalidArguments);
@@ -375,7 +392,7 @@ int wmain(int argc, wchar_t* argv[]) {
     return static_cast<int>(ExitCode::CaptureFailed);
   }
 
-  const ExitCode result = Capture(processMode, windowHandle);
+  const ExitCode result = Capture(processMode, exclude, windowHandle);
   CoUninitialize();
   if (result != ExitCode::Success && result != ExitCode::PipeClosed) {
     switch (result) {

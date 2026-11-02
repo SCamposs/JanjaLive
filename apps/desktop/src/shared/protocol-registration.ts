@@ -5,11 +5,13 @@ export type ProtocolRegistration = {
 
 export function getProtocolRegistration(input: {
   isPackagedSmokeTest: boolean;
+  isWindowsStore?: boolean;
   isDefaultApp: boolean;
   executable: string;
   entryPath?: string;
 }): ProtocolRegistration | null {
-  if (input.isPackagedSmokeTest) return null;
+  // Packaged protocols belong to the AppX manifest, not a registry write at startup.
+  if (input.isPackagedSmokeTest || input.isWindowsStore) return null;
   if (input.isDefaultApp && !input.entryPath) return null;
   return {
     executable: input.executable,

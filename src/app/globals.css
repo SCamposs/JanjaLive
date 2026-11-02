@@ -159,6 +159,13 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .account-popover button:hover:not(:disabled) { color: var(--text); background: var(--surface-3); }
 .account-popover button:disabled { color: var(--disabled); cursor: not-allowed; }
 .account-popover small { display: block; padding: 6px 7px 4px; color: var(--muted-2); font-size: 10px; line-height: 1.4; }
+.account-popover > a { display: block; margin-top: 5px; padding: 9px 5px; color: var(--text-soft); font-size: 11px; border-top: 1px solid var(--border-soft); text-decoration: none; }
+.account-popover > a:hover { color: var(--text); text-decoration: underline; }
+.safety-content { width: min(700px, calc(100% - 48px)); margin: 48px auto; padding-bottom: 40px; }
+.safety-content h1 { margin: 0 0 30px; font-size: 28px; letter-spacing: -.025em; }
+.safety-content h2 { margin: 28px 0 10px; font-size: 18px; }
+.safety-content p { color: var(--text-soft); font-size: 14px; line-height: 1.7; }
+.safety-content p a { color: inherit; text-underline-offset: 3px; }
 .home-content { width: min(1180px, calc(100% - 48px)); flex: 1; margin: 0 auto; padding: 11vh 0 100px; display: grid; grid-template-columns: minmax(240px, 1fr) 420px; gap: clamp(56px, 10vw, 150px); align-items: start; }
 .create-room-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 28px; }
 .create-room-card h2 { margin: 0 0 24px; font-size: 21px; letter-spacing: -.025em; font-weight: 620; }
@@ -239,6 +246,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .media-column { min-width: 0; min-height: 0; overflow: hidden; padding: 14px 16px 12px; display: flex; flex-direction: column; }
 .media-toolbar { min-height: 42px; margin-bottom: 10px; display: flex; justify-content: flex-end; gap: 6px; }
 .media-toolbar .danger-text { color: var(--danger); }
+.broadcast-audience { min-width: 0; max-width: 45%; margin-right: auto; align-self: center; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .stage { min-width: 0; min-height: 0; flex: 1; overflow: hidden; border: 1px solid var(--border-soft); border-radius: 10px; background: oklch(10% 0 0); display: grid; place-items: center; }
 .empty-stage { text-align: center; max-width: 400px; display: flex; flex-direction: column; align-items: center; }
 .empty-stage-icon { width: 57px; height: 57px; display: grid; place-items: center; color: var(--disabled); background: var(--surface); border: 1px solid var(--border-soft); border-radius: 12px; }
@@ -508,3 +516,20 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
   .noir-frame-base, .noir-frame-shift, .noir-scan, .noir-quote { animation: none; }
   .noir-frame-shift, .noir-scan { display: none; }
 }
+
+/* Independent players retain their controls when multiple streams share the stage. */
+.multilive-grid { display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(0, 1fr); gap: 8px; overflow: auto; }
+.multilive-grid[data-multiple="true"] { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(220px, 1fr); }
+.multilive-tile { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #070707; }
+.multilive-tile > .stream-connecting, .multilive-tile > .desktop-stream-connecting { height: 100%; display: grid; place-content: center; justify-items: center; gap: 12px; }
+.audience-badge { position: absolute; z-index: 4; top: 12px; right: 12px; color: #eee7db; font-size: 12px; }
+.audience-badge > button { display: flex; align-items: center; gap: 6px; min-height: 32px; padding: 6px 9px; border: 1px solid #37312e; border-radius: 6px; background: rgba(16,14,13,.9); color: inherit; cursor: pointer; }
+.audience-names { display: none; position: absolute; right: 0; top: 100%; margin-top: 5px; width: max-content; max-width: min(260px, 60vw); max-height: 200px; overflow-y: auto; padding: 12px; border: 1px solid #37312e; border-radius: 7px; background: #151312; box-shadow: 0 8px 24px #0008; }
+.audience-names strong { display: block; margin-bottom: 8px; color: #a9a196; font-size: 11px; font-weight: 500; }
+.audience-names ul { list-style: none; padding: 0; margin: 0; }
+.audience-names li { padding: 3px 0; overflow-wrap: anywhere; }
+.audience-badge[data-open="true"] .audience-names { display: block; }
+@media (hover: hover) { .audience-badge:hover .audience-names { display: block; } }
+@media (max-width: 700px) { .multilive-grid[data-multiple="true"] { grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(260px, 1fr); } }
+
+.multilive-tile .player-controls { min-width: 0; width: calc(100% - 20px); max-width: 390px; }

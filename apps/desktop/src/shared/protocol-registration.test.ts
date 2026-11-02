@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { getProtocolRegistration } from "./protocol-registration";
 
 describe("getProtocolRegistration", () => {
+  it("leaves the Store protocol registration to the package manifest", () => {
+    expect(getProtocolRegistration({
+      isPackagedSmokeTest: false,
+      isWindowsStore: true,
+      isDefaultApp: false,
+      executable: "C:\\Program Files\\WindowsApps\\JanjaLive.exe",
+    })).toBeNull();
+  });
   it("never lets the packaged smoke test replace the installed protocol handler", () => {
     expect(getProtocolRegistration({
       isPackagedSmokeTest: true,

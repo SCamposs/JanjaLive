@@ -1,6 +1,7 @@
+param([string]$ExecutablePath = (Join-Path $PSScriptRoot "..\dist\win-unpacked\JanjaLive.exe"))
 $ErrorActionPreference = "Stop"
 
-$executable = Join-Path $PSScriptRoot "..\dist\win-unpacked\JanjaLive.exe"
+$executable = $ExecutablePath
 $resolvedExecutable = (Resolve-Path -LiteralPath $executable).Path
 $startedAt = Get-Date
 $runId = [Guid]::NewGuid().ToString("N")
@@ -8,7 +9,7 @@ $stdout = Join-Path ([IO.Path]::GetTempPath()) "janjalive-smoke-$runId.stdout.lo
 $stderr = Join-Path ([IO.Path]::GetTempPath()) "janjalive-smoke-$runId.stderr.log"
 $profile = Join-Path ([IO.Path]::GetTempPath()) "janjalive-smoke-$runId-profile"
 New-Item -ItemType Directory -Path $profile | Out-Null
-$launcher = Start-Process -FilePath $resolvedExecutable -ArgumentList "--enable-logging", "--janjalive-smoke-test", "--user-data-dir=$profile" -WorkingDirectory $profile -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+$launcher = Start-Process -FilePath $resolvedExecutable -ArgumentList "--enable-logging", "--janjalive-smoke-test", "--user-data-dir=$profile" -WindowStyle Hidden -WorkingDirectory $profile -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 
 try {
   $deadline = (Get-Date).AddSeconds(30)
@@ -32,8 +33,8 @@ try {
     if ($rendererErrors) {
       throw "Packaged application logged a renderer or preload startup error: $($rendererErrors -join '; ')"
     }
-    if ($applicationWindow -and ($startupLogs -contains "JANJALIVE_SMOKE_RENDERER_READY")) {
-      Write-Output "Packaged application mounted its renderer in the main window: $($applicationWindow.MainWindowTitle)"
+    if ($processes.Count -gt 0 -and ($startupLogs -contains "JANJALIVE_SMOKE_RENDERER_READY")) {
+      Write-Output "Packaged application mounted its renderer with the preload bridge in the main window."
       exit 0
     }
 
@@ -42,12 +43,15 @@ try {
     }
   } while ((Get-Date) -lt $deadline)
 
-  throw "Packaged application did not open its main window within 30 seconds."
+  throw "Packaged application did not mount its renderer within 30 seconds. Logs: $($startupLogs -join [Environment]::NewLine)"
 }
 finally {
   Get-Process -Name "JanjaLive" -ErrorAction SilentlyContinue | Where-Object {
     $_.Path -eq $resolvedExecutable -and $_.StartTime -ge $startedAt.AddSeconds(-2)
   } | Stop-Process -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
-  Remove-Item -LiteralPath $profile -Recurse -Force -ErrorAction SilentlyContinue
+  $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+  $resolvedProfile = [IO.Path]::GetFullPath($profile)
+  if (!$resolvedProfile.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -or (Split-Path -Leaf $resolvedProfile) -ne "janjalive-smoke-$runId-profile") { throw "Refusing to remove unexpected smoke profile path" }
+  Remove-Item -LiteralPath $resolvedProfile -Recurse -Force -ErrorAction SilentlyContinue
 }

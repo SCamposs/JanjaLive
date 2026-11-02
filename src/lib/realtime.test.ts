@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { jwtVerify } from "jose";
 import {
   getRealtimeCredentials,
+  createRealtimeSession,
   getRealtimeProvider,
   getSignalCursor,
   getSignalCutoff,
@@ -13,6 +15,23 @@ import {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+
+describe("realtime revocation precision", () => {
+  it("signs a millisecond issue time consistent with the standard iat", async () => {
+    vi.stubEnv("REALTIME_PROVIDER", "cloudflare");
+    vi.stubEnv("CLOUDFLARE_REALTIME_URL", "https://realtime.example.com");
+    vi.stubEnv("REALTIME_TOKEN_SECRET", "test-secret-at-least-32-characters-long");
+    vi.stubEnv("REALTIME_INTERNAL_SECRET", "test-internal-secret");
+    const session = await createRealtimeSession("room-test", "user-test");
+    if (session.provider !== "cloudflare") throw new Error("Expected Cloudflare session");
+    const { payload } = await jwtVerify(session.token, new TextEncoder().encode(process.env.REALTIME_TOKEN_SECRET), {
+      algorithms: ["HS256"], issuer: "https://www.janja.live", audience: "janjalive-realtime",
+    });
+    expect(payload.sub).toBe("user-test");
+    expect(Number.isSafeInteger(payload.issuedAtMs)).toBe(true);
+    expect(Math.floor(Number(payload.issuedAtMs) / 1000)).toBe(payload.iat);
+  });
 });
 
 describe("realtime credentials", () => {

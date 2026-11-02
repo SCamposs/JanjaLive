@@ -64,8 +64,7 @@ export function AdminUsers({ initialData, ownerUserId }: { initialData: AdminUse
     await loadUsers(1, nextOrder, appliedQuery);
   }
 
-  async function changeAccess(user: AdminUser) {
-    const action = user.accountStatus === "ACTIVE" ? "BAN" : "UNBAN";
+  async function changeAccess(user: AdminUser, action: "BAN" | "UNBAN" = user.accountStatus === "ACTIVE" ? "BAN" : "UNBAN") {
     if (action === "BAN" && !window.confirm(`Banir ${user.displayName || user.username || user.name || user.id}?`)) return;
     setBusy(user.id);
     setError(null);
@@ -75,7 +74,15 @@ export function AdminUsers({ initialData, ownerUserId }: { initialData: AdminUse
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      if (!response.ok) throw new Error("ACTION_FAILED");
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        if (payload?.error === "ACCESS_REVOCATION_INCOMPLETE") {
+          setData((current) => ({ ...current, users: current.users.map((item) => item.id === user.id ? { ...item, accountStatus: action === "BAN" ? "BANNED" : "ACTIVE" } : item) }));
+          setError("O estado da conta foi alterado, mas uma conexão não confirmou a revogação. Recarregue para conferir e repita o banimento se necessário.");
+          return;
+        }
+        throw new Error("ACTION_FAILED");
+      }
       setData((current) => ({
         ...current,
         users: current.users.map((item) => item.id === user.id ? { ...item, accountStatus: action === "BAN" ? "BANNED" : "ACTIVE" } : item),
@@ -108,7 +115,7 @@ export function AdminUsers({ initialData, ownerUserId }: { initialData: AdminUse
           const owner = user.id === ownerUserId;
           return <article className="admin-user" key={user.id}>
             <div className="admin-user-identity"><UserAvatar name={name} image={image} size={38} /><div><strong>{name}</strong><small>{user.id}</small><small>Discord: {user.discordId || "não disponível"}</small><small>Criado em {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(user.createdAt))}</small></div></div>
-            <div className="admin-user-action"><span className={user.accountStatus === "BANNED" ? "banned" : "active"}>{owner ? "Proprietário" : user.accountStatus === "BANNED" ? "Banido" : "Ativo"}</span><button className={user.accountStatus === "BANNED" ? "button secondary compact" : "button danger compact"} type="button" disabled={owner || busy === user.id} onClick={() => void changeAccess(user)}>{user.accountStatus === "BANNED" ? "Desbanir" : "Banir"}</button></div>
+            <div className="admin-user-action"><span className={user.accountStatus === "BANNED" ? "banned" : "active"}>{owner ? "Proprietário" : user.accountStatus === "BANNED" ? "Banido" : "Ativo"}</span>{user.accountStatus === "BANNED" && !owner && <button className="button secondary compact" type="button" disabled={busy === user.id} onClick={() => void changeAccess(user, "BAN")}>Repetir revogação</button>}<button className={user.accountStatus === "BANNED" ? "button secondary compact" : "button danger compact"} type="button" disabled={owner || busy === user.id} onClick={() => void changeAccess(user)}>{user.accountStatus === "BANNED" ? "Desbanir" : "Banir"}</button></div>
           </article>;
         })}
         {data.users.length === 0 && <p className="admin-empty">Nenhum usuário encontrado.</p>}

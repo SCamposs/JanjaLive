@@ -39,7 +39,8 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
-  const [selectedStreamer, setSelectedStreamer] = useState<string | null>(null);
+  const [selectedStreamers, setSelectedStreamers] = useState<string[]>([]);
+  const selectedStreamer = selectedStreamers.at(-1) ?? null;
   const [copied, setCopied] = useState(false);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [captureFallbackAvailable, setCaptureFallbackAvailable] = useState(false);
@@ -51,8 +52,8 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   );
 
   useEffect(() => {
-    if (realtime.membershipRevision > 0) router.refresh();
-  }, [realtime.membershipRevision, router]);
+    router.refresh();
+  }, [realtime.membershipRevision, realtime.onlineUserIds, router]);
 
   useEffect(() => {
     if (realtime.roomUnavailable) router.replace("/");
@@ -72,7 +73,6 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
     [currentUser.id, realtime.activeStreams],
   );
   const isWatchingOwnStream = selectedStreamer === currentUser.id && Boolean(localStream);
-  const selectedStream = selectedStreamer && !isWatchingOwnStream ? realtime.remoteStreams[selectedStreamer] : undefined;
   const connectionError = realtime.connectionError === dismissedConnectionError ? null : realtime.connectionError;
   const stopWatching = realtime.stopWatching;
   const knownStreamsRef = useRef<Set<string> | null>(null);
@@ -88,35 +88,33 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   }, [remoteActiveStreams]);
 
   useEffect(() => {
-    if (!selectedStreamer || selectedStreamer === currentUser.id) return;
-    if (streamingUserIds.has(selectedStreamer)) return;
+    const ended = selectedStreamers.filter((id) => id !== currentUser.id && !streamingUserIds.has(id));
+    if (!ended.length) return;
     const timeout = window.setTimeout(() => {
-      void stopWatching(selectedStreamer);
-      setSelectedStreamer(null);
+      ended.forEach((id) => { void stopWatching(id); });
+      setSelectedStreamers((ids) => ids.filter((id) => !ended.includes(id)));
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [currentUser.id, selectedStreamer, stopWatching, streamingUserIds]);
+  }, [currentUser.id, selectedStreamers, stopWatching, streamingUserIds]);
 
   async function stopSharing() {
     localStream?.getVideoTracks().forEach((track) => { track.onended = null; });
     await realtime.stopBroadcast();
     setLocalStream(null);
     setIsBroadcasting(false);
-    setSelectedStreamer((selected) => selected === currentUser.id ? null : selected);
+    setSelectedStreamers((ids) => ids.filter((id) => id !== currentUser.id));
   }
 
   async function watchStreamer(userId: string) {
-    if (selectedStreamer && selectedStreamer !== currentUser.id && selectedStreamer !== userId) {
-      await realtime.stopWatching(selectedStreamer).catch(() => undefined);
-    }
-    setSelectedStreamer(userId);
+    if (selectedStreamers.includes(userId)) return;
+    setSelectedStreamers((ids) => ids.includes(userId) ? ids : [...ids, userId]);
     await playRoomCue("join", true);
     await realtime.watch(userId);
   }
 
   async function leaveStream(userId: string) {
     await realtime.stopWatching(userId);
-    setSelectedStreamer(null);
+    setSelectedStreamers((ids) => ids.filter((id) => id !== userId));
     await playRoomCue("leave", true);
   }
 
@@ -153,7 +151,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
         void realtime.stopBroadcast();
         setLocalStream(null);
         setIsBroadcasting(false);
-        setSelectedStreamer((selected) => selected === currentUser.id ? null : selected);
+        setSelectedStreamers((ids) => ids.filter((id) => id !== currentUser.id));
       };
       const settings = videoTrack.getSettings();
       const metadata = {
@@ -171,7 +169,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
       }
       setLocalStream(selectedStream);
       setIsBroadcasting(true);
-      setSelectedStreamer(currentUser.id);
+      setSelectedStreamers((ids) => ids.includes(currentUser.id) ? ids : [...ids, currentUser.id]);
       setShareDialogOpen(false);
       fallbackShareOptionsRef.current = null;
       if (previousStream && previousStream !== selectedStream) {
@@ -200,11 +198,15 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   }
 
   async function handleMember(userId: string, action: "approve" | "reject" | "revoke") {
-    await fetch(`/api/rooms/${snapshot.room.id}/members`, {
+    const response = await fetch(`/api/rooms/${snapshot.room.id}/members`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, action }),
     });
+    if (!response.ok) {
+      setCaptureError(response.status === 409 ? "A sala atingiu o limite de membros." : "Não foi possível alterar o acesso. Tente novamente.");
+      return;
+    }
     router.refresh();
   }
 
@@ -231,9 +233,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
 
   async function leaveRoom() {
     if (isBroadcasting) await stopSharing();
-    if (selectedStreamer && selectedStreamer !== currentUser.id) {
-      await realtime.stopWatching(selectedStreamer);
-    }
+    await Promise.all(selectedStreamers.filter((id) => id !== currentUser.id).map(realtime.stopWatching));
     router.push("/");
   }
 
@@ -284,7 +284,8 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
             <div className="media-toolbar">
               {isBroadcasting ? (
                 <>
-                  <button className="button secondary compact" type="button" onClick={() => setSelectedStreamer(currentUser.id)} disabled={isWatchingOwnStream}>Minha transmissão</button>
+                  <span className="broadcast-audience">Sua transmissão está ao vivo</span>
+                  <button className="button secondary compact" type="button" onClick={() => setSelectedStreamers((ids) => ids.includes(currentUser.id) ? ids : [...ids, currentUser.id])} disabled={isWatchingOwnStream}>Minha transmissão</button>
                   <button className="button secondary compact" type="button" onClick={() => void beginCapture()} disabled={!canShare}><MonitorUp size={16} /> Trocar tela</button>
                   <button className="button ghost compact danger-text" type="button" onClick={() => void stopSharing()}>Encerrar</button>
                 </>
@@ -297,29 +298,13 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
           )}
 
           <section className="stage">
-            {isWatchingOwnStream && localStream ? (
-              <StreamPlayer
-                stream={localStream}
-                streamerName="Sua transmissão"
-                status={realtime.connectionStatus}
-                mode="local"
-                onStop={() => void stopSharing()}
-              />
-            ) : selectedStream && selectedStreamer ? (
-              <StreamPlayer
-                stream={selectedStream}
-                streamerName={membersById.get(selectedStreamer)?.name ?? "Amigo"}
-                status={realtime.connectionStatus}
-                onStop={() => {
-                  void leaveStream(selectedStreamer);
-                }}
-              />
-            ) : selectedStreamer ? (
-              <div className="stream-connecting" role="status">
-                <span>Conectando à transmissão…</span>
-                <button className="button secondary compact" type="button" onClick={() => void leaveStream(selectedStreamer)}>Cancelar</button>
-              </div>
-            ) : remoteActiveStreams.length > 0 ? (
+            {selectedStreamers.length > 0 ? <div className="multilive-grid" data-multiple={selectedStreamers.length > 1}>
+              {selectedStreamers.map((id, index) => {
+                const own = id === currentUser.id;
+                const stream = own ? localStream : realtime.remoteStreams[id];
+                return <div className="multilive-tile" key={id}>{stream ? <StreamPlayer stream={stream} streamerName={own ? "Sua transmissão" : membersById.get(id)?.name ?? "Amigo"} status={realtime.connectionStatus} mode={own ? "local" : "remote"} viewerNames={own ? realtime.viewerUserIds.map((viewerId) => membersById.get(viewerId)?.name ?? "Membro") : undefined} initiallyMuted={own || index > 0} onStop={() => void (own ? stopSharing() : leaveStream(id))} /> : <div className="stream-connecting" role="status"><span>Conectando a {membersById.get(id)?.name ?? "transmissão"}…</span><button className="button secondary compact" type="button" onClick={() => void leaveStream(id)}>Cancelar</button></div>}</div>;
+              })}
+            </div> : remoteActiveStreams.length > 0 ? (
               <div className="stream-picker">
                 <div className="stream-picker-heading">
                   <div><h1>Transmissões</h1><p>Escolha uma tela para assistir.</p></div>
@@ -375,7 +360,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
           <section className="member-section">
             <h3>Online <span>{snapshot.members.filter((member) => onlineUserIds.has(member.userId)).length}</span></h3>
             {snapshot.members.filter((member) => onlineUserIds.has(member.userId)).map((person) => (
-              <MemberRow key={person.userId} person={person} online streaming={streamingUserIds.has(person.userId)} selected={selectedStreamer === person.userId} isCurrentUser={person.userId === currentUser.id} isOwner={snapshot.room.isOwner} onWatch={watchStreamer} onRevoke={handleMember} />
+              <MemberRow key={person.userId} person={person} online streaming={streamingUserIds.has(person.userId)} selected={selectedStreamers.includes(person.userId)} isCurrentUser={person.userId === currentUser.id} isOwner={snapshot.room.isOwner} onWatch={watchStreamer} onRevoke={handleMember} />
             ))}
           </section>
           <section className="member-section">
@@ -386,7 +371,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
                 person={person}
                 online={onlineUserIds.has(person.userId)}
                 streaming={streamingUserIds.has(person.userId)}
-                selected={selectedStreamer === person.userId}
+                selected={selectedStreamers.includes(person.userId)}
                 isCurrentUser={person.userId === currentUser.id}
                 isOwner={snapshot.room.isOwner}
                 onWatch={watchStreamer}

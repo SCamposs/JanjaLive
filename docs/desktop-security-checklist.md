@@ -43,6 +43,14 @@ Checked items are implemented in source. All items must be checked again against
 - [ ] 720p30, 720p60, 1080p60, 1440p60, application-audio and system-audio tests pass
 - [ ] revocation, reconnect, sleep/resume, app close and network interruption tests pass
 
-## Dependency audit note
+## Dependency audit note (2026-10-26)
 
-The 2026-10-04 audit found `http-cache-semantics` in the desktop packaging toolchain and `braces` in the Next.js lint toolchain. The published `http-cache-semantics@4.3.0` fix is pinned at the workspace root. The remaining `braces` advisory affects development-time glob matching through `eslint-config-next`; the registry still exposes `3.0.3` as the newest release even though the advisory names `3.0.4` as the first patched version. It has no runtime path into the web or packaged desktop application and must be revisited when a patched upstream release exists.
+The growth-stage increment updates Next/config to 16.4.1, Electron to 44.9.1,
+Zod to 4.6.6 and desktop Vite to 7.3.7. The test harness pins Vite 8.3.3 separately
+so electron-vite's Vite 7 compatibility remains intact. Overrides keep Undici
+6/7/8 and fast-uri on their patched major-compatible releases, including tooling.
+The full lockfile audit reported no known vulnerabilities at validation time.
+CI and release now fail on high/critical audit findings. This result is a package
+advisory check, not proof of absence of application vulnerabilities. The Next
+image advisory had an existing sharp mitigation, and no use-cache typed-array
+path was found; we do not claim an RCE was reproduced in JanjaLive.

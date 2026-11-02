@@ -25,6 +25,13 @@ export const MAX_MEDIA_SESSIONS_PER_CONNECTION = 4;
 export const MAX_MEDIA_SESSIONS_PER_USER = 8;
 export const SIGNAL_WINDOW_MS = 10_000;
 export const MAX_SIGNALS_PER_WINDOW = 300;
+export const MAX_SOCKETS_PER_USER_PER_ROOM = 3;
+export const MAX_SOCKETS_PER_ROOM = 60;
+
+export function hasConnectionCapacity(states: Pick<SignalingConnectionState, "userId">[], userId: string) {
+  return states.length < MAX_SOCKETS_PER_ROOM
+    && states.filter((state) => state.userId === userId).length < MAX_SOCKETS_PER_USER_PER_ROOM;
+}
 
 const SESSION_SIGNAL_TYPES = new Set([
   "watch:request",
@@ -54,6 +61,11 @@ export function applyRevocationTransition(
 export function activeRevocationCutoff(state: RevocationTransitionState | number | undefined) {
   if (typeof state === "number") return state;
   return state?.revoked ? state.revokedAt : undefined;
+}
+
+export function activeRevocationCutoffMs(state: RevocationTransitionState | number | undefined) {
+  if (typeof state === "number") return state * 1_000;
+  return state?.revoked ? state.changedAt : undefined;
 }
 
 export function consumeSignalBudget(state: SignalingConnectionState, now: number) {

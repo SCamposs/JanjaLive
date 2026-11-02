@@ -3,6 +3,7 @@
 import { Maximize, Minimize2, PictureInPicture2, Scaling, Volume2, VolumeX, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FocusEvent as ReactFocusEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { ConnectionStatus } from "@janjalive/webrtc";
+import { AudienceBadge } from "./audience-badge";
 
 const PLAYER_CONTROLS_HIDE_DELAY_MS = 2_500;
 
@@ -91,12 +92,15 @@ type Props = {
   status: ConnectionStatus;
   onStop: () => void;
   mode?: "remote" | "local";
+  initiallyMuted?: boolean;
+  viewerNames?: string[];
 };
 
-export function StreamPlayer({ stream, streamerName, status, onStop, mode = "remote" }: Props) {
+export function StreamPlayer({ stream, streamerName, status, onStop, mode = "remote", initiallyMuted = mode === "local", viewerNames }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [muted, setMuted] = useState(mode === "local");
+  const [muted, setMuted] = useState(initiallyMuted);
+  const initialMutedRef = useRef(initiallyMuted);
   const [volume, setVolume] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -108,8 +112,8 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
     const video = videoRef.current;
     if (!video) return;
     video.srcObject = stream;
-    video.muted = mode === "local";
-    setMuted(mode === "local");
+    video.muted = initialMutedRef.current;
+    setMuted(initialMutedRef.current);
     setIsPlaying(false);
     setPlaybackBlocked(false);
     setFitMode("contain");
@@ -142,6 +146,7 @@ export function StreamPlayer({ stream, streamerName, status, onStop, mode = "rem
 
   return (
     <div className="player-shell" data-fit={fitMode} data-controls-visible={controlsVisible} ref={containerRef} {...containerProps}>
+      {viewerNames && <AudienceBadge names={viewerNames} />}
       <video ref={videoRef} autoPlay playsInline muted={mode === "local" || muted} onDoubleClick={toggleFullscreen} onPlaying={() => { setIsPlaying(true); setPlaybackBlocked(false); }} onWaiting={() => setIsPlaying(false)} />
       {!isPlaying && (
         <div className="player-waiting">

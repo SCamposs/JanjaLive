@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getDb: vi.fn(), setRealtimeAccountAccess: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getDb: vi.fn(), setRealtimeAccountAccess: vi.fn(), revokeUserTurnCredentials: vi.fn() }));
 vi.mock("@/db", () => ({ getDb: mocks.getDb }));
 vi.mock("./realtime", () => ({ setRealtimeAccountAccess: mocks.setRealtimeAccountAccess }));
+vi.mock("./turn", () => ({ revokeUserTurnCredentials: mocks.revokeUserTurnCredentials }));
 
 import { setUserAccess } from "./account-access";
 
@@ -32,6 +33,7 @@ describe("setUserAccess", () => {
     process.env.ADMIN_DISCORD_USER_ID = "discord-owner";
     mocks.getDb.mockReset();
     mocks.setRealtimeAccountAccess.mockReset();
+    mocks.revokeUserTurnCredentials.mockReset();
   });
 
   it("persists a new ban, revokes desktop sessions, and closes every active realtime socket", async () => {
@@ -43,6 +45,7 @@ describe("setUserAccess", () => {
     expect(batch).toHaveBeenCalledOnce();
     expect(update).toHaveBeenCalledTimes(2);
     expect(remove).toHaveBeenCalledOnce();
+    expect(mocks.revokeUserTurnCredentials).toHaveBeenCalledWith("target");
     expect(mocks.setRealtimeAccountAccess).toHaveBeenCalledTimes(2);
     expect(mocks.setRealtimeAccountAccess).toHaveBeenCalledWith(expect.objectContaining({
       roomId: "room-a",
@@ -73,10 +76,18 @@ describe("setUserAccess", () => {
     expect(batch).toHaveBeenCalledOnce();
     expect(update).toHaveBeenCalledOnce();
     expect(remove).not.toHaveBeenCalled();
+    expect(mocks.revokeUserTurnCredentials).not.toHaveBeenCalled();
     expect(mocks.setRealtimeAccountAccess).toHaveBeenCalledWith(expect.objectContaining({
       action: "UNBAN",
       roomId: "11111111-1111-4111-8111-111111111111",
       targetUserId: "target",
     }));
+  });
+
+  it("still disconnects every room when TURN revocation fails, and surfaces incomplete revocation", async () => {
+    mocks.getDb.mockReturnValue(fakeDb("ACTIVE", ["room-a", "room-b"]).db);
+    mocks.revokeUserTurnCredentials.mockRejectedValue(new Error("TURN_REVOCATION_FAILED"));
+    await expect(setUserAccess({ actorUserId: "owner", targetUserId: "target", action: "BAN" })).rejects.toThrow("ACCESS_REVOCATION_INCOMPLETE");
+    expect(mocks.setRealtimeAccountAccess).toHaveBeenCalledTimes(2);
   });
 });

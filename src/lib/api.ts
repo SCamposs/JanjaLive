@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { getDesktopUserFromToken } from "@/lib/desktop-auth";
 import { isDesktopVersionSupported } from "@/lib/desktop-version";
 import { getActiveUserById } from "@/lib/account-access";
+import { assertSameOrigin } from "./request-security";
 
 export async function requireUser(request?: Request) {
   const authorization = request?.headers.get("authorization");
@@ -17,6 +18,7 @@ export async function requireUser(request?: Request) {
     return getActiveUserById(desktopUser.id);
   }
 
+  if (request && !["GET", "HEAD", "OPTIONS"].includes(request.method)) assertSameOrigin(request);
   const session = await auth();
   if (!session?.user?.id) throw new Error("UNAUTHENTICATED");
   return getActiveUserById(session.user.id);
@@ -29,6 +31,12 @@ export function apiError(error: unknown): Response {
     INVALID_DESKTOP_AUTH: 400,
     OWNER_IMMUTABLE: 400,
     RATE_LIMITED: 429,
+    ROOM_LIMIT_REACHED: 429,
+    ROOM_MEMBER_LIMIT_REACHED: 409,
+    ROOM_CREATION_PAUSED: 503,
+    TURN_UNAVAILABLE: 503,
+    TURN_REVOCATION_FAILED: 503,
+    ACCESS_REVOCATION_INCOMPLETE: 503,
     UNAUTHENTICATED: 401,
     ACCOUNT_DISABLED: 403,
     ADMIN_SELF_BAN: 400,

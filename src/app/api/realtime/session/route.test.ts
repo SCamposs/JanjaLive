@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ requireUser: vi.fn(), assertAuthorizedRoom: vi.fn(), refreshRoomActivity: vi.fn(), createRealtimeSession: vi.fn() }));
+const mocks = vi.hoisted(() => ({ requireUser: vi.fn(), assertAuthorizedRoom: vi.fn(), refreshRoomActivity: vi.fn(), createRealtimeSession: vi.fn(), enforceRateLimit: vi.fn() }));
 vi.mock("@/lib/api", () => ({
   requireUser: mocks.requireUser,
   apiError: (error: unknown) => Response.json(
@@ -9,7 +9,7 @@ vi.mock("@/lib/api", () => ({
   ),
 }));
 vi.mock("@/lib/rooms", () => ({ assertAuthorizedRoom: mocks.assertAuthorizedRoom, refreshRoomActivity: mocks.refreshRoomActivity }));
-vi.mock("@/lib/realtime", () => ({ createRealtimeSession: mocks.createRealtimeSession }));
+vi.mock("@/lib/realtime", () => ({ createRealtimeSession: mocks.createRealtimeSession, enforceRateLimit: mocks.enforceRateLimit }));
 
 import { GET } from "./route";
 

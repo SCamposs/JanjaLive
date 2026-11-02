@@ -6,7 +6,8 @@
   "compatibility_date": "2026-10-18",
   "compatibility_flags": ["nodejs_compat", "web_socket_auto_reply_to_close"],
   "vars": {
-    "ALLOWED_ORIGINS": "https://janja.live,https://www.janja.live,janja-app://bundle"
+    "ALLOWED_ORIGINS": "https://janja.live,https://www.janja.live,janja-app://bundle",
+    "REALTIME_CONNECTIONS_ENABLED": "true"
   },
   "durable_objects": {
     "bindings": [

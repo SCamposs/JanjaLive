@@ -44,4 +44,19 @@ describe("central account access enforcement", () => {
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({ error: "ACCOUNT_DISABLED" });
   });
+
+  it("blocks browser mutations with a missing or foreign Origin before session access", async () => {
+    for (const headers of [new Headers(), new Headers({ Origin: "https://evil.example" })]) {
+      await expect(requireUser(new Request("https://www.janja.live/api/rooms", { method: "POST", headers }))).rejects.toThrow("ORIGIN_FORBIDDEN");
+    }
+    expect(mocks.auth).not.toHaveBeenCalled();
+  });
+
+  it("allows trusted desktop bearer mutations without browser-only Origin headers", async () => {
+    mocks.getDesktopUserFromToken.mockResolvedValue({ id: "desktop-user" });
+    mocks.getActiveUserById.mockResolvedValue({ id: "desktop-user" });
+    await expect(requireUser(new Request("https://www.janja.live/api/rooms", {
+      method: "POST", headers: { Authorization: `Bearer ${"a".repeat(43)}` },
+    }))).resolves.toEqual({ id: "desktop-user" });
+  });
 });

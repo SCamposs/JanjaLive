@@ -1,0 +1,7 @@
+Tool: built-in image_gen.imagegen
+Reference: public/janja-live.png
+Final output: janjalive-box-art-1080-v1.png (PNG, sRGB, 1080 x 1080)
+Post-processing: size normalization only; original generated file preserved.
+
+Prompt:
+Create one final Microsoft Store square box art image for the existing app JanjaLive. Output square 1080x1080 pixels PNG if possible. Input image is the existing JanjaLive brand mark, a textured retro face with black cat-eye glasses, cream eyes and dark red eyebrows/lips. Preserve the exact existing logo identity, shapes, expression and distressed printed texture; do not redesign or replace it with another face. Place the mark prominently centered in the upper-middle portion, approximately 660 pixels wide, keeping generous negative space. Background almost black #0b0b0b, with only extremely subtle dark warm paper grain. Ensure black glasses are distinguishable without adding a white box. Beneath the mark, centered, typeset exactly 'JanjaLive' in bold clean Archivo-like sans serif, warm off-white #e7e2d8, approximately 88 pixels high, generous breathing room. The text must be spelled exactly JanjaLive with capital J and L. Clean restrained app-brand composition matching the established noir/red/cream palette. No borders, no rounded app icon container, no screenshots, no extra slogans, no Microsoft logos, no badges, no gradients, no glow, no new facial features. Professional understated square cover ready to upload as Store 1:1 box art.

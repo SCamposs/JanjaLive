@@ -68,6 +68,7 @@ export const clientSignalingEventSchema = z.discriminatedUnion("type", [
 ]);
 
 export const roomLifecycleEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("room:members-changed") }).strict(),
   z.object({ type: z.literal("room:join-request") }).strict(),
   z.object({ type: z.literal("room:approved"), targetUserId: z.string().min(1).max(128) }).strict(),
   z.object({ type: z.literal("room:rejected"), targetUserId: z.string().min(1).max(128) }).strict(),

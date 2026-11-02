@@ -29,6 +29,27 @@
       "when": 1792628883479,
       "tag": "0003_large_yellow_claw",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793041445411,
+      "tag": "0004_heavy_the_captain",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793041518399,
+      "tag": "0005_huge_red_wolf",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793041819313,
+      "tag": "0006_unique_grey_gargoyle",
+      "breakpoints": true
     }
   ]
 }

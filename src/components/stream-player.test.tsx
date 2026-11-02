@@ -5,6 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StreamPlayer } from "./stream-player";
 
 describe("StreamPlayer controls", () => {
+  it("keeps two streams independent and starts the additional stream muted", () => {
+    const stopFirst = vi.fn();
+    const stopSecond = vi.fn();
+    const { container } = render(<>
+      <StreamPlayer stream={{} as MediaStream} streamerName="Primeira" status="good" onStop={stopFirst} />
+      <StreamPlayer stream={{} as MediaStream} streamerName="Segunda" status="good" onStop={stopSecond} initiallyMuted />
+    </>);
+    const videos = container.querySelectorAll("video");
+    expect(videos[0].muted).toBe(false);
+    expect(videos[1].muted).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Ativar som" }));
+    expect(videos[1].muted).toBe(false);
+    fireEvent.click(screen.getAllByRole("button", { name: "Parar de assistir" })[1]);
+    expect(stopSecond).toHaveBeenCalledOnce();
+    expect(stopFirst).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));

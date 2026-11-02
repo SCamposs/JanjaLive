@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb } from "@/db";
 import { joinRequests, roomMembers, rooms, users, type Room } from "@/db/schema";
@@ -7,6 +7,7 @@ import { createInviteToken, createRoomCode, hashInviteToken } from "./crypto";
 import { canAutoJoinInvite, canManageRoom, isAuthorizedMember, isRoomActive } from "./room-policy";
 import { assertCanTargetMember, getMembershipTransition } from "./membership";
 import { hasActiveRoomPresence } from "./realtime";
+import { assertRoomCreationEnabled, RESOURCE_LIMITS } from "./operational-policy";
 
 export const ROOM_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1_000;
 export const ROOM_PURGE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -35,26 +36,33 @@ export async function createRoom(input: {
   name?: string;
   accessMode: "APPROVAL" | "INVITE";
 }) {
+  assertRoomCreationEnabled();
   const db = getDb();
   const id = randomUUID();
   const inviteToken = createInviteToken();
   const now = new Date();
   const expiresAt = new Date(now.getTime() + ROOM_INACTIVITY_MS);
 
-  await db.batch([
-    db.insert(rooms).values({
-      id,
-      ownerId: input.userId,
-      publicId: nanoid(18),
-      code: createRoomCode(),
-      inviteHash: hashInviteToken(inviteToken),
-      name: input.name,
-      accessMode: input.accessMode,
-      lastActiveAt: now,
-      expiresAt,
-    }),
-    db.insert(roomMembers).values({ roomId: id, userId: input.userId, role: "OWNER" }),
+  // Neon batch is a transaction. Lock first, then count in the next statement:
+  // concurrent creates by this owner cannot both consume the final slot.
+  const [, inserted] = await db.batch([
+    db.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("update"),
+    db.execute(sql`insert into rooms (id, owner_id, public_id, code, invite_hash, name, access_mode, last_active_at, expires_at)
+      select ${id}::uuid, ${input.userId}, ${nanoid(18)}, ${createRoomCode()}, ${hashInviteToken(inviteToken)},
+        ${input.name ?? null}, ${input.accessMode}::access_mode, ${now}, ${expiresAt}
+      where exists (select 1 from users where id = ${input.userId} and account_status = 'ACTIVE')
+        and (select count(*) from rooms where owner_id = ${input.userId} and closed_at is null and expires_at > ${now}) < ${RESOURCE_LIMITS.activeRoomsPerOwner}
+        and exists (select 1 from users where id = ${input.userId} and
+          (room_creation_window_at <= ${new Date(now.getTime() - 86_400_000)} or room_creation_count < ${RESOURCE_LIMITS.roomCreationsPerDay}))
+      returning id`),
+    db.execute(sql`update users set
+      room_creation_count = case when room_creation_window_at <= ${new Date(now.getTime() - 86_400_000)} then 1 else room_creation_count + 1 end,
+      room_creation_window_at = case when room_creation_window_at <= ${new Date(now.getTime() - 86_400_000)} then ${now} else room_creation_window_at end
+      where id = ${input.userId} and exists (select 1 from rooms where id = ${id}::uuid)`),
+    db.execute(sql`insert into room_members (room_id, user_id, role)
+      select id, ${input.userId}, 'OWNER' from rooms where id = ${id}::uuid`),
   ]);
+  if (!inserted.rows.length) throw new Error("ROOM_LIMIT_REACHED");
 
   return { id, inviteToken };
 }
@@ -182,10 +190,7 @@ async function buildRoomSnapshot(room: Room, userId: string, allowInviteAutoJoin
 
   let member = await getMember(room.id, userId);
   if (canAutoJoinInvite(member, room.accessMode, allowInviteAutoJoin)) {
-    await db
-      .insert(roomMembers)
-      .values({ roomId: room.id, userId, role: "MEMBER" })
-      .onConflictDoNothing();
+    await activateRoomMember(room.id, userId, false);
     member = await getMember(room.id, userId);
   }
 
@@ -292,19 +297,11 @@ export async function manageRoomMember(input: {
       .from(users).where(eq(users.id, input.userId)).limit(1);
     if (!target) throw new Error("USER_NOT_FOUND");
     if (target.accountStatus !== "ACTIVE") throw new Error("ACCOUNT_DISABLED");
-    await db.batch([
-      db
-        .insert(roomMembers)
-        .values({ roomId: input.roomId, userId: input.userId, role: "MEMBER" })
-        .onConflictDoUpdate({
-          target: [roomMembers.roomId, roomMembers.userId],
-          set: { revokedAt: null, approvedAt: changedAt, role: "MEMBER" },
-        }),
-      db
+    await activateRoomMember(input.roomId, input.userId, true);
+    await db
         .update(joinRequests)
         .set({ status: "APPROVED", resolvedAt: changedAt, resolvedBy: input.ownerId })
-        .where(and(eq(joinRequests.roomId, input.roomId), eq(joinRequests.userId, input.userId))),
-    ]);
+        .where(and(eq(joinRequests.roomId, input.roomId), eq(joinRequests.userId, input.userId)));
     return changedAt.getTime();
   }
 
@@ -321,6 +318,26 @@ export async function manageRoomMember(input: {
     .set({ revokedAt: changedAt })
     .where(and(eq(roomMembers.roomId, input.roomId), eq(roomMembers.userId, input.userId)));
   return changedAt.getTime();
+}
+
+export async function activateRoomMember(roomId: string, userId: string, restore: boolean) {
+  const db = getDb();
+  const now = new Date();
+  const conflict = restore
+    ? sql`on conflict (room_id, user_id) do update set revoked_at = null, approved_at = excluded.approved_at`
+    : sql`on conflict (room_id, user_id) do update set approved_at = room_members.approved_at where room_members.revoked_at is null`;
+  const [, , inserted] = await db.batch([
+    db.select({ id: users.id }).from(users).where(eq(users.id, userId)).for("update"),
+    db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, roomId)).for("update"),
+    db.execute(sql`insert into room_members (room_id, user_id, role, approved_at)
+      select ${roomId}::uuid, ${userId}, 'MEMBER', ${now}
+      where exists (select 1 from rooms where id = ${roomId}::uuid and closed_at is null and expires_at > ${now})
+        and exists (select 1 from users where id = ${userId} and account_status = 'ACTIVE')
+        and ((select count(*) from room_members where room_id = ${roomId}::uuid and revoked_at is null) < ${RESOURCE_LIMITS.membersPerRoom}
+          or exists (select 1 from room_members where room_id = ${roomId}::uuid and user_id = ${userId} and revoked_at is null))
+      ${conflict} returning id`),
+  ]);
+  if (!inserted.rows.length) throw new Error("ROOM_MEMBER_LIMIT_REACHED");
 }
 
 export async function regenerateRoomInvite(roomId: string, ownerId: string) {

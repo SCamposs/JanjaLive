@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { purgeStaleRooms } from "@/lib/rooms";
 import { purgeDesktopAuthArtifacts } from "@/lib/desktop-auth";
+import { purgeTurnCredentials } from "@/lib/turn";
+import { retrySessionDisconnects } from "@/lib/user-sessions";
 
 function isAuthorized(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -20,9 +22,11 @@ export async function GET(request: Request) {
     return Response.json({ error: "UNAUTHORIZED" }, { status: 401 });
   }
 
-  const [removed, desktopAuth] = await Promise.all([
+  const [removed, desktopAuth, turn, sessionDisconnects] = await Promise.all([
     purgeStaleRooms(),
     purgeDesktopAuthArtifacts(),
+    purgeTurnCredentials(),
+    retrySessionDisconnects(),
   ]);
-  return Response.json({ removed, desktopAuth });
+  return Response.json({ removed, desktopAuth, turn, sessionDisconnects }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -31,7 +31,11 @@ export function CreateRoomForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, accessMode }),
       });
-      if (!response.ok) throw new Error("Não foi possível criar a sala.");
+      if (!response.ok) {
+        if (response.status === 429) throw new Error("Limite de salas atingido. Encerre uma sala ativa ou tente mais tarde.");
+        if (response.status === 503) throw new Error("A criação de salas está temporariamente indisponível.");
+        throw new Error("Não foi possível criar a sala.");
+      }
       const data = (await response.json()) as { invitePath: string };
       router.push(data.invitePath);
     } catch (cause) {

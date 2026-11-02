@@ -3,6 +3,7 @@ import { getDb } from "@/db";
 import { accounts, adminAuditLog, desktopSessions, roomMembers, rooms, sessions, users } from "@/db/schema";
 import { setRealtimeAccountAccess } from "./realtime";
 import { assertAdminTarget, getConfiguredOwner } from "./admin-policy";
+import { revokeUserTurnCredentials } from "./turn";
 
 export type AuthenticatedUser = { id: string; name: string; image: string | null };
 
@@ -120,12 +121,16 @@ export async function setUserAccess(input: {
     .from(roomMembers)
     .innerJoin(rooms, eq(roomMembers.roomId, rooms.id))
     .where(and(eq(roomMembers.userId, target.id), isNull(rooms.closedAt)));
-  await Promise.all(memberships.map(({ roomId }) => setRealtimeAccountAccess({
-    roomId,
-    senderUserId: input.actorUserId,
-    targetUserId: target.id,
-    action: input.action,
-    changedAt: now.getTime(),
-  })));
+  const revocations = await Promise.allSettled([
+    ...(input.action === "BAN" ? [revokeUserTurnCredentials(target.id)] : []),
+    ...memberships.map(({ roomId }) => setRealtimeAccountAccess({
+      roomId,
+      senderUserId: input.actorUserId,
+      targetUserId: target.id,
+      action: input.action,
+      changedAt: now.getTime(),
+    })),
+  ]);
+  if (revocations.some((result) => result.status === "rejected")) throw new Error("ACCESS_REVOCATION_INCOMPLETE");
   return { changed };
 }

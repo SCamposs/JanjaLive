@@ -14,6 +14,9 @@ Neon PostgreSQL stores only data needed for authentication and room authorizatio
 | Room | Internal/public IDs, short code, invite hash, owner, optional name, access mode and lifecycle timestamps | Resolve rooms, enforce access and expire inactive rooms |
 | Membership | Room/user IDs, owner/member role, approval and revocation timestamps | Keep permission independent from online presence |
 | Join request | Room/user IDs, status and resolution timestamps | Let the owner approve or reject access |
+| Resource budget | Room creation count and window per user | Bound abuse even when rooms are deleted |
+| Session revocation | Cutoff and pending disconnect flag per user | Sign out everywhere and retry interrupted revocations |
+| TURN revocation | Provider credential username, key ID, user ID, issue and expiry timestamps | Revoke temporary relay access; no TURN password is stored |
 
 Discord OAuth access, refresh and ID tokens are discarded before the account link is written. The app asks Discord only for the `identify` scope, so email is not requested. Session lifetime is limited to seven days and refreshed at most once per day.
 
@@ -40,6 +43,11 @@ On the web, system or tab audio is requested with the display picker and exists 
 Media tracks are attached directly to browser `RTCPeerConnection` instances only after a viewer chooses **Assistir**. Vercel, Neon, Cloudflare Durable Objects and Upstash do not receive or store media frames.
 
 When TURN is configured and a direct route cannot be established, Cloudflare may relay encrypted WebRTC packets. A relay can observe connection metadata and traffic volume, but WebRTC media remains encrypted in transit. TURN credentials are short-lived, limited to one hour and issued only to an authenticated, authorized room member.
+
+Issuance is limited per user across rooms. The maintenance job purges expired
+credential identifiers and retries revocation for banned accounts. Revocation
+records contain no SDP, ICE or media. Revocation does not promise instantaneous
+termination of every existing relay allocation or modified P2P client.
 
 ## Limits that cannot be removed
 

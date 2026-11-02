@@ -35,6 +35,27 @@ afterEach(() => {
 });
 
 describe("shared room media lifecycle", () => {
+  it("ignores a revoked poll that completes after leaving and reentering a room", async () => {
+    let finishOldPoll!: (value: RealtimePoll) => void;
+    const transport = createTransport(vi.fn()
+      .mockImplementationOnce(() => new Promise<RealtimePoll>((resolve) => { finishOldPoll = resolve; }))
+      .mockResolvedValue({ events: [], onlineUserIds: ["viewer"], activeStreams: [], cursor: 2 }));
+    transport.close = vi.fn();
+    const { result, rerender, unmount } = renderHook(({ roomId }) => useRoomMediaCore({ roomId, transport }), {
+      initialProps: { roomId: "room-a" as string | null },
+    });
+    await waitFor(() => expect(transport.poll).toHaveBeenCalledOnce());
+    rerender({ roomId: null });
+    expect(transport.close).toHaveBeenCalledWith("room-a");
+    rerender({ roomId: "room-a" });
+    await waitFor(() => expect(result.current.onlineUserIds).toEqual(["viewer"]));
+    await act(async () => finishOldPoll({ events: [{ id: "old-revoke", senderUserId: "owner", sentAt: 1, cursor: 1,
+      payload: { type: "room:revoked", targetUserId: "viewer" } }], onlineUserIds: [], activeStreams: [], cursor: 1 }));
+    expect(result.current.roomUnavailable).toBe(false);
+    expect(result.current.onlineUserIds).toEqual(["viewer"]);
+    unmount();
+  });
+
   it("receives the initial Cloudflare snapshot even when it follows the open event immediately", async () => {
     class WebSocketStub extends EventTarget {
       static OPEN = 1;
@@ -76,8 +97,11 @@ describe("shared room media lifecycle", () => {
       isRoomUnavailable: () => false,
     });
 
-    await transport.send("room-a", { type: "presence:join" });
-    await expect(transport.poll("room-a", 0)).resolves.toMatchObject({
+    const [, initialPoll] = await Promise.all([
+      transport.send("room-a", { type: "presence:join" }),
+      transport.poll("room-a", 0),
+    ]);
+    expect(initialPoll).toMatchObject({
       onlineUserIds: ["viewer"],
       activeStreams: [],
     });
@@ -87,6 +111,15 @@ describe("shared room media lifecycle", () => {
       type: "signal",
       payload: { type: "presence:join" },
     }));
+    WebSocketStub.last?.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({
+      type: "event", event: { id: "revoked", senderUserId: "owner", sentAt: 1, cursor: 1,
+        payload: { type: "room:revoked", targetUserId: "viewer" } },
+    }) }));
+    expect((await transport.poll("room-a", 0)).events).toHaveLength(1);
+    transport.close?.("room-a");
+    await transport.send("room-a", { type: "presence:join" });
+    expect((await transport.poll("room-a", 0)).events).toEqual([]);
+    expect(getSession).toHaveBeenCalledTimes(2);
     transport.close?.("room-a");
   });
 
@@ -551,6 +584,17 @@ describe("shared room media lifecycle", () => {
     expect(PeerStub.lastCreated?.setRemoteDescription).toHaveBeenCalledOnce();
     expect(PeerStub.lastCreated?.signalingState).toBe("stable");
     expect(result.current.connectionStatus).not.toBe("unstable");
+    expect(result.current.viewerUserIds).toEqual([]);
+    await act(async () => {
+      PeerStub.lastCreated!.connectionState = "connected";
+      PeerStub.lastCreated!.onconnectionstatechange?.();
+    });
+    expect(result.current.viewerUserIds).toEqual(["viewer"]);
+    await act(async () => {
+      PeerStub.lastCreated!.connectionState = "disconnected";
+      PeerStub.lastCreated!.onconnectionstatechange?.();
+    });
+    expect(result.current.viewerUserIds).toEqual([]);
     unmount();
   });
 

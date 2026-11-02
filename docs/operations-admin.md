@@ -1,5 +1,8 @@
 # Single-owner operations
 
+Growth-stage controls and the exact manual account configuration are documented
+in [security-operations.md](security-operations.md).
+
 JanjaLive has one operational owner, not a role system. The production identity is the conjunction of one internal JanjaLive user ID and its linked Discord user ID. Keep the concrete production identifiers only in the encrypted deployment configuration; do not commit them to the repository.
 
 Both values must match the authenticated database records. A username, display name, hidden link, or knowledge of `/admin` never grants access.

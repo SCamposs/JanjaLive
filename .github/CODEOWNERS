@@ -1,0 +1,10 @@
+# Review of security boundaries and releases belongs to the project owner.
+/.github/ @SCamposs
+/src/auth.ts @SCamposs
+/src/lib/ @SCamposs
+/src/db/ @SCamposs
+/src/app/api/ @SCamposs
+/apps/realtime-worker/ @SCamposs
+/apps/desktop/src/main/ @SCamposs
+/apps/desktop/src/preload/ @SCamposs
+/apps/desktop/electron-builder.yml @SCamposs

@@ -68,7 +68,7 @@ export type ClientSignal =
 
 export type ServerSignal =
   | ClientSignal
-  | { type: "room:join-request" | "room:closed" }
+  | { type: "room:join-request" | "room:members-changed" | "room:closed" }
   | { type: "room:approved" | "room:rejected" | "room:revoked"; targetUserId: string };
 
 export type RealtimePoll = {
@@ -105,6 +105,7 @@ export function createAdaptiveRoomMediaTransport(options: AdaptiveTransportOptio
   let roomId: string | null = null;
   let provider: RealtimeSession["provider"] | null = null;
   let pendingSession: RealtimeSession | null = null;
+  let providerLookup: Promise<RealtimeSession> | null = null;
   let socket: WebSocket | null = null;
   let connecting: Promise<WebSocket> | null = null;
   let connectionGeneration = 0;
@@ -143,6 +144,7 @@ export function createAdaptiveRoomMediaTransport(options: AdaptiveTransportOptio
     roomId = nextRoomId;
     provider = null;
     pendingSession = null;
+    providerLookup = null;
     socket = null;
     connecting = null;
     connectionGeneration += 1;
@@ -162,7 +164,16 @@ export function createAdaptiveRoomMediaTransport(options: AdaptiveTransportOptio
   const ensureProvider = async (targetRoomId: string) => {
     resetRoom(targetRoomId);
     if (!provider) {
-      pendingSession = await options.getSession(targetRoomId);
+      const generation = connectionGeneration;
+      const lookup = providerLookup ??= options.getSession(targetRoomId);
+      let session: RealtimeSession;
+      try {
+        session = await lookup;
+      } finally {
+        if (providerLookup === lookup) providerLookup = null;
+      }
+      if (roomId !== targetRoomId || generation !== connectionGeneration) throw new Error("ROOM_CHANGED");
+      pendingSession = session;
       provider = pendingSession.provider;
     }
     return provider;
@@ -182,6 +193,7 @@ export function createAdaptiveRoomMediaTransport(options: AdaptiveTransportOptio
         traceMedia("realtime.session.failed");
         throw error;
       }
+      if (generation !== connectionGeneration || roomId !== targetRoomId) throw new Error("ROOM_CHANGED");
       pendingSession = null;
       provider = session.provider;
       if (session.provider !== "cloudflare") throw new Error("REALTIME_PROVIDER_MISMATCH");
@@ -306,6 +318,13 @@ export function createAdaptiveRoomMediaTransport(options: AdaptiveTransportOptio
     close(targetRoomId) {
       if (roomId !== targetRoomId) return;
       const current = socket;
+      if (provider === "upstash") void options.legacySend(targetRoomId, { type: "presence:leave" }).catch(() => undefined);
+      // Invalidate synchronously: an old effect's asynchronous leave must never
+      // close a newly approved connection to the same room.
+      roomId = null;
+      provider = null;
+      pendingSession = null;
+      providerLookup = null;
       socket = null;
       connecting = null;
       connectionGeneration += 1;
@@ -313,6 +332,12 @@ export function createAdaptiveRoomMediaTransport(options: AdaptiveTransportOptio
       joined = false;
       desiredPublication = null;
       desiredWatchRequests.clear();
+      events = [];
+      cursor = 0;
+      onlineUserIds = [];
+      activeStreams = [];
+      snapshotRevision = 0;
+      deliveredRevision = -1;
       current?.close(1000, "Left room");
       fail(new Error("REALTIME_CLOSED"));
     },
@@ -468,6 +493,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>(initialOnline);
   const [activeStreams, setActiveStreams] = useState<ActiveStream[]>([]);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
+  const [viewerUserIds, setViewerUserIds] = useState<string[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [roomUnavailable, setRoomUnavailable] = useState(false);
@@ -493,6 +519,13 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     await transport.send(roomId, payload);
   }, [roomId, transport]);
 
+  const refreshViewers = useCallback(() => {
+    const connected = [...new Set([...peersRef.current.values()]
+      .filter(({ direction, peer }) => direction === "outbound" && peer.connectionState === "connected")
+      .map(({ remoteUserId }) => remoteUserId))].sort();
+    setViewerUserIds((current) => current.length === connected.length && current.every((id, index) => id === connected[index]) ? current : connected);
+  }, []);
+
   const closePeer = useCallback((mediaSessionId: string) => {
     const session = peersRef.current.get(mediaSessionId);
     const timer = peerTimersRef.current.get(mediaSessionId);
@@ -504,6 +537,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     pendingWatchersRef.current.delete(mediaSessionId);
     session?.peer.close();
     peersRef.current.delete(mediaSessionId);
+    refreshViewers();
     pendingCandidatesRef.current.delete(mediaSessionId);
     if (!session || session.direction !== "inbound") return;
     if (inboundSessionByStreamerRef.current.get(session.remoteUserId) === mediaSessionId) {
@@ -515,7 +549,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       delete next[session.remoteUserId];
       return next;
     });
-  }, []);
+  }, [refreshViewers]);
 
   const closePeers = useCallback((predicate: (session: PeerSession) => boolean) => {
     for (const session of [...peersRef.current.values()]) {
@@ -537,6 +571,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     for (const timer of streamGraceTimersRef.current.values()) clearTimeout(timer);
     streamGraceTimersRef.current.clear();
     setRemoteStreams({});
+    setViewerUserIds([]);
   }, []);
 
   const stopLocalCapture = useCallback(() => {
@@ -652,6 +687,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       else publishStream();
     };
     peer.onconnectionstatechange = () => {
+      refreshViewers();
       traceMedia("peer.connection.changed", { direction, state: peer.connectionState });
       if (peer.connectionState === "connected") {
         const timer = peerTimersRef.current.get(mediaSessionId);
@@ -674,7 +710,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       }
     };
     return peer;
-  }, [closePeer, resolveIceServers, roomId, send]);
+  }, [closePeer, refreshViewers, resolveIceServers, roomId, send]);
 
   const offerBroadcastTo = useCallback(async (remoteUserId: string, mediaSessionId: string) => {
     const stream = localStreamRef.current;
@@ -825,8 +861,12 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       polling = true;
       try {
         const data = await transport.poll(roomId, sinceRef.current);
+        if (stopped) return;
         failures = 0;
-        setOnlineUserIds(data.onlineUserIds);
+        setOnlineUserIds((previous) => {
+          return previous.length === data.onlineUserIds.length && previous.every((id) => data.onlineUserIds.includes(id))
+            ? previous : data.onlineUserIds;
+        });
         reconcileActiveStreams(data.activeStreams);
         for (const event of data.events) {
           // Establish a fresh session cursor without replaying retained peer
@@ -834,6 +874,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
           if (!hasSynced && isTransientPeerSignal(event.payload)) continue;
           try {
             if (await handleSignal(event.senderUserId, event.payload)) return;
+            if (stopped) return;
           } catch {
             setConnectionStatus(hasSynced ? "reconnecting" : "connecting");
           }
@@ -846,6 +887,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
           timeout = setTimeout(poll, transport.getPollInterval?.(peerStates) ?? getRoomPollInterval(peerStates));
         }
       } catch (error) {
+        if (stopped) return;
         failures += 1;
         setConnectionStatus(hasSynced ? "reconnecting" : "connecting");
         if (transport.isRoomUnavailable(error)) {
@@ -878,7 +920,8 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       if (timeout) clearTimeout(timeout);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (pollWakeRef.current === wakePoll) pollWakeRef.current = null;
-      void send({ type: "presence:leave" }).catch(() => undefined).finally(() => transport.close?.(roomId));
+      if (transport.close) transport.close(roomId);
+      else void send({ type: "presence:leave" }).catch(() => undefined);
       stopLocalCapture();
       closeAllPeers();
     };
@@ -978,6 +1021,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     membershipRevision,
     onlineUserIds,
     remoteStreams,
+    viewerUserIds,
     replaceBroadcast,
     roomUnavailable,
     startBroadcast,

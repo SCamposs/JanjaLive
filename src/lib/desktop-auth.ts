@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { and, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { desktopAuthGrants, desktopSessions, users } from "@/db/schema";
 import { getActiveUserById } from "./account-access";
@@ -88,13 +88,11 @@ export async function exchangeDesktopAuthGrant(input: DesktopAuthExchangeInput):
 
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(now.getTime() + DESKTOP_SESSION_TTL_MS);
-  await db.insert(desktopSessions).values({
-    tokenHash: hashDesktopSecret(token),
-    userId: grant.userId,
-    createdAt: now,
-    lastUsedAt: now,
-    expiresAt,
-  });
+  const created = await db.execute(sql`insert into desktop_sessions (token_hash, user_id, created_at, last_used_at, expires_at)
+    select ${hashDesktopSecret(token)}, ${grant.userId}, ${now}, ${now}, ${expiresAt}
+    where exists (select 1 from users where id = ${grant.userId} and account_status = 'ACTIVE'
+      and (sessions_revoked_at is null or sessions_revoked_at < ${grant.createdAt})) returning id`);
+  if (!created.rows.length) throw new Error("INVALID_DESKTOP_AUTH");
 
   const user = await getDesktopUserById(grant.userId);
   if (!user) throw new Error("INVALID_DESKTOP_AUTH");
@@ -121,6 +119,7 @@ export async function getDesktopUserFromToken(token: string): Promise<DesktopUse
       eq(desktopSessions.tokenHash, hashDesktopSecret(token)),
       isNull(desktopSessions.revokedAt),
       gt(desktopSessions.expiresAt, now),
+      or(isNull(users.sessionsRevokedAt), gt(desktopSessions.createdAt, users.sessionsRevokedAt)),
     ))
     .limit(1);
   if (!row) return null;

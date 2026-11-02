@@ -77,13 +77,14 @@ export async function createRealtimeSession(roomId: string, userId: string): Pro
   if (provider === "upstash") return { provider };
   const { url, tokenSecret } = getCloudflareRealtimeConfig();
   const expiresAt = new Date(Date.now() + 60_000);
-  const token = await new SignJWT({ roomId })
+  const issuedAtMs = Date.now();
+  const token = await new SignJWT({ roomId, issuedAtMs })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(userId)
     .setIssuer("https://www.janja.live")
     .setAudience("janjalive-realtime")
     .setJti(crypto.randomUUID())
-    .setIssuedAt()
+    .setIssuedAt(Math.floor(issuedAtMs / 1_000))
     .setExpirationTime(Math.floor(expiresAt.getTime() / 1_000))
     .sign(new TextEncoder().encode(tokenSecret));
   return { provider, url, token, expiresAt: expiresAt.toISOString() };
