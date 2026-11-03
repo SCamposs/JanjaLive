@@ -23,6 +23,26 @@ function fixture() {
 }
 afterEach(() => vi.unstubAllGlobals());
 describe("durable room termination", () => {
+  it("binds media signals to authentication time, not client claims or delivery time", async () => {
+    vi.stubGlobal("WebSocket", { OPEN: 1 });
+    const f = fixture();
+    const broadcaster = f.socket("broadcaster");
+    const viewer = f.socket("viewer", 100);
+    await f.room.webSocketMessage(viewer as unknown as WebSocket, JSON.stringify({ type: "signal", authorizationIssuedAt: Date.now() + 1000, payload: { type: "watch:request", targetUserId: "broadcaster", mediaSessionId: "new-session-fixture" } }));
+    const events = broadcaster.send.mock.calls.map(([message]) => JSON.parse(message)).filter((m) => m.type === "event");
+    expect(events[0].event.authorizationIssuedAt).toBe(100);
+    expect(events[0].event.sentAt).toBeGreaterThan(100);
+  });
+  it("does not forward queued signaling after the socket has been closed", async () => {
+    vi.stubGlobal("WebSocket", { OPEN: 1 });
+    const f = fixture();
+    const broadcaster = f.socket("broadcaster");
+    const viewer = f.socket("viewer");
+    const pending = f.room.webSocketMessage(viewer as unknown as WebSocket, JSON.stringify({ type: "signal", payload: { type: "watch:request", targetUserId: "broadcaster", mediaSessionId: "late-session-fixture" } }));
+    viewer.close();
+    await pending;
+    expect(broadcaster.send).not.toHaveBeenCalled();
+  });
   it.each(["janjalive-v1", "janjalive-v2"])("notifies honest broadcasters before removing a viewer (%s)", async (protocol) => {
     vi.stubGlobal("WebSocket", { OPEN: 1 });
     const f = fixture();

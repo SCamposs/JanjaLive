@@ -160,6 +160,7 @@ const realtimeEventSchema = z.object({
   id: z.string().min(1).max(128),
   senderUserId: z.string().min(1).max(128),
   sentAt: z.number(),
+  authorizationIssuedAt: z.number().int().positive().optional(),
   cursor: z.number().int().nonnegative(),
   payload: serverSignalSchema,
 }).strict();

@@ -231,7 +231,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     socket.serializeAttachment(state);
   }
 
-  private emit(senderUserId: string, payload: ServerSignal) {
+  private emit(senderUserId: string, payload: ServerSignal, authorizationIssuedAt?: number) {
     const now = Date.now();
     this.lastCursor = Math.max(this.lastCursor + 1, now * 1_000);
     const id = crypto.randomUUID();
@@ -244,7 +244,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         : payload;
       socket.send(JSON.stringify({
         type: "event",
-        event: { id, senderUserId, sentAt: now, cursor: this.lastCursor, payload: recipientPayload },
+        event: { id, senderUserId, sentAt: now, ...(authorizationIssuedAt ? { authorizationIssuedAt } : {}), cursor: this.lastCursor, payload: recipientPayload },
       }));
     }
   }
@@ -337,9 +337,10 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     if (url.pathname === "/event" && request.method === "POST") {
-      const body = await request.json().catch(() => null) as { changedAt?: unknown; senderUserId?: unknown; payload?: unknown } | null;
+      const body = await request.json().catch(() => null) as { authorizationIssuedAt?: unknown; changedAt?: unknown; senderUserId?: unknown; payload?: unknown } | null;
       const parsed = signalingEventSchema.safeParse(body?.payload);
       if (!body || typeof body.senderUserId !== "string" || !parsed.success) return json({ error: "INVALID_EVENT" }, 400);
+      if (body.authorizationIssuedAt !== undefined && (!Number.isSafeInteger(body.authorizationIssuedAt) || Number(body.authorizationIssuedAt) <= 0)) return json({ error: "INVALID_EVENT" }, 400);
       let shouldEmit = true;
       let peerRevocationCutoff: number | undefined;
       if (parsed.data.type === "room:revoked") {
@@ -367,7 +368,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         await this.ctx.storage.put(ROOM_CLOSED_KEY, true);
       }
       if (!shouldEmit) return json({ ok: true, stale: true }, 202);
-      this.emit(body.senderUserId, parsed.data);
+      this.emit(body.senderUserId, parsed.data, body.authorizationIssuedAt as number | undefined);
       if (parsed.data.type === "room:revoked") {
         this.emit(body.senderUserId, { type: "room:peer-revoked", targetUserId: parsed.data.targetUserId, changedAt: peerRevocationCutoff! });
         for (const socket of this.ctx.getWebSockets(`user:${parsed.data.targetUserId}`)) {
@@ -406,6 +407,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     const normalizedPayload = raw?.type === "signal"
       ? await normalizeLegacyMediaSessionId(raw.payload, state.userId)
       : raw.payload;
+    if (socket.readyState !== WebSocket.OPEN) return;
     const parsed = raw?.type === "signal" ? clientSignalingEventSchema.safeParse(normalizedPayload) : null;
     if (!parsed?.success) return socket.close(1008, "Invalid message");
 
@@ -422,7 +424,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       delete state.stream;
       this.releaseBroadcastSessions(state.userId);
     }
-    this.emit(state.userId, payload);
+    this.emit(state.userId, payload, state.tokenIssuedAtMs ?? (state.tokenIssuedAt ? state.tokenIssuedAt * 1_000 : state.connectedAt));
     removeWatchedSession(state, payload);
     socket.serializeAttachment(state);
     if (payload.type === "stream:start" || payload.type === "stream:stop") this.sendSnapshot();
