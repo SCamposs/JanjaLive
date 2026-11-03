@@ -34,7 +34,7 @@
     "@vercel/analytics": "^2.0.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.3",
-    "lucide-react": "^1.49.0",
+    "lucide-react": "^1.66.0",
     "jose": "6.2.12",
     "nanoid": "^6.0.1",
     "next": "16.4.1",
