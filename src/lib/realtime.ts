@@ -190,6 +190,11 @@ export async function publishSignal(
     await store.zremrangebyrank(eventIndexKey(roomId), 0, indexedSignals - MAX_INDEXED_SIGNALS - 1);
   }
 
+  if (payload.type === "room:revoked") {
+    await publishSignal(roomId, senderUserId, {
+      type: "room:peer-revoked", targetUserId: payload.targetUserId, changedAt: options.changedAt ?? now,
+    });
+  }
   return signal;
 }
 
@@ -214,7 +219,7 @@ export async function setRealtimeAccountAccess(input: {
     await publishSignal(input.roomId, input.senderUserId, {
       type: "room:revoked",
       targetUserId: input.targetUserId,
-    });
+    }, { changedAt: input.changedAt });
   }
 }
 
@@ -282,7 +287,8 @@ export async function readRoomRealtime(roomId: string, userId: string, since: nu
   const events = parsedEvents
     .filter((event) => {
       const target = "targetUserId" in event.payload ? event.payload.targetUserId : null;
-      return event.senderUserId !== userId && (!target || target === userId);
+      return (event.senderUserId !== userId || event.payload.type === "room:peer-revoked")
+        && (event.payload.type === "room:peer-revoked" || !target || target === userId);
     })
     .sort((left, right) => left.cursor - right.cursor);
 

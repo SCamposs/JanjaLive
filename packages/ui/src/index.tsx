@@ -3,8 +3,26 @@
 import { createContext, useContext, useSyncExternalStore, type ReactNode, type ComponentPropsWithRef } from "react";
 import { Tooltip } from "@base-ui/react/tooltip";
 import { Select } from "@base-ui/react/select";
+import { Radio } from "@base-ui/react/radio";
+import { RadioGroup } from "@base-ui/react/radio-group";
 export { Menu } from "@base-ui/react/menu";
 export { Input as TextInput } from "@base-ui/react/input";
+export { usePlayerControlsAutoHide } from "./player-controls";
+
+export function ChoiceGroup<Value extends string>({ value, onValueChange, options, label, className }: {
+  value: Value;
+  onValueChange: (value: Value) => void;
+  options: ReadonlyArray<{ value: Value; label: ReactNode }>;
+  label: string;
+  className?: string;
+}) {
+  return <RadioGroup value={value} aria-label={label} className={className} onValueChange={(next) => {
+    const option = options.find((item) => item.value === next);
+    if (option) onValueChange(option.value);
+  }}>
+    {options.map((option) => <Radio.Root key={option.value} value={option.value} nativeButton render={<button type="button" />} data-active={value === option.value}>{option.label}</Radio.Root>)}
+  </RadioGroup>;
+}
 
 // Fullscreen elements form their own top layer. Popups must live inside it.
 const PopupContainer = createContext<HTMLElement | null>(null);

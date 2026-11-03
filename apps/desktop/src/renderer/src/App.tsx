@@ -1,11 +1,12 @@
+import { DesktopAccessGate as AccessGate } from "./DesktopAccessGate";
 import { DesktopDeleteRoomAction } from "./DesktopDeleteRoomAction";
 import { subscribeAuthStatus } from "./auth-session";
 import { DesktopLogin } from "./DesktopLogin";
 import { DesktopNoirBackdrop } from "./DesktopNoirBackdrop";
 import { DesktopRoomList } from "./DesktopRoomList";
 import { DesktopAccountMenu } from "./DesktopAccountMenu";
-import { TooltipButton } from "@janjalive/ui";
-import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent as ReactFocusEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { ChoiceGroup, TooltipButton, usePlayerControlsAutoHide } from "@janjalive/ui";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Play, Scaling, UserMinus, UsersRound, Volume2, VolumeX, X } from "lucide-react";
 import { playRoomCue, type ConnectionStatus, type StreamMetadata } from "@janjalive/webrtc";
 import type { AuthStatus, CaptureSource, NativeAudioMode, RoomSnapshot, RoomSummary, UpdaterStatus } from "../../shared/contracts";
@@ -17,7 +18,6 @@ import { startNativeAudioCapture, type NativeAudioCapture } from "./native-audio
 type Resolution = "720p" | "1080p" | "1440p" | "source";
 type Quality = "auto" | "high" | "custom";
 const ROOM_CODE_LENGTH = 7;
-const PLAYER_CONTROLS_HIDE_DELAY_MS = 2_500;
 
 function normalizeRoomCode(value: string) {
   return (value.toUpperCase().match(/[2-9A-HJ-NP-Z]/g) ?? []).join("").slice(0, ROOM_CODE_LENGTH);
@@ -68,6 +68,23 @@ export function App() {
   const broadcastNativeAudioRef = useRef<NativeAudioCapture | null>(null);
   const authorizedRoomId = room?.access === "authorized" ? room.room.id : null;
   const realtime = useRoomMedia(authorizedRoomId);
+
+  const releaseCapture = useCallback(() => {
+    activeStreamRef.current?.getTracks().forEach((track) => track.stop());
+    pendingCaptureRef.current?.getTracks().forEach((track) => track.stop());
+    activeStreamRef.current = null;
+    pendingCaptureRef.current = null;
+    void pendingNativeAudioRef.current?.stop();
+    void broadcastNativeAudioRef.current?.stop();
+    pendingNativeAudioRef.current = null;
+    broadcastNativeAudioRef.current = null;
+    setCapture(null);
+    setLocalStream(null);
+    setSharing(false);
+    setCaptureAudioMode("none");
+  }, []);
+
+  useEffect(() => () => { releaseCapture(); }, [authorizedRoomId, releaseCapture]);
 
   const handleUpdateStatus = useCallback((next: UpdaterStatus) => {
     setUpdate(next);
@@ -124,32 +141,29 @@ export function App() {
   useEffect(() => {
     if (!realtime.roomUnavailable) return;
     const timeout = setTimeout(() => {
-      activeStreamRef.current = null;
-      pendingCaptureRef.current = null;
-      capture?.getTracks().forEach((track) => track.stop());
-      localStream?.getTracks().forEach((track) => track.stop());
-      void pendingNativeAudioRef.current?.stop();
-      void broadcastNativeAudioRef.current?.stop();
-      pendingNativeAudioRef.current = null;
-      broadcastNativeAudioRef.current = null;
-      setCapture(null);
-      setLocalStream(null);
-      setSharing(false);
+      releaseCapture();
       setSelectedStreamers([]);
       setRoom(null);
       void refreshRooms();
     }, 0);
     return () => clearTimeout(timeout);
-  }, [capture, localStream, realtime.roomUnavailable, refreshRooms]);
+  }, [realtime.roomUnavailable, refreshRooms, releaseCapture]);
 
   useEffect(() => {
     if (!authorizedRoomId) return;
     let cancelled = false;
     void window.janja.rooms.get(authorizedRoomId).then((next) => {
       if (!cancelled) setRoom(next);
-    }).catch(() => undefined);
+    }).catch((error: unknown) => {
+      if (!cancelled && /API_(403|404)/.test(String(error))) {
+        releaseCapture();
+        setSelectedStreamers([]);
+        setRoom(null);
+        void refreshRooms();
+      }
+    });
     return () => { cancelled = true; };
-  }, [authorizedRoomId, realtime.membershipRevision, realtime.onlineUserIds]);
+  }, [authorizedRoomId, realtime.membershipRevision, realtime.onlineUserIds, releaseCapture, refreshRooms]);
 
   const groupedSources = useMemo(() => ({
     windows: sources?.filter((source) => source.kind === "window") ?? [],
@@ -319,21 +333,8 @@ export function App() {
   }
 
   async function stopSharing() {
+    releaseCapture();
     if (sharing) await realtime.stopBroadcast();
-    activeStreamRef.current = null;
-    pendingCaptureRef.current = null;
-    capture?.getTracks().forEach((track) => track.stop());
-    localStream?.getTracks().forEach((track) => track.stop());
-    await Promise.all([
-      pendingNativeAudioRef.current?.stop(),
-      broadcastNativeAudioRef.current?.stop(),
-    ]);
-    pendingNativeAudioRef.current = null;
-    broadcastNativeAudioRef.current = null;
-    setCapture(null);
-    setLocalStream(null);
-    setSharing(false);
-    setCaptureAudioMode("none");
     if (auth.state === "signed-in") setSelectedStreamers((ids) => ids.filter((id) => id !== auth.user.id));
   }
 
@@ -398,7 +399,7 @@ export function App() {
       {update.state === "store" && update.required && <aside className="update-bar required"><span>Atualize o JanjaLive pela Microsoft Store para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Abrir Microsoft Store</button></aside>}
 
       {auth.state !== "signed-in" ? <DesktopLogin auth={auth} /> : room ? (
-        room.access === "authorized" ? <RoomView room={room} currentUserId={auth.user.id} sharing={sharing} localStream={localStream} selectedStreamers={selectedStreamers} remoteStreams={realtime.remoteStreams} activeStreams={activeRemoteStreams} onlineUserIds={realtime.onlineUserIds} viewerUserIds={realtime.viewerUserIds} connectionStatus={realtime.connectionStatus} onRoomUpdate={setRoom} onRoomDeleted={() => { setRoom(null); void refreshRooms(); }} onShare={openPicker} onStopSharing={stopSharing} onSelectStreamer={(userId) => void watchStreamer(userId)} onStopWatching={(userId) => void leaveStream(userId)} />
+        room.access === "authorized" ? <RoomView room={room} currentUserId={auth.user.id} sharing={sharing} localStream={localStream} selectedStreamers={selectedStreamers} remoteStreams={realtime.remoteStreams} activeStreams={activeRemoteStreams} onlineUserIds={realtime.onlineUserIds} viewerUserIds={realtime.viewerUserIds} connectionStatus={realtime.connectionStatus} onRoomUpdate={setRoom} onRoomDeleted={leaveRoom} onShare={openPicker} onStopSharing={stopSharing} onSelectStreamer={(userId) => void watchStreamer(userId)} onStopWatching={(userId) => void leaveStream(userId)} />
         : <AccessGate room={room} onUpdate={setRoom} onRequest={async () => { await window.janja.rooms.requestAccess(room.room.id); setRoom({ ...room, access: "pending" }); }} />
       ) : <Home rooms={rooms} onOpen={async (roomId) => setRoom(await window.janja.rooms.get(roomId))} onOpenSnapshot={setRoom} onRefresh={refreshRooms} />}
 
@@ -524,20 +525,6 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
   </section>;
 }
 
-function AccessGate({ room, onRequest, onUpdate }: { room: RoomSnapshot; onRequest: () => Promise<void>; onUpdate: (room: RoomSnapshot) => void }) {
-  useEffect(() => {
-    if (room.access !== "pending") return;
-    let stopped = false;
-    const interval = setInterval(() => {
-      void window.janja.rooms.getPublic(room.room.publicId).then((next) => {
-        if (!stopped) onUpdate(next);
-      }).catch(() => undefined);
-    }, 3_000);
-    return () => { stopped = true; clearInterval(interval); };
-  }, [onUpdate, room.access, room.room.publicId]);
-  return <section className="desktop-login"><h1>{room.room.name}</h1><p>{room.access === "pending" ? "Aguardando aprovação do dono da sala." : room.access === "rejected" ? "Seu pedido não foi aceito." : "Você precisa de aprovação para entrar."}</p>{room.access === "invited" && <button className="primary-button" type="button" onClick={() => void onRequest()}>Solicitar acesso</button>}</section>;
-}
-
 function RoomView({ room, currentUserId, sharing, localStream, selectedStreamers, remoteStreams, activeStreams, onlineUserIds, viewerUserIds, connectionStatus, onRoomUpdate, onRoomDeleted, onShare, onStopSharing, onSelectStreamer, onStopWatching }: { room: RoomSnapshot; currentUserId: string; sharing: boolean; localStream: MediaStream | null; selectedStreamers: string[]; remoteStreams: Record<string, MediaStream>; activeStreams: Array<{ streamerUserId: string; preset: string; hasAudio: boolean }>; onlineUserIds: string[]; viewerUserIds: string[]; connectionStatus: ConnectionStatus; onRoomUpdate: (room: RoomSnapshot) => void; onRoomDeleted: () => void; onShare: () => Promise<void>; onStopSharing: () => Promise<void>; onSelectStreamer: (id: string) => void; onStopWatching: (userId: string) => void }) {
   const members = new Map(room.members.map((member) => [member.userId, member]));
   const [codeCopied, setCodeCopied] = useState(false);
@@ -570,82 +557,6 @@ function RoomMembers({ room, onlineUserIds, currentUserId, activeStreamerIds, se
   }
   const online = room.members.filter((member) => onlineUserIds.includes(member.userId));
   return <aside className="desktop-members"><h2>Membros <span>{room.members.length}</span></h2>{room.pending.length > 0 && <section className="member-section pending-members"><h3>Pedidos</h3>{room.pending.map((member) => <div className="pending-member" key={member.userId}><Member member={{ ...member, role: "MEMBER" }} online={false} /><div><TooltipButton tooltip={`Aprovar ${member.name}`} aria-label={`Aprovar ${member.name}`} type="button" onClick={() => void manage(member.userId, "approve")}><Check size={14} /></TooltipButton><TooltipButton tooltip={`Recusar ${member.name}`} aria-label={`Recusar ${member.name}`} type="button" onClick={() => void manage(member.userId, "reject")}><X size={14} /></TooltipButton></div></div>)}</section>}<section className="member-section"><h3>Online</h3>{online.length ? online.map((member) => <Member key={member.userId} member={member} online streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} />) : <p className="members-empty">Ninguém online.</p>}</section><section className="member-section"><h3>Autorizados</h3>{room.members.map((member) => <Member key={member.userId} member={member} online={onlineUserIds.includes(member.userId)} streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} onRemove={room.room.isOwner && member.userId !== currentUserId ? () => void manage(member.userId, "revoke") : undefined} />)}</section>{room.room.isOwner && <footer className="room-owner-actions"><TooltipButton tooltip={copied ? "Convite copiado" : "Copiar novo convite"} aria-label={copied ? "Convite copiado" : "Copiar novo convite"} type="button" onClick={() => void copyInvite()}>{copied ? <Check size={15} /> : <Copy size={15} />}</TooltipButton><DesktopDeleteRoomAction room={room.room} onDeleted={onRoomDeleted} /></footer>}</aside>;
-}
-
-function usePlayerControlsAutoHide() {
-  const [controlsVisible, setControlsVisible] = useState(true);
-  const hideTimerRef = useRef<number | null>(null);
-
-  const clearHideTimer = useCallback(() => {
-    if (hideTimerRef.current === null) return;
-    window.clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = null;
-  }, []);
-
-  const scheduleHide = useCallback(() => {
-    clearHideTimer();
-    hideTimerRef.current = window.setTimeout(() => setControlsVisible(false), PLAYER_CONTROLS_HIDE_DELAY_MS);
-  }, [clearHideTimer]);
-
-  const showControls = useCallback(() => {
-    setControlsVisible(true);
-    scheduleHide();
-  }, [scheduleHide]);
-
-  useEffect(() => {
-    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) scheduleHide();
-    return clearHideTimer;
-  }, [clearHideTimer, scheduleHide]);
-
-  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === "touch") return;
-    if (event.target instanceof Element && event.target.closest("[data-player-controls]")) {
-      clearHideTimer();
-      setControlsVisible(true);
-      return;
-    }
-    showControls();
-  }, [clearHideTimer, showControls]);
-
-  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== "touch") {
-      showControls();
-      return;
-    }
-    clearHideTimer();
-    if (event.target instanceof Element && event.target.closest("[data-player-controls]")) {
-      setControlsVisible(true);
-      return;
-    }
-    setControlsVisible((visible) => !visible);
-  }, [clearHideTimer, showControls]);
-
-  const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
-    if (!event.currentTarget.contains(event.relatedTarget)) scheduleHide();
-  }, [scheduleHide]);
-
-  return {
-    controlsVisible,
-    showControls,
-    containerProps: {
-      onPointerEnter: showControls,
-      onPointerMove: handlePointerMove,
-      onPointerDownCapture: handlePointerDown,
-      onPointerLeave: scheduleHide,
-      onFocusCapture: () => {
-        clearHideTimer();
-        setControlsVisible(true);
-      },
-      onBlurCapture: handleBlur,
-    },
-    controlsProps: {
-      onPointerEnter: () => {
-        clearHideTimer();
-        setControlsVisible(true);
-      },
-      onPointerLeave: scheduleHide,
-    },
-  };
 }
 
 function Player({ stream, label, own, onStop, initiallyMuted = own, viewerNames }: { stream: MediaStream; label: string; own: boolean; onStop: () => void; initiallyMuted?: boolean; viewerNames?: string[] }) {
@@ -695,7 +606,7 @@ function CaptureConfig({ previewRef, name, audioMode, resolution, fps, quality, 
 }
 
 function OptionGroup({ label, value, values, labels = {}, onChange }: { label: string; value: string; values: string[]; labels?: Record<string, string>; onChange: (value: string) => void }) {
-  return <fieldset><legend>{label}</legend><div className="options">{values.map((option) => <button type="button" data-active={value === option} key={option} onClick={() => onChange(option)}>{labels[option] ?? option}</button>)}</div></fieldset>;
+  return <fieldset><legend>{label}</legend><ChoiceGroup label={label} className="options" value={value} onValueChange={onChange} options={values.map((option) => ({ value: option, label: labels[option] ?? option }))} /></fieldset>;
 }
 
 function AudienceBadge({ names }: { names: string[] }) {

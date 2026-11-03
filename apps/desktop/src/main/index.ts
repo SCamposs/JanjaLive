@@ -43,6 +43,8 @@ import { getProtocolRegistration } from "../shared/protocol-registration";
 import { API_ORIGIN, DESKTOP_AUTH_URLS, REALTIME_WEBSOCKET_ORIGIN, isAllowedRemoteRequest } from "../shared/network-policy";
 import { canGrantDesktopPermission } from "../shared/permission-policy";
 import { NativeAudioManager } from "./native-audio";
+import { restoreSavedSession } from "./session-restore";
+import { bindCaptureOwner } from "./capture-owner";
 import { NativeWindows } from "./native-windows";
 import { mergeWindowSources, windowSourceId, type NativeWindow } from "./capture-windows";
 
@@ -169,6 +171,7 @@ async function readStoredSession() {
 
 async function fetchAuthenticatedSession(token: string) {
   const response = await net.fetch(DESKTOP_AUTH_URLS.session, {
+    signal: AbortSignal.timeout(15_000),
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
@@ -179,27 +182,26 @@ async function fetchAuthenticatedSession(token: string) {
     updateRequired = true;
     updateStatus({ state: "required" });
   }
-  if (!response.ok) return null;
+  if (response.status === 401 || response.status === 403) return null;
+  if (!response.ok) throw new Error(`SESSION_SERVICE_${response.status}`);
   const payload = await response.json() as { user?: unknown };
   const parsed = authStatusSchema.safeParse({ state: "signed-in", user: payload.user });
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success || parsed.data.state !== "signed-in") throw new Error("INVALID_SESSION_RESPONSE");
+  return parsed.data;
 }
 
 async function restoreSession() {
-  const stored = await readStoredSession();
-  if (!stored) {
-    await clearStoredSession();
-    if (!pendingAuth) updateAuthStatus({ state: "signed-out" });
-    return;
-  }
-  const restored = await fetchAuthenticatedSession(stored.token).catch(() => null);
+  const initialStatus = authStatus;
+  const restored = await restoreSavedSession({ read: readStoredSession, validate: fetchAuthenticatedSession, clear: async () => {
+    if (authStatus === initialStatus && !pendingAuth) await clearStoredSession();
+  } });
+  if (authStatus !== initialStatus || pendingAuth) return;
   if (!restored) {
-    await clearStoredSession();
     if (!pendingAuth) updateAuthStatus({ state: "signed-out" });
     return;
   }
-  sessionToken = stored.token;
-  updateAuthStatus(restored);
+  sessionToken = restored.token;
+  updateAuthStatus(restored.status);
 }
 
 async function attemptAuthExchange(flow: PendingAuth, code: string) {
@@ -413,6 +415,12 @@ function registerIpc() {
 
   ipcMain.handle("auth:start", async (event) => {
     assertTrustedSender(event);
+    if (authStatus.state === "error") {
+      updateAuthStatus({ state: "checking" });
+      try { await restoreSession(); }
+      catch { updateAuthStatus({ state: "error", message: "Não foi possível verificar sua sessão. Tente novamente." }); }
+      return;
+    }
     const state = randomBytes(32).toString("base64url");
     const verifier = randomBytes(48).toString("base64url");
     const challenge = createHash("sha256").update(verifier, "utf8").digest("base64url");
@@ -711,13 +719,14 @@ function createWindow() {
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   const rendererOwnerId = mainWindow.webContents.id;
-  mainWindow.webContents.once("destroyed", () => {
+  const releaseRendererCapture = () => {
     sourceListVersions.delete(rendererOwnerId);
     abortCapturePreparation(rendererOwnerId);
     pendingSelections.delete(rendererOwnerId);
     confirmedAudioSelections.delete(rendererOwnerId);
     void nativeAudio.stopOwner(rendererOwnerId);
-  });
+  };
+  bindCaptureOwner(mainWindow.webContents, releaseRendererCapture);
   mainWindow.webContents.on("will-navigate", (event, url) => {
     if (!rendererUrlIsTrusted(url)) event.preventDefault();
   });

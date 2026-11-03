@@ -6,8 +6,9 @@ import { joinRequests, roomMembers, rooms, users, type Room } from "@/db/schema"
 import { createInviteToken, createRoomCode, hashInviteToken } from "./crypto";
 import { canAutoJoinInvite, canManageRoom, isAuthorizedMember, isRoomActive } from "./room-policy";
 import { assertCanTargetMember, getMembershipTransition } from "./membership";
-import { hasActiveRoomPresence } from "./realtime";
+import { hasActiveRoomPresence, publishSignal } from "./realtime";
 import { assertRoomCreationEnabled, RESOURCE_LIMITS } from "./operational-policy";
+import { shareableInviteRoomId, verifyShareableInvite } from "./shareable-invite";
 
 export const ROOM_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1_000;
 export const ROOM_PURGE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -158,13 +159,15 @@ export async function assertAuthorizedRoom(roomId: string, userId: string) {
 
 export async function getRoomSnapshot(inviteToken: string, userId: string): Promise<RoomSnapshot | null> {
   const db = getDb();
+  const publicId = shareableInviteRoomId(inviteToken);
   const [room] = await db
     .select()
     .from(rooms)
-    .where(eq(rooms.inviteHash, hashInviteToken(inviteToken)))
+    .where(publicId ? eq(rooms.publicId, publicId) : eq(rooms.inviteHash, hashInviteToken(inviteToken)))
     .limit(1);
 
   if (!room || !isRoomActive(room)) return null;
+  if (publicId && !verifyShareableInvite(inviteToken, room)) return null;
 
   return buildRoomSnapshot(room, userId, true);
 }
@@ -377,7 +380,9 @@ export async function closeRoom(roomId: string, ownerId: string) {
 }
 
 export async function deleteRoom(roomId: string, ownerId: string) {
-  const { member } = await assertAuthorizedRoom(roomId, ownerId);
-  if (!canManageRoom(member)) throw new Error("OWNER_REQUIRED");
+  // Keep the closed row until the provider confirms closure so a failed
+  // disconnect remains retryable, even though normal room access is denied.
+  await closeRoom(roomId, ownerId);
+  await publishSignal(roomId, ownerId, { type: "room:closed" });
   await getDb().delete(rooms).where(eq(rooms.id, roomId));
 }

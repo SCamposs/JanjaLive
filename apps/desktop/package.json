@@ -1,6 +1,6 @@
 {
   "name": "@janjalive/desktop",
-  "version": "0.1.32",
+  "version": "0.1.33",
   "description": "Cliente desktop seguro do JanjaLive para compartilhamento P2P de tela.",
   "author": "SCamposs",
   "private": true,
@@ -41,7 +41,7 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "5.2.0",
     "electron": "44.9.1",
-    "electron-builder": "26.15.3",
+    "electron-builder": "26.18.0",
     "electron-vite": "5.0.0",
     "lucide-react": "1.49.0",
     "react": "19.2.8",

@@ -1,7 +1,8 @@
 // Separate, unsigned Store submission artifact. Never publishes or registers it locally.
 const { build, Platform, Arch } = require("electron-builder");
 const { createRequire } = require("node:module");
-const { mkdir, writeFile } = require("node:fs/promises");
+const { mkdir, mkdtemp, rm, writeFile } = require("node:fs/promises");
+const { tmpdir } = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { existsSync, readdirSync } = require("node:fs");
@@ -72,9 +73,25 @@ async function main() {
   });
   const version = require("../package.json").version;
   const artifact = path.join(output, `JanjaLive-Store${preview ? "-PREVIEW" : ""}-${version}-x64.appx`);
+  const verificationEnv = { ...process.env, STORE_IDENTITY_NAME: identity.name, STORE_PUBLISHER: identity.publisher, STORE_PUBLISHER_DISPLAY_NAME: identity.displayName };
   execFileSync(process.execPath, [path.join(__dirname, "verify-fuses.mjs"), path.join(output, "win-unpacked", "JanjaLive.exe")], { cwd: root, stdio: "inherit" });
   execFileSync(process.execPath, [path.join(__dirname, "verify-package-contents.mjs"), path.join(output, "win-unpacked", "resources", "app.asar")], { cwd: root, stdio: "inherit" });
-  execFileSync("powershell.exe", ["-NoProfile", "-File", path.join(__dirname, "verify-store.ps1"), "-PackagePath", artifact], { cwd: root, stdio: "inherit" });
+  execFileSync("powershell.exe", ["-NoProfile", "-File", path.join(__dirname, "verify-store.ps1"), "-PackagePath", artifact], { cwd: root, stdio: "inherit", env: verificationEnv });
+  // Repack with the Windows SDK into a native MSIX artifact. The identity,
+  // manifest and application files are preserved; the CLI supports loose MSIX
+  // input without trying to install this pnpm workspace through npm.
+  const makeappx = path.join(process.env.ELECTRON_BUILDER_WINDOWS_KITS_PATH ?? "", "makeappx.exe");
+  if (!existsSync(makeappx)) throw new Error("Windows SDK makeappx.exe is required to prepare the MSIX submission.");
+  const staging = await mkdtemp(path.join(tmpdir(), "janjalive-msix-"));
+  try {
+    const msix = artifact.replace(/\.appx$/, ".msix");
+    execFileSync(makeappx, ["unpack", "/p", artifact, "/d", staging, "/o"], { stdio: "inherit" });
+    execFileSync(makeappx, ["pack", "/d", staging, "/p", msix, "/o"], { stdio: "inherit" });
+    execFileSync("powershell.exe", ["-NoProfile", "-File", path.join(__dirname, "verify-store.ps1"), "-PackagePath", msix, "-ComparePackagePath", artifact], { cwd: root, stdio: "inherit", env: verificationEnv });
+  } finally {
+    if (path.dirname(path.resolve(staging)) !== path.resolve(tmpdir())) throw new Error("Unexpected MSIX staging path");
+    await rm(staging, { recursive: true, force: true });
+  }
   await writeFile(path.join(output, "BUILD-NOTES.txt"), preview
     ? "LOCAL PACKAGING PREVIEW ONLY. Placeholder identity. Do not upload or distribute. Not signed or installed.\n"
     : "Unsigned Store submission package. Must be certified and signed by Microsoft. Audience is configured in Partner Center, not in this file.\n");

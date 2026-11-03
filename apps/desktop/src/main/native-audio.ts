@@ -92,6 +92,7 @@ export class NativeAudioManager {
                 return;
               }
               const { port1, port2 } = new MessageChannelMain();
+              port1.once("close", stopChild);
               audioPort = port1;
               target.postMessage("capture:native-audio-port", { sessionId }, [port2]);
               this.sessions.set(sessionId, {

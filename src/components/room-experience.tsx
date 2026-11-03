@@ -16,7 +16,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { playRoomCue } from "@janjalive/webrtc";
-import { getWebDisplayCaptureOptions } from "@/lib/display-capture";
+import { getWebDisplayCaptureOptions, prepareDisplayCapture } from "@/lib/display-capture";
 import type { RoomSnapshot } from "@/lib/rooms";
 import { getCaptureConstraints, QUALITY_PROFILES } from "@/lib/quality";
 import { AccountMenu } from "./account-menu";
@@ -79,6 +79,14 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   const stopWatching = realtime.stopWatching;
   const knownStreamsRef = useRef<Set<string> | null>(null);
   const fallbackShareOptionsRef = useRef<ScreenShareOptions | null>(null);
+  const captureRequestRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => { captureRequestRef.current?.abort(); }, [snapshot.room.id]);
+
+  function cancelCapture() {
+    captureRequestRef.current?.abort();
+    setShareDialogOpen(false);
+  }
 
   useEffect(() => {
     const current = new Set(remoteActiveStreams.map((stream) => stream.streamerUserId));
@@ -131,24 +139,20 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   }
 
   async function startSharing(options: ScreenShareOptions, includeSystemAudio = true) {
+    captureRequestRef.current?.abort();
+    const request = new AbortController();
+    captureRequestRef.current = request;
     setCaptureError(null);
     setCaptureFallbackAvailable(false);
     fallbackShareOptionsRef.current = options;
     let stream: MediaStream | null = null;
     try {
-      const selectedStream = await navigator.mediaDevices.getDisplayMedia(getWebDisplayCaptureOptions(includeSystemAudio));
-      stream = selectedStream;
-      selectedStream.getAudioTracks().forEach((track) => {
-        if (track.readyState !== "live") {
-          selectedStream.removeTrack(track);
-          track.stop();
-        }
-      });
-      const [videoTrack] = selectedStream.getVideoTracks();
-      if (!videoTrack) throw new Error("CAPTURE_VIDEO_MISSING");
       const constraints = getCaptureConstraints(options.preset);
       if (options.preset === "source") constraints.frameRate = { ideal: options.frameRate, max: options.frameRate };
-      await videoTrack.applyConstraints(constraints).catch(() => undefined);
+      const selectedStream = await prepareDisplayCapture(getWebDisplayCaptureOptions(includeSystemAudio), constraints, request.signal);
+      stream = selectedStream;
+      request.signal.throwIfAborted();
+      const [videoTrack] = selectedStream.getVideoTracks();
       videoTrack.onended = () => {
         void realtime.stopBroadcast();
         setLocalStream(null);
@@ -164,11 +168,14 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
         hasAudio: selectedStream.getAudioTracks().length > 0,
       };
       const previousStream = localStream;
+      // Selection is complete. Close its cancellation UI before committing media.
+      setShareDialogOpen(false);
       if (isBroadcasting) await realtime.replaceBroadcast(selectedStream, metadata, options.bitrate);
       else {
         await realtime.startBroadcast(selectedStream, metadata, options.bitrate);
         await playRoomCue("stream-start", true);
       }
+      request.signal.throwIfAborted();
       setLocalStream(selectedStream);
       setIsBroadcasting(true);
       setSelectedStreamers((ids) => ids.includes(currentUser.id) ? ids : [...ids, currentUser.id]);
@@ -196,6 +203,8 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
             : "Não foi possível iniciar a captura de tela.",
       );
       return false;
+    } finally {
+      if (captureRequestRef.current === request) captureRequestRef.current = null;
     }
   }
 
@@ -213,9 +222,16 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   }
 
   async function copyInvite() {
-    await navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1_500);
+    try {
+      const response = await fetch(`/api/rooms/${snapshot.room.id}/invite`, { cache: "no-store" });
+      if (!response.ok) throw new Error("INVITE_UNAVAILABLE");
+      const data = await response.json() as { invitePath: string };
+      await navigator.clipboard.writeText(new URL(data.invitePath, window.location.origin).toString());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1_500);
+    } catch {
+      setCaptureError("Não foi possível copiar o convite. Tente novamente.");
+    }
   }
 
   async function regenerateInvite() {
@@ -387,7 +403,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
 
       <ScreenShareDialog
         open={shareDialogOpen}
-        onCancel={() => setShareDialogOpen(false)}
+        onCancel={cancelCapture}
         onStart={startSharing}
       />
       {(captureError || connectionError) && (

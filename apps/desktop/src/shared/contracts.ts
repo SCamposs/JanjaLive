@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { realtimeSessionSchema, type RealtimeSession } from "@janjalive/realtime-protocol";
+import { realtimeSessionSchema, roomLifecycleEventSchema, type RealtimeSession } from "@janjalive/realtime-protocol";
 
 export { realtimeSessionSchema };
 export type { RealtimeSession };
@@ -153,11 +153,7 @@ export const clientSignalSchema = z.discriminatedUnion("type", [
 
 const serverSignalSchema = z.union([
   clientSignalSchema,
-  z.object({ type: z.literal("room:join-request") }).strict(),
-  z.object({ type: z.literal("room:approved"), targetUserId: z.string().min(1).max(128) }).strict(),
-  z.object({ type: z.literal("room:rejected"), targetUserId: z.string().min(1).max(128) }).strict(),
-  z.object({ type: z.literal("room:revoked"), targetUserId: z.string().min(1).max(128) }).strict(),
-  z.object({ type: z.literal("room:closed") }).strict(),
+  roomLifecycleEventSchema,
 ]);
 
 const realtimeEventSchema = z.object({

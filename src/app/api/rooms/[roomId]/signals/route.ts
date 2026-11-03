@@ -26,15 +26,15 @@ export async function POST(request: Request, context: { params: Promise<{ roomId
   try {
     const user = await requireUser(request);
     const { roomId } = await context.params;
-    const input = signalEnvelopeSchema.parse({ ...(await request.json()), roomId });
+    const payload = clientSignalingEventSchema.parse(await request.json());
+    signalEnvelopeSchema.parse({ ...payload, roomId });
     await assertAuthorizedRoom(roomId, user.id);
     await enforceRateLimit(`${roomId}:${user.id}:signal`, 240, 60);
 
-    if ("targetUserId" in input) {
-      await assertAuthorizedRoom(roomId, input.targetUserId);
+    if ("targetUserId" in payload) {
+      await assertAuthorizedRoom(roomId, payload.targetUserId);
     }
 
-    const payload = clientSignalingEventSchema.parse(input);
     await publishSignal(roomId, user.id, payload);
     return Response.json({ ok: true }, { status: 202 });
   } catch (error) {

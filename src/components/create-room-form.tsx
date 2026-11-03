@@ -3,6 +3,7 @@
 import { ArrowRight, LoaderCircle, LockKeyhole, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { ChoiceGroup } from "@janjalive/ui";
 import { Toast } from "./toast";
 
 const ROOM_CODE_LENGTH = 7;
@@ -83,14 +84,10 @@ export function CreateRoomForm() {
       <input id="room-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} maxLength={60} />
       <fieldset className="access-options">
         <legend>Quem pode entrar?</legend>
-        <button type="button" data-active={accessMode === "APPROVAL"} onClick={() => setAccessMode("APPROVAL")}>
-          <LockKeyhole size={18} />
-          <span><strong>Com minha aprovação</strong><small>Você aceita cada pessoa antes de ela entrar.</small></span>
-        </button>
-        <button type="button" data-active={accessMode === "INVITE"} onClick={() => setAccessMode("INVITE")}>
-          <Users size={18} />
-          <span><strong>Quem tiver o convite</strong><small>A conta Discord continua sendo obrigatória.</small></span>
-        </button>
+        <ChoiceGroup label="Quem pode entrar?" value={accessMode} onValueChange={setAccessMode} options={[
+          { value: "APPROVAL", label: <><LockKeyhole size={18} /><span><strong>Com minha aprovação</strong><small>Você aceita cada pessoa antes de ela entrar.</small></span></> },
+          { value: "INVITE", label: <><Users size={18} /><span><strong>Quem tiver o convite</strong><small>A conta Discord continua sendo obrigatória.</small></span></> },
+        ]} />
       </fieldset>
       {createError && <p className="form-error" role="alert">{createError}</p>}
       <button type="button" className="button primary wide create-room-submit" onClick={createRoom} disabled={creating || joining}>
