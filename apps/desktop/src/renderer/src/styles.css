@@ -170,6 +170,9 @@ button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .capture-panel { margin-top: 36px; border: 1px solid #292929; border-radius: 8px; overflow: hidden; background: #0d0d0d; }
 .capture-modal { z-index: 2; width: min(920px, 100%); margin: 0; }
 .capture-panel > video { width: 100%; max-height: 520px; aspect-ratio: 16/9; display: block; object-fit: contain; background: #030303; }
+.capture-deferred-preview { min-height: 180px; aspect-ratio: 16/9; max-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #030303; color: #8b8882; }
+.capture-deferred-preview strong { color: #dedbd5; font-size: 14px; }
+.capture-deferred-preview span { font-size: 12px; }
 .capture-title { padding: 14px 17px; justify-content: space-between; border-top: 1px solid #292929; }
 .capture-title strong { font-size: 13px; }
 .capture-title span { color: #8b8882; font-size: 11px; }

@@ -667,10 +667,19 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       if (direction !== "inbound") return;
       void send({ type: "watch:stop", targetUserId: remoteUserId, mediaSessionId }).catch(() => undefined);
     };
+    let inboundVideoReady = false;
+    const clearStartupTimer = () => {
+      if (peer.connectionState !== "connected" || (direction === "inbound" && !inboundVideoReady)) return;
+      const timer = peerTimersRef.current.get(mediaSessionId);
+      if (timer) clearTimeout(timer);
+      peerTimersRef.current.delete(mediaSessionId);
+    };
     peerTimersRef.current.set(mediaSessionId, setTimeout(() => {
-      if (peersRef.current.get(mediaSessionId)?.peer !== peer || peer.connectionState === "connected") return;
+      if (peersRef.current.get(mediaSessionId)?.peer !== peer) return;
       setConnectionStatus("unstable");
-      if (direction === "inbound") setConnectionError("Não foi possível conectar a esta transmissão. Tente novamente.");
+      if (direction === "inbound") setConnectionError(peer.connectionState === "connected"
+        ? "A transmissão conectou, mas não enviou vídeo. Tente novamente."
+        : "Não foi possível conectar a esta transmissão. Tente novamente.");
       releaseInboundSession();
       closePeer(mediaSessionId);
     }, PEER_CONNECTION_TIMEOUT_MS));
@@ -698,6 +707,8 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       if (track.kind !== "video") return;
       const publishStream = () => {
         if (peersRef.current.get(mediaSessionId)?.peer !== peer) return;
+        inboundVideoReady = true;
+        clearStartupTimer();
         setRemoteStreams((currentStreams) => ({ ...currentStreams, [remoteUserId]: stream }));
       };
       if (track.muted) track.addEventListener("unmute", publishStream, { once: true });
@@ -707,9 +718,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       refreshViewers();
       traceMedia("peer.connection.changed", { direction, state: peer.connectionState });
       if (peer.connectionState === "connected") {
-        const timer = peerTimersRef.current.get(mediaSessionId);
-        if (timer) clearTimeout(timer);
-        peerTimersRef.current.delete(mediaSessionId);
+        clearStartupTimer();
         const watchRetryTimer = watchRetryTimersRef.current.get(mediaSessionId);
         if (watchRetryTimer) clearTimeout(watchRetryTimer);
         watchRetryTimersRef.current.delete(mediaSessionId);

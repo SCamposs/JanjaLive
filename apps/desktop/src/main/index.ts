@@ -712,6 +712,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      // Capture, signaling and audio must keep running while a game has focus.
+      backgroundThrottling: false,
       webSecurity: true,
       allowRunningInsecureContent: false,
       devTools: !app.isPackaged,
