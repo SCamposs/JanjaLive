@@ -37,7 +37,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 async function choose() {
   render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: /Capture QA.*Abrir/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Capture QA/ }));
   fireEvent.click(await screen.findByRole("button", { name: "Compartilhar tela" }));
   fireEvent.click(await screen.findByRole("button", { name: /VALORANT/ }));
   await screen.findByRole("dialog", { name: "Configurar transmissão" });
