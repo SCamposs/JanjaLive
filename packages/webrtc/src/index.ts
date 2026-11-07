@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { collectOutboundDiagnostic } from "./outbound-diagnostics";
 import { setPreferredVideoCodec } from "./codec-preference";
-export type { OutboundDiagnostic } from "./outbound-diagnostics";
 import {
   realtimeSocketMessageSchema,
   type RealtimeSession,
@@ -1058,13 +1056,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, pref
     setConnectionError(null);
   }, []);
 
-  const getOutboundDiagnostics = useCallback(async () => {
-    const outgoing = [...peersRef.current.values()].filter((session) => session.direction === "outbound");
-    return Promise.all(outgoing.map((session) => collectOutboundDiagnostic(session.peer)));
-  }, []);
-
   return {
-    getOutboundDiagnostics,
     activeStreams,
     connectionError,
     connectionStatus,

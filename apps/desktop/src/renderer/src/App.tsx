@@ -4,7 +4,6 @@ import { subscribeAuthStatus } from "./auth-session";
 import { DesktopLogin } from "./DesktopLogin";
 import { DesktopNoirBackdrop } from "./DesktopNoirBackdrop";
 import { DesktopRoomList } from "./DesktopRoomList";
-import { TransmissionDiagnostics } from "./TransmissionDiagnostics";
 import { DesktopAccountMenu } from "./DesktopAccountMenu";
 import { TooltipButton, usePlayerControlsAutoHide } from "@janjalive/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -434,8 +433,6 @@ export function App() {
 
       {update.state === "required" && <aside className="update-bar required"><span>Esta versão precisa ser atualizada para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Verificar atualização</button></aside>}
       {update.state === "store" && update.required && <aside className="update-bar required"><span>Atualize o JanjaLive pela Microsoft Store para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Abrir Microsoft Store</button></aside>}
-
-      {authorizedRoomId && <TransmissionDiagnostics key={authorizedRoomId} sharing={sharing} collect={realtime.getOutboundDiagnostics} version={version} />}
 
       {auth.state !== "signed-in" ? <DesktopLogin auth={auth} /> : room ? (
         room.access === "authorized" ? <RoomView room={room} currentUserId={auth.user.id} sharing={sharing} localStream={localStream} selectedStreamers={selectedStreamers} remoteStreams={realtime.remoteStreams} activeStreams={activeRemoteStreams} onlineUserIds={realtime.onlineUserIds} viewerUserIds={realtime.viewerUserIds} connectionStatus={realtime.connectionStatus} onRoomUpdate={setRoom} onRoomDeleted={leaveRoom} onShare={openPicker} onStopSharing={stopSharing} onSelectStreamer={(userId) => void watchStreamer(userId)} onStopWatching={(userId) => void leaveStream(userId)} />
