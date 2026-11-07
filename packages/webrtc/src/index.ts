@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { collectOutboundDiagnostic } from "./outbound-diagnostics";
+import { setPreferredVideoCodec } from "./codec-preference";
+export type { OutboundDiagnostic } from "./outbound-diagnostics";
 import {
   realtimeSocketMessageSchema,
   type RealtimeSession,
@@ -369,6 +372,7 @@ type UseRoomMediaOptions = {
   roomId: string | null;
   transport: RoomMediaTransport;
   initialOnlineUserIds?: string[];
+  preferredVideoCodec?: string;
 };
 
 export type ConnectionStatus = "connecting" | "good" | "unstable" | "reconnecting";
@@ -491,7 +495,7 @@ export async function replacePeerTracks(peer: RTCPeerConnection, stream: MediaSt
   return needsNegotiation;
 }
 
-export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: UseRoomMediaOptions) {
+export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, preferredVideoCodec }: UseRoomMediaOptions) {
   const initialOnline = initialOnlineUserIds ?? EMPTY_USER_IDS;
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>(initialOnline);
   const [activeStreams, setActiveStreams] = useState<ActiveStream[]>([]);
@@ -776,6 +780,10 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       return;
     }
     if (peer.signalingState !== "stable") return;
+    if (preferredVideoCodec) {
+      const applied = setPreferredVideoCodec(peer, preferredVideoCodec);
+      traceMedia("peer.video.codec_preference", { codec: preferredVideoCodec, applied });
+    }
     const description = await peer.createOffer();
     await peer.setLocalDescription(description);
     await send({
@@ -784,7 +792,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       mediaSessionId,
       description: { type: "offer", sdp: description.sdp ?? "" },
     });
-  }, [createPeer, send]);
+  }, [createPeer, preferredVideoCodec, send]);
 
   const handleSignal = useCallback(async (senderUserId: string, payload: ServerSignal, authorizationIssuedAt: number) => {
     if (payload.type === "room:peer-revoked") {
@@ -1050,7 +1058,13 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     setConnectionError(null);
   }, []);
 
+  const getOutboundDiagnostics = useCallback(async () => {
+    const outgoing = [...peersRef.current.values()].filter((session) => session.direction === "outbound");
+    return Promise.all(outgoing.map((session) => collectOutboundDiagnostic(session.peer)));
+  }, []);
+
   return {
+    getOutboundDiagnostics,
     activeStreams,
     connectionError,
     connectionStatus,

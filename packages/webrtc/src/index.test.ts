@@ -483,8 +483,11 @@ describe("shared room media lifecycle", () => {
     unmount();
   });
 
-  it("does not poison polling when a retried negotiation delivers the same answer twice", async () => {
+  it.each([undefined, "video/H264"])("handles duplicate answers with codec preference %s", async (preferredVideoCodec) => {
     vi.useFakeTimers();
+    const codecs = [{ mimeType: "video/VP8", clockRate: 90_000 }, { mimeType: "video/H264", clockRate: 90_000 }];
+    vi.stubGlobal("RTCRtpSender", { getCapabilities: () => ({ codecs }) });
+    const setCodecPreferences = vi.fn();
     class PeerStub {
       static lastCreated: PeerStub | undefined;
       connectionState: RTCPeerConnectionState = "new";
@@ -497,15 +500,20 @@ describe("shared room media lifecycle", () => {
       private senders: RTCRtpSender[] = [];
       constructor() { PeerStub.lastCreated = this; }
       getSenders() { return this.senders; }
+      getTransceivers() { return this.senders.map((sender) => ({ sender, setCodecPreferences })); }
       addTrack() {
         const sender = {
+          track: { kind: "video" },
           getParameters: () => ({ encodings: [{}] }),
           setParameters: vi.fn().mockResolvedValue(undefined),
         } as unknown as RTCRtpSender;
         this.senders.push(sender);
         return sender;
       }
-      createOffer() { return Promise.resolve({ type: "offer" as const, sdp: "offer-sdp" }); }
+      createOffer() {
+        expect(setCodecPreferences).toHaveBeenCalledTimes(preferredVideoCodec ? 1 : 0);
+        return Promise.resolve({ type: "offer" as const, sdp: "offer-sdp" });
+      }
       setLocalDescription(description: RTCSessionDescriptionInit) {
         this.localDescription = description as RTCSessionDescription;
         this.signalingState = description.type === "offer" ? "have-local-offer" : "stable";
@@ -559,7 +567,7 @@ describe("shared room media lifecycle", () => {
       } satisfies RealtimePoll)
       .mockImplementation(() => new Promise(() => undefined));
     const transport = createTransport(poll);
-    const { result, unmount } = renderHook(() => useRoomMediaCore({ roomId: "room-a", transport }));
+    const { result, unmount } = renderHook(() => useRoomMediaCore({ roomId: "room-a", transport, preferredVideoCodec }));
     const stream = { getTracks: () => [{ kind: "video", stop: vi.fn() }] } as unknown as MediaStream;
 
     await act(async () => {

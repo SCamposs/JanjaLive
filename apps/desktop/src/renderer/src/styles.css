@@ -12,6 +12,11 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .desktop-shell { min-height: 100vh; }
+.transmission-diagnostics { position: fixed; bottom: 12px; left: 12px; z-index: 30; max-width: calc(100vw - 24px); padding: 10px 12px; border: 1px solid #292929; border-radius: 8px; background: #111; color: #aaa69f; font-size: 11px; }
+.transmission-diagnostics summary { cursor: pointer; }
+.transmission-diagnostics p { margin: 10px 0; }
+.transmission-diagnostics > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.transmission-diagnostics small { display: block; margin-top: 8px; }
 .app-header { position: relative; z-index: 10; height: 58px; padding-left: calc(env(titlebar-area-x, 0px) + 18px); padding-right: calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100%) + 18px); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1e1e1e; background: rgba(13,13,13,.96); app-region: drag; -webkit-app-region: drag; user-select: none; }
 .brand, .header-actions, .capture-title, .capture-actions, .audio-toggle { display: flex; align-items: center; }
 .brand { gap: 9px; font-size: 15px; font-weight: 600; letter-spacing: -.025em; }
