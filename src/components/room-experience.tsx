@@ -12,7 +12,6 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { playRoomCue } from "@janjalive/webrtc";
@@ -443,7 +442,7 @@ function getServerDisplayCaptureSupport() {
 }
 
 function MemberAvatar({ person }: { person: { name: string; image: string | null } }) {
-  return person.image ? <Image className="member-avatar" src={person.image} alt="" width={32} height={32} /> : <span className="member-avatar fallback">{person.name.slice(0, 1).toUpperCase()}</span>;
+  return <UserAvatar image={person.image} name={person.name} size={31} className="member-avatar" />;
 }
 
 function MemberRow({ person, online, streaming, selected, isCurrentUser, isOwner, onWatch, onRevoke }: {

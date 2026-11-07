@@ -37,7 +37,6 @@
 .admin-user-list { display: grid; gap: 8px; }
 .admin-user { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px; border: 1px solid #211f1d; border-radius: 10px; }
 .admin-user-identity, .admin-user-action { display: flex; align-items: center; gap: 12px; }
-.admin-user-identity img, .admin-user-identity > span { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; background: #211f1d; }
 .admin-user-identity div { display: grid; gap: 2px; }
 .admin-user-identity small { color: #817b75; font-size: 11px; overflow-wrap: anywhere; }
 .admin-user-action > span { font-size: 12px; color: #8da883; }
@@ -133,8 +132,6 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .landing-noir-canvas { display: block; opacity: 0; transition: opacity .4s ease-out; }
 .landing-noir-canvas.is-ready { opacity: 1; }
 .signed-user { display: flex; align-items: center; gap: 8px; color: var(--text-soft); font-size: 13px; }
-.user-avatar { flex: 0 0 auto; border: 1px solid var(--border); border-radius: 50%; object-fit: cover; }
-.user-avatar.fallback { display: grid; place-items: center; color: var(--text); background: var(--accent-dark); border-color: oklch(35.5% .082 12.3); font-size: 11px; font-weight: 700; }
 .account-summary { cursor: pointer; user-select: none; }
 .account-summary > svg { color: var(--muted-2); transition: transform .18s; }
 .account-summary[data-popup-open] > svg { transform: rotate(180deg); }
@@ -214,7 +211,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .connection-dot.connecting, .connection-dot.reconnecting { animation: pulse 1.4s infinite; }
 .icon-button, .avatar-button { width: 34px; height: 34px; border-radius: 7px; border: 1px solid transparent; color: var(--text-soft); background: transparent; display: inline-grid; place-items: center; cursor: pointer; }
 .icon-button:hover, .avatar-button:hover { border-color: var(--border); background: var(--surface-2); }
-.avatar-button { overflow: hidden; border-radius: 50%; background: var(--accent); color: var(--accent-ink); }
+.avatar-button { overflow: hidden; border-radius: 50%; background: var(--surface-2); color: var(--text-soft); }
 .avatar-button img { width: 100%; height: 100%; object-fit: cover; }
 .settings-menu { position: relative; }
 .settings-menu summary { list-style: none; }
@@ -266,7 +263,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .stream-choices { display: flex; flex-direction: column; border-top: 1px solid var(--border-soft); }
 .stream-choice { width: 100%; min-height: 72px; padding: 10px 8px; display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 12px; color: var(--text); text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--border-soft); cursor: pointer; transition: background .18s, padding .18s; }
 .stream-choice:hover { padding-inline: 14px; background: var(--surface); }
-.stream-choice-avatar { border-radius: 10px; }
+.stream-choice-avatar { --avatar-radius: 10px; }
 .stream-choice-copy { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .stream-choice-copy strong { overflow: hidden; font-size: 14px; font-weight: 610; text-overflow: ellipsis; white-space: nowrap; }
 .stream-choice-copy > span { color: var(--muted); font-size: 11px; }
@@ -282,9 +279,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .member-row { min-height: 43px; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 8px; border-radius: 7px; padding: 5px; }
 .member-row:hover { background: var(--surface-2); }
 .avatar-wrap { position: relative; }
-.member-avatar { width: 31px; height: 31px; border-radius: 8px; object-fit: cover; }
-.member-avatar.fallback { display: grid; place-items: center; color: var(--accent-strong); background: var(--accent-surface); font-size: 11px; font-weight: 700; }
-.avatar-wrap > span { position: absolute; right: 0; bottom: 0; width: 8px; height: 8px; border: 2px solid var(--surface); border-radius: 50%; background: var(--disabled); }
+.member-avatar { --avatar-radius: 8px; }
+.avatar-wrap > span[data-online] { position: absolute; right: 0; bottom: 0; width: 8px; height: 8px; border: 2px solid var(--surface); border-radius: 50%; background: var(--disabled); }
 .avatar-wrap > span[data-online="true"] { background: var(--success); }
 .member-row > div:nth-child(2) { display: flex; flex-direction: column; }
 .member-row strong { font-size: 12px; font-weight: 590; }

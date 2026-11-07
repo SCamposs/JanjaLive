@@ -8,6 +8,7 @@ import { RadioGroup } from "@base-ui/react/radio-group";
 export { Menu } from "@base-ui/react/menu";
 export { Input as TextInput } from "@base-ui/react/input";
 export { usePlayerControlsAutoHide } from "./player-controls";
+export { UserAvatar } from "./user-avatar";
 
 export function ChoiceGroup<Value extends string>({ value, onValueChange, options, label, className }: {
   value: Value;

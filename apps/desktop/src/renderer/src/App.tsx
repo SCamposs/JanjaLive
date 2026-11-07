@@ -5,7 +5,7 @@ import { DesktopLogin } from "./DesktopLogin";
 import { DesktopNoirBackdrop } from "./DesktopNoirBackdrop";
 import { DesktopRoomList } from "./DesktopRoomList";
 import { DesktopAccountMenu } from "./DesktopAccountMenu";
-import { TooltipButton, usePlayerControlsAutoHide } from "@janjalive/ui";
+import { TooltipButton, UserAvatar, usePlayerControlsAutoHide } from "@janjalive/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Play, Scaling, UserMinus, UsersRound, Volume2, VolumeX, X } from "lucide-react";
 import { playRoomCue, type ConnectionStatus, type StreamMetadata } from "@janjalive/webrtc";
@@ -576,7 +576,7 @@ function RoomView({ room, currentUserId, sharing, localStream, selectedStreamers
   })}</div> : activeStreams.length ? <div className="desktop-stream-list"><div className="desktop-stream-heading"><h2>Transmissões</h2><span>{activeStreams.length} {activeStreams.length === 1 ? "disponível" : "disponíveis"}</span></div>{activeStreams.map((item) => {
     const member = members.get(item.streamerUserId);
     const name = member?.name ?? "Amigo";
-    return <button type="button" key={item.streamerUserId} onClick={() => onSelectStreamer(item.streamerUserId)}>{member?.image ? <img src={member.image} alt="" /> : <span className="stream-avatar-fallback">{name[0]}</span>}<span><strong>{name}</strong><small><b>AO VIVO</b> {item.preset.replace(/(\d+p)(\d+)/, "$1 · $2 FPS")}{item.hasAudio ? " · Áudio" : ""}</small></span><span className="watch-action">Assistir</span></button>;
+    return <button type="button" key={item.streamerUserId} onClick={() => onSelectStreamer(item.streamerUserId)}><UserAvatar name={name} image={member?.image} size={48} className="desktop-stream-avatar" /><span><strong>{name}</strong><small><b>AO VIVO</b> {item.preset.replace(/(\d+p)(\d+)/, "$1 · $2 FPS")}{item.hasAudio ? " · Áudio" : ""}</small></span><span className="watch-action">Assistir</span></button>;
   })}</div> : <div className="empty-room"><DesktopNoirBackdrop image="/janja-live-noir-2.png" /><div className="empty-room-copy"><h2>Nenhuma transmissão ativa</h2><p>Compartilhe sua tela ou aguarde um amigo começar.</p></div></div>}</div></section><RoomMembers room={room} onlineUserIds={onlineUserIds} currentUserId={currentUserId} activeStreamerIds={new Set(activeStreams.map((item) => item.streamerUserId))} selectedStreamers={selectedStreamers} onWatch={onSelectStreamer} onRoomUpdate={onRoomUpdate} onRoomDeleted={onRoomDeleted} /></div>;
 }
 
@@ -633,7 +633,7 @@ function Player({ stream, label, own, onStop, initiallyMuted = own, viewerNames 
 }
 
 function Member({ member, online, streaming = false, selected = false, onWatch, onRemove }: { member: RoomSnapshot["members"][number]; online: boolean; streaming?: boolean; selected?: boolean; onWatch?: () => void; onRemove?: () => void }) {
-  return <div className="desktop-member">{member.image ? <img src={member.image} alt="" /> : <span>{member.name[0]}</span>}<div><strong>{member.name}</strong><small>{streaming ? `${member.role === "OWNER" ? "Dono · " : ""}Transmitindo` : member.role === "OWNER" ? "Dono" : online ? "Online" : "Offline"}</small></div><div className="member-end">{streaming && onWatch && <TooltipButton className="member-watch" tooltip={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} aria-label={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} disabled={selected} type="button" onClick={onWatch}><Play size={13} fill="currentColor" /></TooltipButton>}{onRemove && <TooltipButton className="member-remove" tooltip={`Remover ${member.name}`} aria-label={`Remover ${member.name}`} type="button" onClick={onRemove}><UserMinus size={14} /></TooltipButton>}<i data-online={online} /></div></div>;
+  return <div className="desktop-member"><UserAvatar name={member.name} image={member.image} size={30} className="desktop-member-avatar" /><div><strong>{member.name}</strong><small>{streaming ? `${member.role === "OWNER" ? "Dono · " : ""}Transmitindo` : member.role === "OWNER" ? "Dono" : online ? "Online" : "Offline"}</small></div><div className="member-end">{streaming && onWatch && <TooltipButton className="member-watch" tooltip={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} aria-label={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} disabled={selected} type="button" onClick={onWatch}><Play size={13} fill="currentColor" /></TooltipButton>}{onRemove && <TooltipButton className="member-remove" tooltip={`Remover ${member.name}`} aria-label={`Remover ${member.name}`} type="button" onClick={onRemove}><UserMinus size={14} /></TooltipButton>}<i data-online={online} /></div></div>;
 }
 
 

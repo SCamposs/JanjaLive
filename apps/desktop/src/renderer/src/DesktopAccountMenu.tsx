@@ -1,4 +1,4 @@
-import { Menu } from "@janjalive/ui";
+import { Menu, UserAvatar } from "@janjalive/ui";
 
 export function DesktopAccountMenu({ user, canLogout, onLogout, onSafety }: {
   user: { name: string; image?: string | null };
@@ -8,7 +8,7 @@ export function DesktopAccountMenu({ user, canLogout, onLogout, onSafety }: {
 }) {
   return <Menu.Root>
     <Menu.Trigger className="account-button" aria-label={`Conta de ${user.name}`}>
-      {user.image ? <img src={user.image} alt="" /> : <span className="avatar-fallback">{user.name[0]}</span>}
+      <UserAvatar name={user.name} image={user.image} size={24} />
       <span>{user.name}</span>
     </Menu.Trigger>
     <Menu.Portal>

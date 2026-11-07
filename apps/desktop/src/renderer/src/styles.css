@@ -31,9 +31,7 @@ button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .primary-button { border-color: #a62639; background: #8c1d2c; font-weight: 600; letter-spacing: .015em; }
 .account-button { display: flex; align-items: center; gap: 7px; }
 .account-button { border-color: transparent; color: #b5b1aa; background: transparent; font-weight: 500; }
-.account-button img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
 .account-button small { color: #e6e3dc; opacity: .72; }
-.avatar-fallback { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: #541019; }
 .quiet-button:hover { background: #1b1b1b; }
 .account-button:hover { color: #e6e3dc; border-color: #292929; background: #151515; }
 .primary-button:hover { background: #a62639; }
@@ -122,7 +120,7 @@ button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .desktop-stream-list > button { width: 100%; min-height: 72px; padding: 8px; display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 12px; border: 0; border-top: 1px solid #292929; color: #e6e3dc; text-align: left; background: transparent; cursor: pointer; transition: padding .18s ease, background .18s ease; }
 .desktop-stream-list > button:last-child { border-bottom: 1px solid #292929; }
 .desktop-stream-list > button:hover { padding-inline: 14px; background: #111; }
-.desktop-stream-list > button > img, .stream-avatar-fallback { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 9px; object-fit: cover; background: #292929; }
+.desktop-stream-avatar { --avatar-radius: 9px; }
 .desktop-stream-list span strong, .desktop-stream-list span small { display: block; }
 .desktop-stream-list span small { margin-top: 4px; color: #8b8882; font-size: 10px; }
 .desktop-stream-list span small b { display: inline; margin-right: 4px; color: #c13b4d; font-size: 9px; }
@@ -143,7 +141,7 @@ button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .desktop-members h3 { margin: 18px 5px 7px; color: #55524e; font-size: 9px; text-transform: uppercase; letter-spacing: .1em; }
 .desktop-member { min-height: 46px; padding: 5px; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 9px; border-radius: 6px; }
 .desktop-member:hover { background: #151515; }
-.desktop-member > img, .desktop-member > span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; object-fit: cover; background: #292929; }
+.desktop-member-avatar { --avatar-radius: 7px; }
 .desktop-member strong, .desktop-member small { display: block; }
 .desktop-member strong { font-size: 11px; }
 .desktop-member small { margin-top: 2px; color: #8b8882; font-size: 9px; }
