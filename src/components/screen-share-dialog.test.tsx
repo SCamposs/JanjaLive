@@ -20,4 +20,11 @@ describe("ScreenShareDialog", () => {
       frameRate: 60,
     });
   });
+  it("exposes the selected quality options through radio semantics", () => {
+    render(<ScreenShareDialog open onCancel={vi.fn()} onStart={vi.fn()} />);
+    expect(screen.getByRole("radio", { name: "1080p", checked: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "720p" }));
+    expect(screen.getByRole("radio", { name: "720p", checked: true })).toBeTruthy();
+    expect(screen.getByRole("radiogroup", { name: "Resolução" })).toBeTruthy();
+  });
 });

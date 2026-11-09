@@ -87,21 +87,7 @@ pelas mesmas verificações estruturais e smoke do executável, sem ser publicad
 
 ## Atualizações posteriores
 
-O fluxo atual gera o pacote de cada versão; ainda não envia submissões por CI.
-A primeira publicação deve ser concluída manualmente no Partner Center. Depois
-disso é possível automatizar envio pelo Microsoft Store Developer CLI/API e
-GitHub Actions. Requer associar um tenant Microsoft Entra ID ao Partner Center e
-configurar uma aplicação de serviço com permissões e credenciais no CI; uma
-conta Microsoft pessoal por si só não autentica a CLI. Não colocar secrets no
-repositório, no pacote ou no chat.
-
-O pipeline futuro deve preservar a audiência privada existente, falhar se não
-conseguir confirmar essa configuração e nunca agendar abertura pública. O envio
-automático não elimina certificação/revisão pela Microsoft. Após aprovação, a
-Store distribui as atualizações aos testadores conforme as configurações dela,
-sem baixar outro instalador manualmente. O canal EXE continua independente.
-
-Referência: https://learn.microsoft.com/en-us/windows/apps/publish/msstore-dev-cli/overview
+Consulte [microsoft-store-updates.md](microsoft-store-updates.md) para geração, envio manual e Actions sob demanda. A primeira publicação continua manual; o envio por API é opcional e exige configuração no Partner Center/Entra e GitHub. Não reconfigure a audiência atual para atualizar o pacote. As instruções de audiência privada acima registram a preparação original.
 
 ## Compatibilidade e aceitação obrigatória
 

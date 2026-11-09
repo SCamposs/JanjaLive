@@ -48,8 +48,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --audit-level=high
-      - name: Build native Windows audio helper from source
-        run: pnpm --filter @janjalive/desktop build:native-audio
+      - name: Build native Windows helpers from source
+        run: pnpm --filter @janjalive/desktop build:native
       - name: Verify tag and package version
         shell: pwsh
         run: |

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { setPreferredVideoCodec } from "./codec-preference";
 import {
   realtimeSocketMessageSchema,
   type RealtimeSession,
@@ -68,6 +69,7 @@ export type ClientSignal =
 
 export type ServerSignal =
   | ClientSignal
+  | { type: "room:peer-revoked"; targetUserId: string; changedAt: number }
   | { type: "room:join-request" | "room:members-changed" | "room:closed" }
   | { type: "room:approved" | "room:rejected" | "room:revoked"; targetUserId: string };
 
@@ -76,6 +78,7 @@ export type RealtimePoll = {
     id: string;
     senderUserId: string;
     sentAt: number;
+    authorizationIssuedAt?: number;
     cursor: number;
     payload: ServerSignal;
   }>;
@@ -367,6 +370,7 @@ type UseRoomMediaOptions = {
   roomId: string | null;
   transport: RoomMediaTransport;
   initialOnlineUserIds?: string[];
+  preferredVideoCodec?: string;
 };
 
 export type ConnectionStatus = "connecting" | "good" | "unstable" | "reconnecting";
@@ -376,6 +380,7 @@ type PeerSession = {
   id: string;
   remoteUserId: string;
   direction: PeerDirection;
+  authorizationIssuedAt: number | null;
   peer: RTCPeerConnection;
 };
 export type PendingCandidateSession = {
@@ -488,7 +493,7 @@ export async function replacePeerTracks(peer: RTCPeerConnection, stream: MediaSt
   return needsNegotiation;
 }
 
-export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: UseRoomMediaOptions) {
+export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, preferredVideoCodec }: UseRoomMediaOptions) {
   const initialOnline = initialOnlineUserIds ?? EMPTY_USER_IDS;
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>(initialOnline);
   const [activeStreams, setActiveStreams] = useState<ActiveStream[]>([]);
@@ -503,7 +508,9 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   const peerTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const watchRetryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingCandidatesRef = useRef(new Map<string, PendingCandidateSession>());
-  const pendingWatchersRef = useRef(new Map<string, string>());
+  const pendingWatchersRef = useRef(new Map<string, { remoteUserId: string; authorizationIssuedAt: number }>());
+  const revokedPeersRef = useRef(new Map<string, number>());
+  const peerAttemptsRef = useRef(new Map<string, symbol>());
   const remoteStreamRefs = useRef(new Map<string, MediaStream>());
   const activeStreamsRef = useRef<ActiveStream[]>([]);
   const latestSnapshotStreamerIdsRef = useRef(new Set<string>());
@@ -527,6 +534,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   }, []);
 
   const closePeer = useCallback((mediaSessionId: string) => {
+    peerAttemptsRef.current.delete(mediaSessionId);
     const session = peersRef.current.get(mediaSessionId);
     const timer = peerTimersRef.current.get(mediaSessionId);
     if (timer) clearTimeout(timer);
@@ -558,6 +566,8 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
   }, [closePeer]);
 
   const closeAllPeers = useCallback(() => {
+    peerAttemptsRef.current.clear();
+    revokedPeersRef.current.clear();
     for (const { peer } of peersRef.current.values()) peer.close();
     for (const timer of peerTimersRef.current.values()) clearTimeout(timer);
     for (const timer of watchRetryTimersRef.current.values()) clearTimeout(timer);
@@ -628,10 +638,14 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     setActiveStreams(activeStreamsRef.current);
   }, []);
 
-  const createPeer = useCallback(async (mediaSessionId: string, remoteUserId: string, direction: PeerDirection) => {
+  const createPeer = useCallback(async (mediaSessionId: string, remoteUserId: string, direction: PeerDirection, authorizationIssuedAt?: number) => {
     if (!roomId) throw new Error("ROOM_REQUIRED");
+    if (authorizationIssuedAt !== undefined && authorizationIssuedAt <= (revokedPeersRef.current.get(remoteUserId) ?? -1)) {
+      return null;
+    }
     const current = peersRef.current.get(mediaSessionId);
     if (current && current.peer.connectionState !== "closed") {
+      if (authorizationIssuedAt !== undefined && current.remoteUserId === remoteUserId) current.authorizationIssuedAt = authorizationIssuedAt;
       return current.remoteUserId === remoteUserId && current.direction === direction ? current.peer : null;
     }
     const peerCountForRemote = [...peersRef.current.values()].filter(
@@ -642,18 +656,32 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     ).length;
     if (peerCountForRemote >= MAX_PEER_SESSIONS_PER_REMOTE || totalPeerCount >= MAX_TOTAL_PEER_SESSIONS) return null;
 
+    const attempt = Symbol(mediaSessionId);
+    peerAttemptsRef.current.set(mediaSessionId, attempt);
     const iceServers = await resolveIceServers();
+    if (peerAttemptsRef.current.get(mediaSessionId) !== attempt) return null;
+    peerAttemptsRef.current.delete(mediaSessionId);
+    if (authorizationIssuedAt !== undefined && authorizationIssuedAt <= (revokedPeersRef.current.get(remoteUserId) ?? -1)) return null;
     const peer = new RTCPeerConnection({ iceServers });
-    peersRef.current.set(mediaSessionId, { id: mediaSessionId, remoteUserId, direction, peer });
+    peersRef.current.set(mediaSessionId, { id: mediaSessionId, remoteUserId, direction, peer, authorizationIssuedAt: authorizationIssuedAt ?? null });
     if (direction === "inbound") inboundSessionByStreamerRef.current.set(remoteUserId, mediaSessionId);
     const releaseInboundSession = () => {
       if (direction !== "inbound") return;
       void send({ type: "watch:stop", targetUserId: remoteUserId, mediaSessionId }).catch(() => undefined);
     };
+    let inboundVideoReady = false;
+    const clearStartupTimer = () => {
+      if (peer.connectionState !== "connected" || (direction === "inbound" && !inboundVideoReady)) return;
+      const timer = peerTimersRef.current.get(mediaSessionId);
+      if (timer) clearTimeout(timer);
+      peerTimersRef.current.delete(mediaSessionId);
+    };
     peerTimersRef.current.set(mediaSessionId, setTimeout(() => {
-      if (peersRef.current.get(mediaSessionId)?.peer !== peer || peer.connectionState === "connected") return;
+      if (peersRef.current.get(mediaSessionId)?.peer !== peer) return;
       setConnectionStatus("unstable");
-      if (direction === "inbound") setConnectionError("Não foi possível conectar a esta transmissão. Tente novamente.");
+      if (direction === "inbound") setConnectionError(peer.connectionState === "connected"
+        ? "A transmissão conectou, mas não enviou vídeo. Tente novamente."
+        : "Não foi possível conectar a esta transmissão. Tente novamente.");
       releaseInboundSession();
       closePeer(mediaSessionId);
     }, PEER_CONNECTION_TIMEOUT_MS));
@@ -681,6 +709,8 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       if (track.kind !== "video") return;
       const publishStream = () => {
         if (peersRef.current.get(mediaSessionId)?.peer !== peer) return;
+        inboundVideoReady = true;
+        clearStartupTimer();
         setRemoteStreams((currentStreams) => ({ ...currentStreams, [remoteUserId]: stream }));
       };
       if (track.muted) track.addEventListener("unmute", publishStream, { once: true });
@@ -690,9 +720,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       refreshViewers();
       traceMedia("peer.connection.changed", { direction, state: peer.connectionState });
       if (peer.connectionState === "connected") {
-        const timer = peerTimersRef.current.get(mediaSessionId);
-        if (timer) clearTimeout(timer);
-        peerTimersRef.current.delete(mediaSessionId);
+        clearStartupTimer();
         const watchRetryTimer = watchRetryTimersRef.current.get(mediaSessionId);
         if (watchRetryTimer) clearTimeout(watchRetryTimer);
         watchRetryTimersRef.current.delete(mediaSessionId);
@@ -712,19 +740,20 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     return peer;
   }, [closePeer, refreshViewers, resolveIceServers, roomId, send]);
 
-  const offerBroadcastTo = useCallback(async (remoteUserId: string, mediaSessionId: string) => {
+  const offerBroadcastTo = useCallback(async (remoteUserId: string, mediaSessionId: string, authorizationIssuedAt = peersRef.current.get(mediaSessionId)?.authorizationIssuedAt ?? Date.now()) => {
+    if (authorizationIssuedAt <= (revokedPeersRef.current.get(remoteUserId) ?? -1)) return;
     const stream = localStreamRef.current;
     if (!stream) {
-      const pendingForRemote = [...pendingWatchersRef.current.values()].filter((userId) => userId === remoteUserId).length;
+      const pendingForRemote = [...pendingWatchersRef.current.values()].filter((pending) => pending.remoteUserId === remoteUserId).length;
       if (
         pendingWatchersRef.current.size >= MAX_PENDING_MEDIA_SESSIONS
         || (!pendingWatchersRef.current.has(mediaSessionId) && pendingForRemote >= MAX_PENDING_MEDIA_SESSIONS_PER_REMOTE)
       ) return;
-      pendingWatchersRef.current.set(mediaSessionId, remoteUserId);
+      pendingWatchersRef.current.set(mediaSessionId, { remoteUserId, authorizationIssuedAt });
       return;
     }
     pendingWatchersRef.current.delete(mediaSessionId);
-    const peer = await createPeer(mediaSessionId, remoteUserId, "outbound");
+    const peer = await createPeer(mediaSessionId, remoteUserId, "outbound", authorizationIssuedAt);
     if (!peer) return;
     if (peer.getSenders().length === 0) {
       for (const track of stream.getTracks()) {
@@ -749,6 +778,10 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       return;
     }
     if (peer.signalingState !== "stable") return;
+    if (preferredVideoCodec) {
+      const applied = setPreferredVideoCodec(peer, preferredVideoCodec);
+      traceMedia("peer.video.codec_preference", { codec: preferredVideoCodec, applied });
+    }
     const description = await peer.createOffer();
     await peer.setLocalDescription(description);
     await send({
@@ -757,9 +790,18 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       mediaSessionId,
       description: { type: "offer", sdp: description.sdp ?? "" },
     });
-  }, [createPeer, send]);
+  }, [createPeer, preferredVideoCodec, send]);
 
-  const handleSignal = useCallback(async (senderUserId: string, payload: ServerSignal) => {
+  const handleSignal = useCallback(async (senderUserId: string, payload: ServerSignal, authorizationIssuedAt: number) => {
+    if (payload.type === "room:peer-revoked") {
+      const cutoff = Math.max(revokedPeersRef.current.get(payload.targetUserId) ?? -1, payload.changedAt);
+      revokedPeersRef.current.set(payload.targetUserId, cutoff);
+      closePeers((session) => session.remoteUserId === payload.targetUserId && session.authorizationIssuedAt !== null && session.authorizationIssuedAt <= cutoff);
+      for (const [id, pending] of pendingWatchersRef.current) {
+        if (pending.remoteUserId === payload.targetUserId && pending.authorizationIssuedAt <= cutoff) closePeer(id);
+      }
+      return false;
+    }
     const directive = getRoomSignalDirective(payload);
     if (directive.membershipChanged) setMembershipRevision((value) => value + 1);
     if (directive.roomUnavailable) {
@@ -775,10 +817,11 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     };
 
     if (payload.type === "watch:request") {
-      await offerBroadcastTo(senderUserId, payload.mediaSessionId);
+      await offerBroadcastTo(senderUserId, payload.mediaSessionId, authorizationIssuedAt);
     } else if (payload.type === "watch:stop") {
       const session = peersRef.current.get(payload.mediaSessionId);
-      if (session?.direction === "outbound" && session.remoteUserId === senderUserId) closePeer(payload.mediaSessionId);
+      const pending = pendingWatchersRef.current.get(payload.mediaSessionId);
+      if ((session?.direction === "outbound" && session.remoteUserId === senderUserId) || pending?.remoteUserId === senderUserId) closePeer(payload.mediaSessionId);
     } else if (payload.type === "stream:stop") {
       traceMedia("stream.explicit_stop.received");
       closePeers((session) => session.direction === "inbound" && session.remoteUserId === senderUserId);
@@ -788,7 +831,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
       activeStreamsRef.current = activeStreamsRef.current.filter((stream) => stream.streamerUserId !== senderUserId);
       setActiveStreams(activeStreamsRef.current);
     } else if (payload.type === "webrtc:offer") {
-      const peer = await createPeer(payload.mediaSessionId, senderUserId, "inbound");
+      const peer = await createPeer(payload.mediaSessionId, senderUserId, "inbound", authorizationIssuedAt);
       if (!peer) return false;
       if (
         peer.remoteDescription?.type === "offer" &&
@@ -873,7 +916,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
           // negotiation from an earlier visit to the room.
           if (!hasSynced && isTransientPeerSignal(event.payload)) continue;
           try {
-            if (await handleSignal(event.senderUserId, event.payload)) return;
+            if (await handleSignal(event.senderUserId, event.payload, event.authorizationIssuedAt ?? event.sentAt)) return;
             if (stopped) return;
           } catch {
             setConnectionStatus(hasSynced ? "reconnecting" : "connecting");
@@ -939,7 +982,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds }: Us
     traceMedia("broadcast.started", { audio: metadata.hasAudio });
     pollWakeRef.current?.();
     await Promise.all([...pendingWatchersRef.current].map(
-      ([mediaSessionId, watcherUserId]) => offerBroadcastTo(watcherUserId, mediaSessionId),
+      ([mediaSessionId, watcher]) => offerBroadcastTo(watcher.remoteUserId, mediaSessionId, watcher.authorizationIssuedAt),
     ));
   }, [offerBroadcastTo, send]);
 

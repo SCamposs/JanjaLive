@@ -1,0 +1,129 @@
+name: Microsoft Store update (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published stable release tag (for example v0.1.33)
+        type: string
+        required: true
+      submit_to_store:
+        description: Also send this package for Microsoft certification (requires Store credentials)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: microsoft-store-update
+  cancel-in-progress: false
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/main' && github.repository == 'SCamposs/JanjaLive'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      STORE_IDENTITY_NAME: SCamposs.JanjaLive
+      STORE_PUBLISHER: CN=A672FA79-568E-4AD7-991F-61178A793318
+      STORE_PUBLISHER_DISPLAY_NAME: SCamposs
+    steps:
+      - name: Require a published stable release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$') { throw 'Invalid stable tag' }
+          $release = gh release view $env:RELEASE_TAG --json isDraft,isPrerelease | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or !$release -or $release.isDraft -or $release.isPrerelease) { throw 'A published stable release is required' }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release ancestry and package version
+        id: version
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          if ($LASTEXITCODE -ne 0) { throw 'The release must belong to main' }
+          $version = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          $rootVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -ne "v$version" -or $rootVersion -ne $version) { throw 'Release version mismatch' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.19.0
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check:all
+      - run: pnpm desktop:package:store
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: JanjaLive-Store-${{ steps.version.outputs.version }}
+          path: apps/desktop/dist/store/*.msix
+          if-no-files-found: error
+          retention-days: 14
+
+  submit:
+    if: inputs.submit_to_store
+    needs: package
+    runs-on: windows-latest
+    timeout-minutes: 20
+    environment: microsoft-store
+    steps:
+      - name: Check Store configuration
+        shell: pwsh
+        env:
+          PRODUCT_ID: ${{ vars.MICROSOFT_STORE_PRODUCT_ID }}
+          TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+        run: |
+          foreach ($name in @('PRODUCT_ID','TENANT_ID','CLIENT_ID','CLIENT_SECRET','SELLER_ID')) {
+            if (![Environment]::GetEnvironmentVariable($name)) { throw "Missing Store configuration: $name" }
+          }
+          if ($env:PRODUCT_ID -notmatch '^[A-Z0-9]{12}$') { throw 'Use the Store product ID, not the package identity name' }
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: JanjaLive-Store-${{ needs.package.outputs.version }}
+          path: store-package
+      - uses: microsoft/microsoft-store-apppublisher@15abd1c50fcc164b19cb240fb04ef3c49bf715a2 # v1.1
+        with:
+          version: v0.4.4
+      - name: Authenticate and submit the prepared MSIX
+        shell: pwsh
+        env:
+          PRODUCT_ID: ${{ vars.MICROSOFT_STORE_PRODUCT_ID }}
+          TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+        run: |
+          $packages = @(Get-ChildItem -LiteralPath store-package -Filter '*.msix')
+          if ($packages.Count -ne 1) { throw 'Expected one verified MSIX' }
+          try {
+            $token = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$env:TENANT_ID/oauth2/token" -Body @{
+              grant_type = 'client_credentials'; client_id = $env:CLIENT_ID; client_secret = $env:CLIENT_SECRET; resource = 'https://manage.devcenter.microsoft.com'
+            }
+            $application = Invoke-RestMethod -Uri "https://manage.devcenter.microsoft.com/v1.0/my/applications/$env:PRODUCT_ID" -Headers @{ Authorization = "Bearer $($token.access_token)" }
+            if (!$application.lastPublishedApplicationSubmission) { throw 'Finish the first Store publication manually before using this workflow' }
+            if ($application.pendingApplicationSubmission) { throw 'An existing Store draft/submission must be resolved first; it will not be overwritten' }
+            if ($application.packageIdentityName -ne 'SCamposs.JanjaLive') { throw 'Store product identity mismatch' }
+            msstore reconfigure --tenantId $env:TENANT_ID --sellerId $env:SELLER_ID --clientId $env:CLIENT_ID --clientSecret $env:CLIENT_SECRET
+            if ($LASTEXITCODE -ne 0) { throw 'Store authentication failed' }
+            msstore publish $packages[0].FullName --appId $env:PRODUCT_ID --uploadTimeout 600
+            if ($LASTEXITCODE -ne 0) { throw 'Store submission failed; inspect the existing submission before retrying' }
+          } finally {
+            msstore reconfigure --reset
+          }

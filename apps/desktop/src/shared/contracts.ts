@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { realtimeSessionSchema, type RealtimeSession } from "@janjalive/realtime-protocol";
+import { realtimeSessionSchema, roomLifecycleEventSchema, type RealtimeSession } from "@janjalive/realtime-protocol";
 
 export { realtimeSessionSchema };
 export type { RealtimeSession };
@@ -52,6 +52,7 @@ export const desktopUserSchema = z.object({
 }).strict();
 
 export const authStatusSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("checking") }),
   z.object({ state: z.literal("signed-out") }),
   z.object({ state: z.literal("connecting") }),
   z.object({ state: z.literal("signed-in"), user: desktopUserSchema }),
@@ -71,6 +72,7 @@ export type CaptureSource = {
   name: string;
   kind: "screen" | "window";
   thumbnailDataUrl: string;
+  minimized?: boolean;
 };
 
 const qualityPresetSchema = z.enum([
@@ -151,17 +153,14 @@ export const clientSignalSchema = z.discriminatedUnion("type", [
 
 const serverSignalSchema = z.union([
   clientSignalSchema,
-  z.object({ type: z.literal("room:join-request") }).strict(),
-  z.object({ type: z.literal("room:approved"), targetUserId: z.string().min(1).max(128) }).strict(),
-  z.object({ type: z.literal("room:rejected"), targetUserId: z.string().min(1).max(128) }).strict(),
-  z.object({ type: z.literal("room:revoked"), targetUserId: z.string().min(1).max(128) }).strict(),
-  z.object({ type: z.literal("room:closed") }).strict(),
+  roomLifecycleEventSchema,
 ]);
 
 const realtimeEventSchema = z.object({
   id: z.string().min(1).max(128),
   senderUserId: z.string().min(1).max(128),
   sentAt: z.number(),
+  authorizationIssuedAt: z.number().int().positive().optional(),
   cursor: z.number().int().nonnegative(),
   payload: serverSignalSchema,
 }).strict();
@@ -256,6 +255,7 @@ export type JanjaDesktopApi = {
     copyCode(code: string): Promise<void>;
     copyInvite(roomId: string): Promise<void>;
     delete(roomId: string): Promise<void>;
+    leave(roomId: string): Promise<void>;
   };
   realtime: {
     getSession(roomId: string): Promise<RealtimeSession>;

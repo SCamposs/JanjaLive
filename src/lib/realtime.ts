@@ -35,6 +35,7 @@ export type StoredSignal = {
   roomId: string;
   senderUserId: string;
   sentAt: number;
+  authorizationIssuedAt?: number;
   cursor: number;
   payload: SignalingEvent;
 };
@@ -143,7 +144,7 @@ export async function publishSignal(
   roomId: string,
   senderUserId: string,
   payload: SignalingEvent,
-  options: { changedAt?: number } = {},
+  options: { changedAt?: number; authorizationIssuedAt?: number } = {},
 ) {
   const provider = getRealtimeProvider();
   if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
@@ -151,7 +152,7 @@ export async function publishSignal(
     await cloudflareRequest(`/internal/rooms/${encodeURIComponent(roomId)}/event`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ senderUserId, payload, changedAt: options.changedAt ?? Date.now() }),
+      body: JSON.stringify({ senderUserId, payload, changedAt: options.changedAt ?? Date.now(), ...(options.authorizationIssuedAt ? { authorizationIssuedAt: options.authorizationIssuedAt } : {}) }),
     });
     return { id: nanoid(), roomId, senderUserId, sentAt: Date.now(), cursor: 0, payload } satisfies StoredSignal;
   }
@@ -163,6 +164,7 @@ export async function publishSignal(
     roomId,
     senderUserId,
     sentAt: now,
+    ...(options.authorizationIssuedAt ? { authorizationIssuedAt: options.authorizationIssuedAt } : {}),
     cursor: getSignalCursor(now, sequence),
     payload,
   };
@@ -190,6 +192,11 @@ export async function publishSignal(
     await store.zremrangebyrank(eventIndexKey(roomId), 0, indexedSignals - MAX_INDEXED_SIGNALS - 1);
   }
 
+  if (payload.type === "room:revoked") {
+    await publishSignal(roomId, senderUserId, {
+      type: "room:peer-revoked", targetUserId: payload.targetUserId, changedAt: options.changedAt ?? now,
+    });
+  }
   return signal;
 }
 
@@ -214,7 +221,7 @@ export async function setRealtimeAccountAccess(input: {
     await publishSignal(input.roomId, input.senderUserId, {
       type: "room:revoked",
       targetUserId: input.targetUserId,
-    });
+    }, { changedAt: input.changedAt });
   }
 }
 
@@ -232,6 +239,7 @@ function parseStoredSignal(value: unknown): StoredSignal | null {
       !Number.isFinite(candidate.sentAt) ||
       typeof candidate.cursor !== "number" ||
       !Number.isSafeInteger(candidate.cursor) ||
+      (candidate.authorizationIssuedAt !== undefined && (!Number.isSafeInteger(candidate.authorizationIssuedAt) || candidate.authorizationIssuedAt <= 0)) ||
       !payload.success
     ) return null;
     return { ...candidate, payload: payload.data } as StoredSignal;
@@ -282,7 +290,8 @@ export async function readRoomRealtime(roomId: string, userId: string, since: nu
   const events = parsedEvents
     .filter((event) => {
       const target = "targetUserId" in event.payload ? event.payload.targetUserId : null;
-      return event.senderUserId !== userId && (!target || target === userId);
+      return (event.senderUserId !== userId || event.payload.type === "room:peer-revoked")
+        && (event.payload.type === "room:peer-revoked" || !target || target === userId);
     })
     .sort((left, right) => left.cursor - right.cursor);
 

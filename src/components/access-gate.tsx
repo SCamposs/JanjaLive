@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 export function AccessGate({ roomId, roomName, state }: { roomId: string; roomName: string; state: "invited" | "pending" | "rejected" }) {
+  return <AccessGateState key={state} roomId={roomId} roomName={roomName} state={state} />;
+}
+
+function AccessGateState({ roomId, roomName, state }: { roomId: string; roomName: string; state: "invited" | "pending" | "rejected" }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [requested, setRequested] = useState(state === "pending");
@@ -19,14 +23,16 @@ export function AccessGate({ roomId, roomName, state }: { roomId: string; roomNa
   async function requestAccess() {
     setLoading(true);
     setError(null);
-    const response = await fetch(`/api/rooms/${roomId}/request`, { method: "POST" });
-    if (response.ok) {
+    try {
+      const response = await fetch(`/api/rooms/${roomId}/request`, { method: "POST" });
+      if (!response.ok) throw new Error("REQUEST_FAILED");
       setRequested(true);
       router.refresh();
-    } else {
+    } catch {
       setError("Não foi possível enviar a solicitação.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   return (
@@ -45,7 +51,7 @@ export function AccessGate({ roomId, roomName, state }: { roomId: string; roomNa
         ) : (
           <section className="access-body">
             <h2>Entrar na sala</h2>
-            <p>O dono precisa aprovar sua entrada.</p>
+            <p>{state === "rejected" ? "Seu pedido não foi aceito. Você pode solicitar novamente." : "O dono precisa aprovar sua entrada."}</p>
             <button className="button primary wide" type="button" onClick={requestAccess} disabled={loading}>
               {loading ? <LoaderCircle className="spin" size={18} /> : null}
               {loading ? "Enviando…" : "Solicitar acesso"}
