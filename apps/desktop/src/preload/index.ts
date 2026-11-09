@@ -63,6 +63,7 @@ const api: JanjaDesktopApi = {
     copyCode: (code) => ipcRenderer.invoke("rooms:copy-code", code),
     copyInvite: (roomId) => ipcRenderer.invoke("rooms:copy-invite", roomId),
     delete: (roomId) => ipcRenderer.invoke("rooms:delete", roomId),
+    leave: (roomId) => ipcRenderer.invoke("rooms:leave", roomId),
   },
   realtime: {
     getSession: (roomId) => ipcRenderer.invoke("realtime:get-session", roomId),

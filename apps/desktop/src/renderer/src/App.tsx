@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent as ReactFocusEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Play, Scaling, Trash2, UserMinus, UsersRound, Volume2, VolumeX, X } from "lucide-react";
+import { DesktopAccessGate as AccessGate } from "./DesktopAccessGate";
+import { DesktopDeleteRoomAction } from "./DesktopDeleteRoomAction";
+import { subscribeAuthStatus } from "./auth-session";
+import { DesktopLogin } from "./DesktopLogin";
+import { DesktopNoirBackdrop } from "./DesktopNoirBackdrop";
+import { DesktopRoomList } from "./DesktopRoomList";
+import { DesktopAccountMenu } from "./DesktopAccountMenu";
+import { TooltipButton, UserAvatar, usePlayerControlsAutoHide } from "@janjalive/ui";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, CircleStop, Copy, LogOut, Maximize, Minimize2, PictureInPicture2, Play, Scaling, UserMinus, UsersRound, Volume2, VolumeX, X } from "lucide-react";
 import { playRoomCue, type ConnectionStatus, type StreamMetadata } from "@janjalive/webrtc";
 import type { AuthStatus, CaptureSource, NativeAudioMode, RoomSnapshot, RoomSummary, UpdaterStatus } from "../../shared/contracts";
+import { SourcePicker } from "./SourcePicker";
+import { CaptureConfig, type Quality, type Resolution } from "./CaptureConfig";
+import { acquireCapture } from "./capture-selection";
 import { useRoomMedia } from "./use-room-media";
 import { startNativeAudioCapture, type NativeAudioCapture } from "./native-audio";
 
-type Resolution = "720p" | "1080p" | "1440p" | "source";
-type Quality = "auto" | "high" | "custom";
 const ROOM_CODE_LENGTH = 7;
-const PLAYER_CONTROLS_HIDE_DELAY_MS = 2_500;
 
 function normalizeRoomCode(value: string) {
   return (value.toUpperCase().match(/[2-9A-HJ-NP-Z]/g) ?? []).join("").slice(0, ROOM_CODE_LENGTH);
@@ -24,20 +32,18 @@ const BITRATES: Record<string, number> = {
   source: 12_000_000,
 };
 
-function expiryLabel(remainingMs: number) {
-  const hours = Math.ceil(remainingMs / (60 * 60 * 1_000));
-  if (hours <= 1) return "Expira em menos de 1 hora";
-  if (hours < 24) return `Expira em ${hours} horas`;
-  const days = Math.ceil(hours / 24);
-  return days === 1 ? "Expira amanhã" : `Expira em ${days} dias`;
-}
 
 export function App() {
-  const [auth, setAuth] = useState<AuthStatus>({ state: "signed-out" });
+  const [auth, setAuth] = useState<AuthStatus>({ state: "checking" });
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [sources, setSources] = useState<CaptureSource[] | null>(null);
+  const [selectingSource, setSelectingSource] = useState<CaptureSource | null>(null);
+  const captureSelectionRef = useRef<AbortController | null>(null);
+  const pickerRequestRef = useRef(0);
   const [capture, setCapture] = useState<MediaStream | null>(null);
+  const [deferredSource, setDeferredSource] = useState<CaptureSource | null>(null);
+  const [startingCapture, setStartingCapture] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [captureName, setCaptureName] = useState("");
   const [resolution, setResolution] = useState<Resolution>("1080p");
@@ -63,6 +69,24 @@ export function App() {
   const broadcastNativeAudioRef = useRef<NativeAudioCapture | null>(null);
   const authorizedRoomId = room?.access === "authorized" ? room.room.id : null;
   const realtime = useRoomMedia(authorizedRoomId);
+
+  const releaseCapture = useCallback(() => {
+    activeStreamRef.current?.getTracks().forEach((track) => track.stop());
+    pendingCaptureRef.current?.getTracks().forEach((track) => track.stop());
+    activeStreamRef.current = null;
+    pendingCaptureRef.current = null;
+    void pendingNativeAudioRef.current?.stop();
+    void broadcastNativeAudioRef.current?.stop();
+    pendingNativeAudioRef.current = null;
+    broadcastNativeAudioRef.current = null;
+    setCapture(null);
+    setDeferredSource(null);
+    setLocalStream(null);
+    setSharing(false);
+    setCaptureAudioMode("none");
+  }, []);
+
+  useEffect(() => () => { releaseCapture(); }, [authorizedRoomId, releaseCapture]);
 
   const handleUpdateStatus = useCallback((next: UpdaterStatus) => {
     setUpdate(next);
@@ -103,9 +127,8 @@ export function App() {
     document.title = "JanjaLive";
     void window.janja.app.getVersion().then(setVersion);
     void window.janja.updater.getStatus().then(handleUpdateStatus);
-    void window.janja.auth.getStatus().then(handleAuthStatus);
     const removeUpdater = window.janja.updater.onStatus(handleUpdateStatus);
-    const removeAuth = window.janja.auth.onStatus(handleAuthStatus);
+    const removeAuth = subscribeAuthStatus(window.janja.auth, handleAuthStatus);
     const removeInvite = window.janja.app.onRoomInvite((token) => {
       if (authRef.current.state === "signed-in") void openInvite(token);
       else pendingInviteRef.current = token;
@@ -120,76 +143,107 @@ export function App() {
   useEffect(() => {
     if (!realtime.roomUnavailable) return;
     const timeout = setTimeout(() => {
-      activeStreamRef.current = null;
-      pendingCaptureRef.current = null;
-      capture?.getTracks().forEach((track) => track.stop());
-      localStream?.getTracks().forEach((track) => track.stop());
-      void pendingNativeAudioRef.current?.stop();
-      void broadcastNativeAudioRef.current?.stop();
-      pendingNativeAudioRef.current = null;
-      broadcastNativeAudioRef.current = null;
-      setCapture(null);
-      setLocalStream(null);
-      setSharing(false);
+      releaseCapture();
       setSelectedStreamers([]);
       setRoom(null);
       void refreshRooms();
     }, 0);
     return () => clearTimeout(timeout);
-  }, [capture, localStream, realtime.roomUnavailable, refreshRooms]);
+  }, [realtime.roomUnavailable, refreshRooms, releaseCapture]);
 
   useEffect(() => {
     if (!authorizedRoomId) return;
     let cancelled = false;
     void window.janja.rooms.get(authorizedRoomId).then((next) => {
       if (!cancelled) setRoom(next);
-    }).catch(() => undefined);
+    }).catch((error: unknown) => {
+      if (!cancelled && /API_(403|404)/.test(String(error))) {
+        releaseCapture();
+        setSelectedStreamers([]);
+        setRoom(null);
+        void refreshRooms();
+      }
+    });
     return () => { cancelled = true; };
-  }, [authorizedRoomId, realtime.membershipRevision, realtime.onlineUserIds]);
+  }, [authorizedRoomId, realtime.membershipRevision, realtime.onlineUserIds, releaseCapture, refreshRooms]);
 
   const groupedSources = useMemo(() => ({
     windows: sources?.filter((source) => source.kind === "window") ?? [],
     screens: sources?.filter((source) => source.kind === "screen") ?? [],
   }), [sources]);
 
+  const closePicker = useCallback(() => {
+    pickerRequestRef.current++;
+    captureSelectionRef.current?.abort();
+    captureSelectionRef.current = null;
+    setSelectingSource(null);
+    setSources(null);
+    void window.janja.capture.cancelSelection();
+  }, []);
+
+  useEffect(() => () => {
+    if (captureSelectionRef.current) closePicker();
+  }, [authorizedRoomId, closePicker]);
+
   async function openPicker() {
+    const request = ++pickerRequestRef.current;
     setError(null);
     try {
       setExcludedAudioSource(null);
-      setSources(await window.janja.capture.listSources());
+      const available = await window.janja.capture.listSources();
+      if (pickerRequestRef.current === request) setSources(available);
     } catch {
+      if (pickerRequestRef.current !== request) return;
       setError("Não foi possível listar as telas e aplicações.");
     }
   }
 
-  async function selectSource(source: CaptureSource) {
-    setError(null);
+  async function selectSource(source: CaptureSource, confirmed = false) {
+    if (captureSelectionRef.current) return;
     const audioMode: NativeAudioMode = audioEnabled
       ? source.kind === "window" ? "application" : excludedAudioSource ? "system-excluding-application" : "system"
       : "none";
+    // A fullscreen application may minimize when this dialog has focus. Let the
+    // user configure and confirm before restoring it and acquiring its stream.
+    if (source.minimized && !confirmed) {
+      setDeferredSource(source);
+      setCaptureName(source.name);
+      setCaptureAudioMode(audioMode);
+      setSources(null);
+      return;
+    }
+    const attempt = new AbortController();
+    captureSelectionRef.current = attempt;
+    setSelectingSource(source);
+    setError(null);
     let stream: MediaStream | null = null;
+    let acquiredAudio: NativeAudioCapture | null = null;
     try {
-      await window.janja.capture.selectSource({ token: source.token, audioMode,
+      stream = await acquireCapture(() => window.janja.capture.selectSource({ token: source.token, audioMode,
         ...(audioMode === "system-excluding-application" && excludedAudioSource ? { excludedSourceToken: excludedAudioSource } : {}),
-      });
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      }), () => navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: fps, max: fps } }, audio: false }), attempt.signal);
       const previousAudio = pendingNativeAudioRef.current;
       pendingNativeAudioRef.current = null;
       await previousAudio?.stop();
+      attempt.signal.throwIfAborted();
 
       if (audioMode !== "none") {
         const nativeAudio = await startNativeAudioCapture(stream, () => {
           setCaptureAudioMode("unavailable");
           setError("O áudio ficou indisponível. A transmissão continua somente com vídeo.");
         });
+        acquiredAudio = nativeAudio;
+        attempt.signal.throwIfAborted();
         pendingNativeAudioRef.current = nativeAudio;
         setCaptureAudioMode(nativeAudio?.mode ?? "unavailable");
       } else {
         setCaptureAudioMode("none");
       }
       await window.janja.capture.cancelSelection();
+      attempt.signal.throwIfAborted();
+      if (!stream.getVideoTracks().some((track) => track.readyState === "live")) throw new Error("CAPTURE_WINDOW_CHANGED");
       pendingCaptureRef.current = stream;
-      setCapture(stream);
+      if (!confirmed) setCapture(stream);
       setCaptureName(source.name);
       setSources(null);
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
@@ -211,17 +265,32 @@ export function App() {
         setSharing(false);
         setSelectedStreamers((ids) => ids.filter((id) => auth.state !== "signed-in" || id !== auth.user.id));
       }, { once: true });
-    } catch {
+      if (confirmed) await publishCapture(stream, acquiredAudio, attempt.signal);
+    } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
+      await acquiredAudio?.stop();
+      if (attempt.signal.aborted || captureSelectionRef.current !== attempt) return;
       pendingCaptureRef.current = null;
-      await pendingNativeAudioRef.current?.stop();
-      pendingNativeAudioRef.current = null;
+      if (pendingNativeAudioRef.current === acquiredAudio) pendingNativeAudioRef.current = null;
       await window.janja.capture.cancelSelection();
-      setError("Não foi possível capturar essa fonte. Escolha novamente.");
+      if (attempt.signal.aborted || captureSelectionRef.current !== attempt) return;
+      if (confirmed) setDeferredSource(null);
+      const reason = error instanceof Error ? error.message : "";
+      setError(reason.includes("CAPTURE_WINDOW_NOT_READY")
+        ? "A aplicação ainda não está pronta. Volte a ela e tente compartilhar novamente."
+        : reason.includes("CAPTURE_WINDOW_CHANGED") ? "Essa janela foi fechada ou mudou. Escolha a aplicação novamente."
+          : "Não foi possível capturar essa fonte. Escolha novamente.");
+    } finally {
+      if (captureSelectionRef.current === attempt) {
+        captureSelectionRef.current = null;
+        setSelectingSource(null);
+      }
     }
   }
 
   function cancelCapture() {
+    closePicker();
+    setDeferredSource(null);
     pendingCaptureRef.current = null;
     capture?.getTracks().forEach((track) => track.stop());
     void pendingNativeAudioRef.current?.stop();
@@ -231,10 +300,24 @@ export function App() {
   }
 
   async function startSharing() {
-    if (!capture || auth.state !== "signed-in") return;
+    if (startingCapture || auth.state !== "signed-in") return;
+    setStartingCapture(true);
+    try {
+      if (deferredSource) await selectSource(deferredSource, true);
+      else if (capture) await publishCapture(capture, pendingNativeAudioRef.current);
+    } catch {
+      setError("Não foi possível iniciar a transmissão. Tente novamente.");
+    } finally {
+      setStartingCapture(false);
+    }
+  }
+
+  async function publishCapture(stream: MediaStream, nextAudio: NativeAudioCapture | null, signal?: AbortSignal) {
+    if (auth.state !== "signed-in") return;
+    signal?.throwIfAborted();
     const preset = resolution === "source" ? "source" : `${resolution}${fps}` as const;
     const dimensions: [number, number] = resolution === "720p" ? [1280, 720] : resolution === "1440p" ? [2560, 1440] : [1920, 1080];
-    const videoTrack = capture.getVideoTracks()[0];
+    const videoTrack = stream.getVideoTracks()[0];
     if (resolution !== "source") {
       await videoTrack?.applyConstraints({
         width: { ideal: dimensions[0], max: dimensions[0] },
@@ -244,6 +327,8 @@ export function App() {
     } else {
       await videoTrack?.applyConstraints({ frameRate: { ideal: fps, max: fps } }).catch(() => undefined);
     }
+    signal?.throwIfAborted();
+    if (!videoTrack || videoTrack.readyState !== "live") throw new Error("CAPTURE_WINDOW_CHANGED");
     const settings = videoTrack?.getSettings();
     const baseBitrate = BITRATES[preset] ?? 10_000_000;
     const bitrate = quality === "custom"
@@ -256,48 +341,41 @@ export function App() {
       width: settings?.width ?? dimensions[0],
       height: settings?.height ?? dimensions[1],
       frameRate: settings?.frameRate ?? fps,
-      hasAudio: capture.getAudioTracks().some((track) => track.readyState === "live"),
+      hasAudio: stream.getAudioTracks().some((track) => track.readyState === "live"),
     };
     const previousStream = localStream;
     const previousAudio = broadcastNativeAudioRef.current;
-    const nextAudio = pendingNativeAudioRef.current;
-    if (sharing) await realtime.replaceBroadcast(capture, metadata, bitrate);
+    if (sharing) await realtime.replaceBroadcast(stream, metadata, bitrate);
     else {
-      await realtime.startBroadcast(capture, metadata, bitrate);
+      await realtime.startBroadcast(stream, metadata, bitrate);
       await playRoomCue("stream-start", true);
     }
-    setLocalStream(capture);
-    activeStreamRef.current = capture;
+    if (signal?.aborted) {
+      await realtime.stopBroadcast();
+      releaseCapture();
+      signal.throwIfAborted();
+    }
+    setLocalStream(stream);
+    activeStreamRef.current = stream;
     pendingCaptureRef.current = null;
     pendingNativeAudioRef.current = null;
     broadcastNativeAudioRef.current = nextAudio;
     setCapture(null);
+    setDeferredSource(null);
     setSharing(true);
     setSelectedStreamers((ids) => ids.includes(auth.user.id) ? ids : [...ids, auth.user.id]);
-    if (previousStream && previousStream !== capture) previousStream.getTracks().forEach((track) => track.stop());
+    if (previousStream && previousStream !== stream) previousStream.getTracks().forEach((track) => track.stop());
     if (previousAudio && previousAudio !== nextAudio) await previousAudio.stop();
   }
 
   async function stopSharing() {
+    releaseCapture();
     if (sharing) await realtime.stopBroadcast();
-    activeStreamRef.current = null;
-    pendingCaptureRef.current = null;
-    capture?.getTracks().forEach((track) => track.stop());
-    localStream?.getTracks().forEach((track) => track.stop());
-    await Promise.all([
-      pendingNativeAudioRef.current?.stop(),
-      broadcastNativeAudioRef.current?.stop(),
-    ]);
-    pendingNativeAudioRef.current = null;
-    broadcastNativeAudioRef.current = null;
-    setCapture(null);
-    setLocalStream(null);
-    setSharing(false);
-    setCaptureAudioMode("none");
     if (auth.state === "signed-in") setSelectedStreamers((ids) => ids.filter((id) => id !== auth.user.id));
   }
 
   function leaveRoom() {
+    closePicker();
     if (sharing || capture) void stopSharing();
     selectedStreamers.forEach((id) => { void realtime.stopWatching(id); });
     setSelectedStreamers([]);
@@ -351,19 +429,19 @@ export function App() {
 
   return (
     <main className="desktop-shell">
-      <Header auth={auth} version={version} update={update} inRoom={Boolean(room)} canLogout={!sharing && !capture} onLeaveRoom={leaveRoom} onLogout={logout} onShowUpdate={() => setUpdateDialogOpen(true)} />
+      <Header auth={auth} version={version} update={update} inRoom={Boolean(room)} canLogout={!sharing && !capture && !deferredSource && !selectingSource} onLeaveRoom={leaveRoom} onLogout={logout} onShowUpdate={() => setUpdateDialogOpen(true)} />
 
       {update.state === "required" && <aside className="update-bar required"><span>Esta versão precisa ser atualizada para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Verificar atualização</button></aside>}
       {update.state === "store" && update.required && <aside className="update-bar required"><span>Atualize o JanjaLive pela Microsoft Store para continuar.</span><button type="button" onClick={() => void window.janja.updater.check()}>Abrir Microsoft Store</button></aside>}
 
-      {auth.state !== "signed-in" ? <Login auth={auth} /> : room ? (
-        room.access === "authorized" ? <RoomView room={room} currentUserId={auth.user.id} sharing={sharing} localStream={localStream} selectedStreamers={selectedStreamers} remoteStreams={realtime.remoteStreams} activeStreams={activeRemoteStreams} onlineUserIds={realtime.onlineUserIds} viewerUserIds={realtime.viewerUserIds} connectionStatus={realtime.connectionStatus} onRoomUpdate={setRoom} onRoomDeleted={() => { setRoom(null); void refreshRooms(); }} onShare={openPicker} onStopSharing={stopSharing} onSelectStreamer={(userId) => void watchStreamer(userId)} onStopWatching={(userId) => void leaveStream(userId)} />
+      {auth.state !== "signed-in" ? <DesktopLogin auth={auth} /> : room ? (
+        room.access === "authorized" ? <RoomView room={room} currentUserId={auth.user.id} sharing={sharing} localStream={localStream} selectedStreamers={selectedStreamers} remoteStreams={realtime.remoteStreams} activeStreams={activeRemoteStreams} onlineUserIds={realtime.onlineUserIds} viewerUserIds={realtime.viewerUserIds} connectionStatus={realtime.connectionStatus} onRoomUpdate={setRoom} onRoomDeleted={leaveRoom} onShare={openPicker} onStopSharing={stopSharing} onSelectStreamer={(userId) => void watchStreamer(userId)} onStopWatching={(userId) => void leaveStream(userId)} />
         : <AccessGate room={room} onUpdate={setRoom} onRequest={async () => { await window.janja.rooms.requestAccess(room.room.id); setRoom({ ...room, access: "pending" }); }} />
       ) : <Home rooms={rooms} onOpen={async (roomId) => setRoom(await window.janja.rooms.get(roomId))} onOpenSnapshot={setRoom} onRefresh={refreshRooms} />}
 
-      {capture && <CaptureConfig previewRef={previewRef} name={captureName} audioMode={captureAudioMode} resolution={resolution} fps={fps} quality={quality} customBitrate={customBitrate} onResolution={setResolution} onFps={setFps} onQuality={setQuality} onCustomBitrate={setCustomBitrate} onCancel={cancelCapture} onStart={startSharing} />}
+      {(capture || deferredSource) && <CaptureConfig previewRef={previewRef} deferred={Boolean(deferredSource)} busy={startingCapture} name={captureName} audioMode={captureAudioMode} resolution={resolution} fps={fps} quality={quality} customBitrate={customBitrate} onResolution={setResolution} onFps={setFps} onQuality={setQuality} onCustomBitrate={setCustomBitrate} onCancel={cancelCapture} onStart={startSharing} />}
 
-      {sources && <SourcePicker sources={groupedSources} audioEnabled={audioEnabled} onAudioEnabled={setAudioEnabled} excludedAudioSource={excludedAudioSource} onExcludedAudioSource={setExcludedAudioSource} onSelect={selectSource} onClose={() => { setSources(null); void window.janja.capture.cancelSelection(); }} />}
+      {sources && <SourcePicker sources={groupedSources} audioEnabled={audioEnabled} onAudioEnabled={setAudioEnabled} excludedAudioSource={excludedAudioSource} onExcludedAudioSource={setExcludedAudioSource} onSelect={selectSource} selecting={selectingSource} onClose={closePicker} />}
 
       {update.state === "ready" && updateDialogOpen && <UpdateDialog version={update.version} onClose={() => setUpdateDialogOpen(false)} />}
 
@@ -422,30 +500,9 @@ function UpdateDialog({ version, onClose }: { version: string; onClose: () => vo
 }
 
 function Header({ auth, version, update, inRoom, canLogout, onLeaveRoom, onLogout, onShowUpdate }: { auth: AuthStatus; version: string; update: UpdaterStatus; inRoom: boolean; canLogout: boolean; onLeaveRoom: () => void; onLogout: () => Promise<void>; onShowUpdate: () => void }) {
-  const accountMenuRef = useRef<HTMLDetailsElement>(null);
-  useEffect(() => {
-    function closeOnOutsidePress(event: PointerEvent) {
-      const menu = accountMenuRef.current;
-      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
-    }
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key !== "Escape" || !accountMenuRef.current?.open) return;
-      accountMenuRef.current.open = false;
-      accountMenuRef.current.querySelector<HTMLElement>("summary")?.focus();
-    }
-    document.addEventListener("pointerdown", closeOnOutsidePress);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePress);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, []);
-  return <header className="app-header"><div className="brand"><img src="/janja-live.png" alt="" /><span>JanjaLive</span></div><div className="header-actions">{inRoom && <button className="header-icon-action" data-tooltip="Sair da sala" aria-label="Sair da sala" type="button" onClick={onLeaveRoom}><LogOut size={17} /></button>}<span className="version">v{version}</span>{update.state === "checking" && <span className="update-checking" data-tooltip="Verificando atualização" role="status" aria-label="Verificando atualização" />}{update.state === "ready" && <button className="update-indicator" type="button" onClick={onShowUpdate}><span />Nova versão</button>}{auth.state === "signed-in" && <details ref={accountMenuRef} className="desktop-account-menu"><summary className="account-button">{auth.user.image ? <img src={auth.user.image} alt="" /> : <span className="avatar-fallback">{auth.user.name[0]}</span>}<span>{auth.user.name}</span></summary><div><button type="button" disabled={!canLogout} onClick={() => { accountMenuRef.current?.removeAttribute("open"); void onLogout(); }}>Sair da conta</button><button type="button" onClick={() => { accountMenuRef.current?.removeAttribute("open"); void window.janja.app.openSafety(); }}>Privacidade e denúncia</button></div></details>}</div></header>;
+  return <header className="app-header"><div className="brand"><img src="/janja-live.png" alt="" /><span>JanjaLive</span></div><div className="header-actions">{inRoom && <TooltipButton className="header-icon-action" tooltip="Sair da sala" tooltipSide="bottom" aria-label="Sair da sala" type="button" onClick={onLeaveRoom}><LogOut size={17} /></TooltipButton>}<span className="version">v{version}</span>{update.state === "checking" && <span className="update-checking" role="status" aria-label="Verificando atualização" />}{update.state === "ready" && <button className="update-indicator" type="button" onClick={onShowUpdate}><span />Nova versão</button>}{auth.state === "signed-in" && <DesktopAccountMenu user={auth.user} canLogout={canLogout} onLogout={onLogout} onSafety={() => void window.janja.app.openSafety()} />}</div></header>;
 }
 
-function Login({ auth }: { auth: AuthStatus }) {
-  return <section className="desktop-login desktop-noir-screen"><DesktopNoirBackdrop /><img src="/janja-live.png" alt="" /><h1>JanjaLive</h1><p>Entre para abrir suas salas.</p>{auth.state === "connecting" ? <div className="login-actions"><span>Aguardando o navegador…</span><button className="quiet-button" type="button" onClick={() => void window.janja.auth.cancel()}>Cancelar</button></div> : <button className="primary-button" type="button" onClick={() => void window.janja.auth.start()}>Entrar com Discord</button>}</section>;
-}
 
 function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary[]; onOpen: (id: string) => Promise<void>; onOpenSnapshot: (room: RoomSnapshot) => void; onRefresh: () => Promise<void> }) {
   const [name, setName] = useState("");
@@ -470,9 +527,7 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
     <DesktopNoirBackdrop />
     <div className="home-heading"><h1>Salas</h1><p>Crie uma sala ou entre com um código.</p></div>
     <div className="desktop-room-grid">
-      <section className="room-list-card" aria-label="Salas disponíveis">
-        {rooms.length ? rooms.map((item) => <button type="button" key={item.id} onClick={() => void onOpen(item.id)}><span><strong>{item.name}</strong><small>{item.role === "OWNER" ? "Sua sala" : "Membro"} · {expiryLabel(item.expiresInMs)}</small></span><b>Abrir</b></button>) : <p>Nenhuma sala disponível.</p>}
-      </section>
+      <DesktopRoomList rooms={rooms} onOpen={onOpen} onRefresh={onRefresh} />
       <section className="new-room-card">
         <h2>Nova sala</h2>
         {createError && <p role="alert">{createError}</p>}
@@ -506,20 +561,6 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
   </section>;
 }
 
-function AccessGate({ room, onRequest, onUpdate }: { room: RoomSnapshot; onRequest: () => Promise<void>; onUpdate: (room: RoomSnapshot) => void }) {
-  useEffect(() => {
-    if (room.access !== "pending") return;
-    let stopped = false;
-    const interval = setInterval(() => {
-      void window.janja.rooms.getPublic(room.room.publicId).then((next) => {
-        if (!stopped) onUpdate(next);
-      }).catch(() => undefined);
-    }, 3_000);
-    return () => { stopped = true; clearInterval(interval); };
-  }, [onUpdate, room.access, room.room.publicId]);
-  return <section className="desktop-login"><h1>{room.room.name}</h1><p>{room.access === "pending" ? "Aguardando aprovação do dono da sala." : room.access === "rejected" ? "Seu pedido não foi aceito." : "Você precisa de aprovação para entrar."}</p>{room.access === "invited" && <button className="primary-button" type="button" onClick={() => void onRequest()}>Solicitar acesso</button>}</section>;
-}
-
 function RoomView({ room, currentUserId, sharing, localStream, selectedStreamers, remoteStreams, activeStreams, onlineUserIds, viewerUserIds, connectionStatus, onRoomUpdate, onRoomDeleted, onShare, onStopSharing, onSelectStreamer, onStopWatching }: { room: RoomSnapshot; currentUserId: string; sharing: boolean; localStream: MediaStream | null; selectedStreamers: string[]; remoteStreams: Record<string, MediaStream>; activeStreams: Array<{ streamerUserId: string; preset: string; hasAudio: boolean }>; onlineUserIds: string[]; viewerUserIds: string[]; connectionStatus: ConnectionStatus; onRoomUpdate: (room: RoomSnapshot) => void; onRoomDeleted: () => void; onShare: () => Promise<void>; onStopSharing: () => Promise<void>; onSelectStreamer: (id: string) => void; onStopWatching: (userId: string) => void }) {
   const members = new Map(room.members.map((member) => [member.userId, member]));
   const [codeCopied, setCodeCopied] = useState(false);
@@ -535,17 +576,13 @@ function RoomView({ room, currentUserId, sharing, localStream, selectedStreamers
   })}</div> : activeStreams.length ? <div className="desktop-stream-list"><div className="desktop-stream-heading"><h2>Transmissões</h2><span>{activeStreams.length} {activeStreams.length === 1 ? "disponível" : "disponíveis"}</span></div>{activeStreams.map((item) => {
     const member = members.get(item.streamerUserId);
     const name = member?.name ?? "Amigo";
-    return <button type="button" key={item.streamerUserId} onClick={() => onSelectStreamer(item.streamerUserId)}>{member?.image ? <img src={member.image} alt="" /> : <span className="stream-avatar-fallback">{name[0]}</span>}<span><strong>{name}</strong><small><b>AO VIVO</b> {item.preset.replace(/(\d+p)(\d+)/, "$1 · $2 FPS")}{item.hasAudio ? " · Áudio" : ""}</small></span><span className="watch-action">Assistir</span></button>;
+    return <button type="button" key={item.streamerUserId} onClick={() => onSelectStreamer(item.streamerUserId)}><UserAvatar name={name} image={member?.image} size={48} className="desktop-stream-avatar" /><span><strong>{name}</strong><small><b>AO VIVO</b> {item.preset.replace(/(\d+p)(\d+)/, "$1 · $2 FPS")}{item.hasAudio ? " · Áudio" : ""}</small></span><span className="watch-action">Assistir</span></button>;
   })}</div> : <div className="empty-room"><DesktopNoirBackdrop image="/janja-live-noir-2.png" /><div className="empty-room-copy"><h2>Nenhuma transmissão ativa</h2><p>Compartilhe sua tela ou aguarde um amigo começar.</p></div></div>}</div></section><RoomMembers room={room} onlineUserIds={onlineUserIds} currentUserId={currentUserId} activeStreamerIds={new Set(activeStreams.map((item) => item.streamerUserId))} selectedStreamers={selectedStreamers} onWatch={onSelectStreamer} onRoomUpdate={onRoomUpdate} onRoomDeleted={onRoomDeleted} /></div>;
 }
 
-function DesktopNoirBackdrop({ image = "/janja-live-noir.png" }: { image?: string }) {
-  return <div className="desktop-noir-backdrop" aria-hidden="true"><img className="desktop-noir-frame desktop-noir-frame-base" src={image} alt="" /><img className="desktop-noir-frame desktop-noir-frame-shift desktop-noir-frame-shift-a" src={image} alt="" /><img className="desktop-noir-frame desktop-noir-frame-shift desktop-noir-frame-shift-b" src={image} alt="" /><span className="desktop-noir-scan" /></div>;
-}
 
 function RoomMembers({ room, onlineUserIds, currentUserId, activeStreamerIds, selectedStreamers, onWatch, onRoomUpdate, onRoomDeleted }: { room: RoomSnapshot; onlineUserIds: string[]; currentUserId: string; activeStreamerIds: Set<string>; selectedStreamers: string[]; onWatch: (userId: string) => void; onRoomUpdate: (room: RoomSnapshot) => void; onRoomDeleted: () => void }) {
   const [copied, setCopied] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   async function manage(userId: string, action: "approve" | "reject" | "revoke") {
     onRoomUpdate(await window.janja.rooms.manageMember(room.room.id, { userId, action }));
   }
@@ -554,89 +591,8 @@ function RoomMembers({ room, onlineUserIds, currentUserId, activeStreamerIds, se
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1_800);
   }
-  async function removeRoom() {
-    if (!confirmDelete) return setConfirmDelete(true);
-    await window.janja.rooms.delete(room.room.id);
-    onRoomDeleted();
-  }
   const online = room.members.filter((member) => onlineUserIds.includes(member.userId));
-  return <aside className="desktop-members"><h2>Membros <span>{room.members.length}</span></h2>{room.pending.length > 0 && <section className="member-section pending-members"><h3>Pedidos</h3>{room.pending.map((member) => <div className="pending-member" key={member.userId}><Member member={{ ...member, role: "MEMBER" }} online={false} /><div><button data-tooltip={`Aprovar ${member.name}`} aria-label={`Aprovar ${member.name}`} type="button" onClick={() => void manage(member.userId, "approve")}><Check size={14} /></button><button data-tooltip={`Recusar ${member.name}`} aria-label={`Recusar ${member.name}`} type="button" onClick={() => void manage(member.userId, "reject")}><X size={14} /></button></div></div>)}</section>}<section className="member-section"><h3>Online</h3>{online.length ? online.map((member) => <Member key={member.userId} member={member} online streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} />) : <p className="members-empty">Ninguém online.</p>}</section><section className="member-section"><h3>Autorizados</h3>{room.members.map((member) => <Member key={member.userId} member={member} online={onlineUserIds.includes(member.userId)} streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} onRemove={room.room.isOwner && member.userId !== currentUserId ? () => void manage(member.userId, "revoke") : undefined} />)}</section>{room.room.isOwner && <footer className="room-owner-actions"><button data-tooltip={copied ? "Convite copiado" : "Copiar novo convite"} aria-label={copied ? "Convite copiado" : "Copiar novo convite"} type="button" onClick={() => void copyInvite()}>{copied ? <Check size={15} /> : <Copy size={15} />}</button><button data-tooltip={confirmDelete ? "Confirmar exclusão" : "Excluir sala"} aria-label={confirmDelete ? "Confirmar exclusão" : "Excluir sala"} className="danger-control" type="button" onBlur={() => setConfirmDelete(false)} onClick={() => void removeRoom()}><Trash2 size={15} /></button></footer>}</aside>;
-}
-
-function usePlayerControlsAutoHide() {
-  const [controlsVisible, setControlsVisible] = useState(true);
-  const hideTimerRef = useRef<number | null>(null);
-
-  const clearHideTimer = useCallback(() => {
-    if (hideTimerRef.current === null) return;
-    window.clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = null;
-  }, []);
-
-  const scheduleHide = useCallback(() => {
-    clearHideTimer();
-    hideTimerRef.current = window.setTimeout(() => setControlsVisible(false), PLAYER_CONTROLS_HIDE_DELAY_MS);
-  }, [clearHideTimer]);
-
-  const showControls = useCallback(() => {
-    setControlsVisible(true);
-    scheduleHide();
-  }, [scheduleHide]);
-
-  useEffect(() => {
-    if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) scheduleHide();
-    return clearHideTimer;
-  }, [clearHideTimer, scheduleHide]);
-
-  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === "touch") return;
-    if (event.target instanceof Element && event.target.closest("[data-player-controls]")) {
-      clearHideTimer();
-      setControlsVisible(true);
-      return;
-    }
-    showControls();
-  }, [clearHideTimer, showControls]);
-
-  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== "touch") {
-      showControls();
-      return;
-    }
-    clearHideTimer();
-    if (event.target instanceof Element && event.target.closest("[data-player-controls]")) {
-      setControlsVisible(true);
-      return;
-    }
-    setControlsVisible((visible) => !visible);
-  }, [clearHideTimer, showControls]);
-
-  const handleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
-    if (!event.currentTarget.contains(event.relatedTarget)) scheduleHide();
-  }, [scheduleHide]);
-
-  return {
-    controlsVisible,
-    showControls,
-    containerProps: {
-      onPointerEnter: showControls,
-      onPointerMove: handlePointerMove,
-      onPointerDownCapture: handlePointerDown,
-      onPointerLeave: scheduleHide,
-      onFocusCapture: () => {
-        clearHideTimer();
-        setControlsVisible(true);
-      },
-      onBlurCapture: handleBlur,
-    },
-    controlsProps: {
-      onPointerEnter: () => {
-        clearHideTimer();
-        setControlsVisible(true);
-      },
-      onPointerLeave: scheduleHide,
-    },
-  };
+  return <aside className="desktop-members"><h2>Membros <span>{room.members.length}</span></h2>{room.pending.length > 0 && <section className="member-section pending-members"><h3>Pedidos</h3>{room.pending.map((member) => <div className="pending-member" key={member.userId}><Member member={{ ...member, role: "MEMBER" }} online={false} /><div><TooltipButton tooltip={`Aprovar ${member.name}`} aria-label={`Aprovar ${member.name}`} type="button" onClick={() => void manage(member.userId, "approve")}><Check size={14} /></TooltipButton><TooltipButton tooltip={`Recusar ${member.name}`} aria-label={`Recusar ${member.name}`} type="button" onClick={() => void manage(member.userId, "reject")}><X size={14} /></TooltipButton></div></div>)}</section>}<section className="member-section"><h3>Online</h3>{online.length ? online.map((member) => <Member key={member.userId} member={member} online streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} />) : <p className="members-empty">Ninguém online.</p>}</section><section className="member-section"><h3>Autorizados</h3>{room.members.map((member) => <Member key={member.userId} member={member} online={onlineUserIds.includes(member.userId)} streaming={activeStreamerIds.has(member.userId)} selected={selectedStreamers.includes(member.userId)} onWatch={member.userId !== currentUserId ? () => onWatch(member.userId) : undefined} onRemove={room.room.isOwner && member.userId !== currentUserId ? () => void manage(member.userId, "revoke") : undefined} />)}</section>{room.room.isOwner && <footer className="room-owner-actions"><TooltipButton tooltip={copied ? "Convite copiado" : "Copiar novo convite"} aria-label={copied ? "Convite copiado" : "Copiar novo convite"} type="button" onClick={() => void copyInvite()}>{copied ? <Check size={15} /> : <Copy size={15} />}</TooltipButton><DesktopDeleteRoomAction room={room.room} onDeleted={onRoomDeleted} /></footer>}</aside>;
 }
 
 function Player({ stream, label, own, onStop, initiallyMuted = own, viewerNames }: { stream: MediaStream; label: string; own: boolean; onStop: () => void; initiallyMuted?: boolean; viewerNames?: string[] }) {
@@ -673,33 +629,14 @@ function Player({ stream, label, own, onStop, initiallyMuted = own, viewerNames 
     if (document.fullscreenElement) await document.exitFullscreen();
     else await containerRef.current?.requestFullscreen();
   }
-  return <div className="desktop-player" data-fit={fitMode} data-controls-visible={controlsVisible} ref={containerRef} {...containerProps}>{viewerNames && <AudienceBadge names={viewerNames} />}<video ref={ref} autoPlay muted={muted} playsInline onDoubleClick={() => void toggleFullscreen()} onPlaying={() => setPlaying(true)} onWaiting={() => setPlaying(false)} />{!playing && <div className="desktop-player-waiting">Conectando à transmissão…</div>}<div className="desktop-player-controls" data-player-controls {...controlsProps}><span>{label}</span><div className="player-actions"><button className="icon-action" data-tooltip={muted ? "Ativar som" : "Silenciar"} aria-label={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const next = Number(event.target.value); setVolume(next); if (ref.current) ref.current.volume = next; }} /><button className="icon-action" data-tooltip={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} aria-label={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} type="button" onClick={() => setFitMode((value) => value === "contain" ? "cover" : "contain")}><Scaling size={16} /></button><button className="icon-action" data-tooltip="Picture in Picture" aria-label="Picture in Picture" type="button" onClick={() => void ref.current?.requestPictureInPicture?.()}><PictureInPicture2 size={16} /></button><button className="icon-action" data-tooltip={fullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-label={fullscreen ? "Sair da tela cheia" : "Tela cheia"} type="button" onClick={() => void toggleFullscreen()}>{fullscreen ? <Minimize2 size={16} /> : <Maximize size={16} />}</button><button className="icon-action danger-control" data-tooltip={own ? "Encerrar transmissão" : "Parar de assistir"} aria-label={own ? "Encerrar transmissão" : "Parar de assistir"} type="button" onClick={onStop}><CircleStop size={16} /></button></div></div></div>;
+  return <div className="desktop-player" data-fit={fitMode} data-controls-visible={controlsVisible} ref={containerRef} {...containerProps}>{viewerNames && <AudienceBadge names={viewerNames} />}<video ref={ref} autoPlay muted={muted} playsInline onDoubleClick={() => void toggleFullscreen()} onPlaying={() => setPlaying(true)} onWaiting={() => setPlaying(false)} />{!playing && <div className="desktop-player-waiting">Conectando à transmissão…</div>}<div className="desktop-player-controls" data-player-controls {...controlsProps}><span>{label}</span><div className="player-actions"><TooltipButton className="icon-action" tooltip={muted ? "Ativar som" : "Silenciar"} aria-label={muted ? "Ativar som" : "Silenciar"} type="button" onClick={() => setMuted((value) => !value)}>{muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</TooltipButton><input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const next = Number(event.target.value); setVolume(next); if (ref.current) ref.current.volume = next; }} /><TooltipButton className="icon-action" tooltip={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} aria-label={fitMode === "contain" ? "Preencher quadro" : "Ajustar à tela"} type="button" onClick={() => setFitMode((value) => value === "contain" ? "cover" : "contain")}><Scaling size={16} /></TooltipButton><TooltipButton className="icon-action" tooltip="Picture in Picture" aria-label="Picture in Picture" type="button" onClick={() => void ref.current?.requestPictureInPicture?.()}><PictureInPicture2 size={16} /></TooltipButton><TooltipButton className="icon-action" tooltip={fullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-label={fullscreen ? "Sair da tela cheia" : "Tela cheia"} type="button" onClick={() => void toggleFullscreen()}>{fullscreen ? <Minimize2 size={16} /> : <Maximize size={16} />}</TooltipButton><TooltipButton className="icon-action danger-control" tooltip={own ? "Encerrar transmissão" : "Parar de assistir"} aria-label={own ? "Encerrar transmissão" : "Parar de assistir"} type="button" onClick={onStop}><CircleStop size={16} /></TooltipButton></div></div></div>;
 }
 
 function Member({ member, online, streaming = false, selected = false, onWatch, onRemove }: { member: RoomSnapshot["members"][number]; online: boolean; streaming?: boolean; selected?: boolean; onWatch?: () => void; onRemove?: () => void }) {
-  return <div className="desktop-member">{member.image ? <img src={member.image} alt="" /> : <span>{member.name[0]}</span>}<div><strong>{member.name}</strong><small>{streaming ? `${member.role === "OWNER" ? "Dono · " : ""}Transmitindo` : member.role === "OWNER" ? "Dono" : online ? "Online" : "Offline"}</small></div><div className="member-end">{streaming && onWatch && <button className="member-watch" data-tooltip={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} aria-label={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} disabled={selected} type="button" onClick={onWatch}><Play size={13} fill="currentColor" /></button>}{onRemove && <button className="member-remove" data-tooltip={`Remover ${member.name}`} aria-label={`Remover ${member.name}`} type="button" onClick={onRemove}><UserMinus size={14} /></button>}<i data-online={online} /></div></div>;
+  return <div className="desktop-member"><UserAvatar name={member.name} image={member.image} size={30} className="desktop-member-avatar" /><div><strong>{member.name}</strong><small>{streaming ? `${member.role === "OWNER" ? "Dono · " : ""}Transmitindo` : member.role === "OWNER" ? "Dono" : online ? "Online" : "Offline"}</small></div><div className="member-end">{streaming && onWatch && <TooltipButton className="member-watch" tooltip={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} aria-label={selected ? `Assistindo ${member.name}` : `Assistir ${member.name}`} disabled={selected} type="button" onClick={onWatch}><Play size={13} fill="currentColor" /></TooltipButton>}{onRemove && <TooltipButton className="member-remove" tooltip={`Remover ${member.name}`} aria-label={`Remover ${member.name}`} type="button" onClick={onRemove}><UserMinus size={14} /></TooltipButton>}<i data-online={online} /></div></div>;
 }
 
-function CaptureConfig({ previewRef, name, audioMode, resolution, fps, quality, customBitrate, onResolution, onFps, onQuality, onCustomBitrate, onCancel, onStart }: { previewRef: React.RefObject<HTMLVideoElement | null>; name: string; audioMode: NativeAudioMode | "unavailable"; resolution: Resolution; fps: 30 | 60; quality: Quality; customBitrate: number; onResolution: (value: Resolution) => void; onFps: (value: 30 | 60) => void; onQuality: (value: Quality) => void; onCustomBitrate: (value: number) => void; onCancel: () => void; onStart: () => Promise<void> }) {
-  const audioLabel = audioMode === "application" ? "Áudio da aplicação" : audioMode === "system-excluding-application" ? "Áudio do sistema · Aplicação excluída" : audioMode === "system" ? "Áudio do sistema" : audioMode === "unavailable" ? "Áudio indisponível — somente vídeo" : "Somente vídeo";
-  return <div className="modal-backdrop"><section className="capture-panel capture-modal"><video ref={previewRef} autoPlay muted playsInline /><div className="capture-title"><strong>{name}</strong><span>{audioLabel}</span></div><div className="capture-settings"><OptionGroup label="Resolução" value={resolution} values={["720p", "1080p", "1440p", "source"]} labels={{ source: "Fonte" }} onChange={(value) => onResolution(value as Resolution)} /><OptionGroup label="FPS" value={String(fps)} values={["30", "60"]} onChange={(value) => onFps(value === "60" ? 60 : 30)} /><div><OptionGroup label="Qualidade" value={quality} values={["auto", "high", "custom"]} labels={{ auto: "Auto", high: "Alta", custom: "Personalizada" }} onChange={(value) => onQuality(value as Quality)} />{quality === "custom" && <label className="custom-bitrate"><span>Mbps</span><input type="number" min="2" max="25" value={customBitrate} onChange={(event) => onCustomBitrate(Number(event.target.value))} /></label>}</div><div className="capture-actions"><button className="quiet-button" type="button" onClick={onCancel}>Cancelar</button><button className="primary-button" type="button" onClick={() => void onStart()}>Compartilhar</button></div></div></section></div>;
-}
 
-function SourcePicker({ sources, audioEnabled, onAudioEnabled, excludedAudioSource, onExcludedAudioSource, onSelect, onClose }: { sources: { windows: CaptureSource[]; screens: CaptureSource[] }; audioEnabled: boolean; onAudioEnabled: (value: boolean) => void; excludedAudioSource: string | null; onExcludedAudioSource: (value: string | null) => void; onSelect: (source: CaptureSource) => Promise<void>; onClose: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="source-dialog" role="dialog" aria-modal="true" aria-labelledby="source-title"><header><div><h2 id="source-title">Compartilhe sua tela</h2><p>Escolha uma aplicação ou monitor.</p></div><button type="button" onClick={onClose} aria-label="Fechar">×</button></header><label className="audio-toggle"><input type="checkbox" checked={audioEnabled} onChange={(event) => onAudioEnabled(event.target.checked)} /><span><strong>Incluir áudio</strong><small>{audioEnabled ? "Áudio da aplicação em janelas · Áudio do sistema em telas" : "Somente vídeo"}</small></span></label>
-    <SourceGroup title="Aplicações" sources={sources.windows} onSelect={onSelect} />
-    {audioEnabled && sources.screens.length > 0 && sources.windows.length > 0 && <details className="audio-exclusion"><summary>{excludedAudioSource ? `Sem áudio de: ${sources.windows.find((item) => item.token === excludedAudioSource)?.name}` : "Excluir áudio de uma aplicação"}</summary><p>Ao compartilhar um monitor, escolha o Discord ou outra aplicação para deixar fora do áudio. Abra a janela dela se não aparecer aqui.</p><div className="audio-exclusion-options"><button type="button" aria-pressed={!excludedAudioSource} onClick={() => onExcludedAudioSource(null)}>Incluir todas</button>{sources.windows.map((source) => <button type="button" key={source.token} aria-pressed={excludedAudioSource === source.token} onClick={() => onExcludedAudioSource(source.token)}>{source.name}</button>)}</div></details>}
-    <SourceGroup title="Telas" sources={sources.screens} onSelect={onSelect} /></section></div>;
-}
-
-function SourceGroup({ title, sources, onSelect }: { title: string; sources: CaptureSource[]; onSelect: (source: CaptureSource) => Promise<void> }) {
-  if (!sources.length) return null;
-  return <section className="source-group"><h3>{title}</h3><div className="source-grid">{sources.map((source) => <button type="button" key={source.token} onClick={() => void onSelect(source)}><img src={source.thumbnailDataUrl} alt="" /><span>{source.name}</span></button>)}</div></section>;
-}
-
-function OptionGroup({ label, value, values, labels = {}, onChange }: { label: string; value: string; values: string[]; labels?: Record<string, string>; onChange: (value: string) => void }) {
-  return <fieldset><legend>{label}</legend><div className="options">{values.map((option) => <button type="button" data-active={value === option} key={option} onClick={() => onChange(option)}>{labels[option] ?? option}</button>)}</div></fieldset>;
-}
 
 function AudienceBadge({ names }: { names: string[] }) {
   const [open, setOpen] = useState(false);

@@ -22,3 +22,10 @@ overrides:
   undici@^7.0.0: 7.30.1
   undici@^8.0.0: 8.12.2
   zod@^4.0.0: 4.6.6
+
+patchedDependencies:
+  # API-preserving backport of isaacs/minimatch@77a0f5c (GHSA-g3hv-75wg-m249).
+  # Reject excess expansion explicitly: silently truncating changes matching.
+  # Keep legacy callable 3.x/5.x APIs; they lack this preprocessing mechanism.
+  minimatch@10.2.6: patches/minimatch@10.2.6.patch
+  minimatch@9.0.9: patches/minimatch@9.0.9.patch

@@ -6,8 +6,9 @@ import { joinRequests, roomMembers, rooms, users, type Room } from "@/db/schema"
 import { createInviteToken, createRoomCode, hashInviteToken } from "./crypto";
 import { canAutoJoinInvite, canManageRoom, isAuthorizedMember, isRoomActive } from "./room-policy";
 import { assertCanTargetMember, getMembershipTransition } from "./membership";
-import { hasActiveRoomPresence } from "./realtime";
+import { hasActiveRoomPresence, publishSignal } from "./realtime";
 import { assertRoomCreationEnabled, RESOURCE_LIMITS } from "./operational-policy";
+import { shareableInviteRoomId, verifyShareableInvite } from "./shareable-invite";
 
 export const ROOM_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1_000;
 export const ROOM_PURGE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -158,13 +159,15 @@ export async function assertAuthorizedRoom(roomId: string, userId: string) {
 
 export async function getRoomSnapshot(inviteToken: string, userId: string): Promise<RoomSnapshot | null> {
   const db = getDb();
+  const publicId = shareableInviteRoomId(inviteToken);
   const [room] = await db
     .select()
     .from(rooms)
-    .where(eq(rooms.inviteHash, hashInviteToken(inviteToken)))
+    .where(publicId ? eq(rooms.publicId, publicId) : eq(rooms.inviteHash, hashInviteToken(inviteToken)))
     .limit(1);
 
   if (!room || !isRoomActive(room)) return null;
+  if (publicId && !verifyShareableInvite(inviteToken, room)) return null;
 
   return buildRoomSnapshot(room, userId, true);
 }
@@ -320,6 +323,20 @@ export async function manageRoomMember(input: {
   return changedAt.getTime();
 }
 
+export async function leaveRoom(roomId: string, userId: string) {
+  const member = await getMember(roomId, userId);
+  if (!member) throw new Error("ROOM_FORBIDDEN");
+  if (member.role === "OWNER") throw new Error("OWNER_IMMUTABLE");
+  // Keep the membership record: an old invite must not silently restore access.
+  // Repeating a request after a transport failure preserves the revocation time.
+  const [updated] = await getDb().update(roomMembers)
+    .set({ revokedAt: sql`coalesce(${roomMembers.revokedAt}, ${new Date()})` })
+    .where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, userId), eq(roomMembers.role, "MEMBER")))
+    .returning({ revokedAt: roomMembers.revokedAt });
+  if (!updated?.revokedAt) throw new Error("ROOM_FORBIDDEN");
+  return updated.revokedAt.getTime();
+}
+
 export async function activateRoomMember(roomId: string, userId: string, restore: boolean) {
   const db = getDb();
   const now = new Date();
@@ -363,7 +380,9 @@ export async function closeRoom(roomId: string, ownerId: string) {
 }
 
 export async function deleteRoom(roomId: string, ownerId: string) {
-  const { member } = await assertAuthorizedRoom(roomId, ownerId);
-  if (!canManageRoom(member)) throw new Error("OWNER_REQUIRED");
+  // Keep the closed row until the provider confirms closure so a failed
+  // disconnect remains retryable, even though normal room access is denied.
+  await closeRoom(roomId, ownerId);
+  await publishSignal(roomId, ownerId, { type: "room:closed" });
   await getDb().delete(rooms).where(eq(rooms.id, roomId));
 }

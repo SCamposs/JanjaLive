@@ -12,5 +12,5 @@ export function useRoomMedia(roomId: string | null) {
     },
   }), []);
 
-  return useRoomMediaCore({ roomId, transport });
+  return useRoomMediaCore({ roomId, transport, preferredVideoCodec: "video/H264" });
 }

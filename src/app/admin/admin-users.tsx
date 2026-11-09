@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { AppSelect, TextInput } from "@janjalive/ui";
 import { UserAvatar } from "@/components/user-avatar";
 
 type AdminUser = {
@@ -97,14 +97,11 @@ export function AdminUsers({ initialData, ownerUserId }: { initialData: AdminUse
   return (
     <div className="admin-users">
       <form className="admin-search" onSubmit={search}>
-        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nome, ID interno ou Discord ID" aria-label="Buscar usuários" />
-        <span className="admin-sort-select">
-          <select value={order} onChange={(event) => void changeOrder(event.target.value as AdminUserOrder)} aria-label="Ordenar usuários" disabled={loading}>
-            <option value="newest">Mais recentes</option>
-            <option value="oldest">Mais antigos</option>
-          </select>
-          <ChevronDown aria-hidden="true" size={15} strokeWidth={1.8} />
-        </span>
+        <TextInput className="jl-input" type="search" value={query} onValueChange={setQuery} placeholder="Nome, ID interno ou Discord ID" aria-label="Buscar usuários" />
+        <AppSelect value={order} onValueChange={(next) => void changeOrder(next)} label="Ordenar usuários" disabled={loading} className="admin-sort-select" options={[
+          { value: "newest", label: "Mais recentes" },
+          { value: "oldest", label: "Mais antigos" },
+        ]} />
         <button className="button secondary" type="submit" disabled={loading}>Buscar</button>
       </form>
       {error && <p className="admin-error" role="alert">{error}</p>}

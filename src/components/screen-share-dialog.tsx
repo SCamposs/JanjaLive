@@ -3,6 +3,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, MonitorUp, ShieldCheck, Volume2, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { ChoiceGroup } from "@janjalive/ui";
 import {
   QUALITY_PROFILES,
   clampCustomBitrate,
@@ -85,33 +86,15 @@ export function ScreenShareDialog({ open, onCancel, onStart }: Props) {
           <div className="share-controls">
             <fieldset>
               <legend>Resolução</legend>
-              <div className="segmented-control four">
-                {RESOLUTIONS.map((value) => (
-                  <button key={value} type="button" data-active={resolution === value} onClick={() => setResolution(value)}>
-                    {value === "source" ? "Original" : value}
-                  </button>
-                ))}
-              </div>
+              <ChoiceGroup label="Resolução" className="segmented-control four" value={resolution} onValueChange={setResolution} options={RESOLUTIONS.map((value) => ({ value, label: value === "source" ? "Original" : value }))} />
             </fieldset>
             <fieldset>
               <legend>FPS</legend>
-              <div className="segmented-control">
-                {[30, 60].map((value) => (
-                  <button key={value} type="button" data-active={frameRate === value} onClick={() => setFrameRate(value as 30 | 60)}>
-                    {value}
-                  </button>
-                ))}
-              </div>
+              <ChoiceGroup label="FPS" className="segmented-control" value={String(frameRate)} onValueChange={(value) => setFrameRate(value === "60" ? 60 : 30)} options={[{ value: "30", label: "30" }, { value: "60", label: "60" }]} />
             </fieldset>
             <fieldset>
               <legend>Qualidade</legend>
-              <div className="segmented-control three">
-                {(["auto", "high", "custom"] as const).map((value) => (
-                  <button key={value} type="button" data-active={quality === value} onClick={() => setQuality(value)}>
-                    {value === "auto" ? "Auto" : value === "high" ? "Alta" : "Personalizada"}
-                  </button>
-                ))}
-              </div>
+              <ChoiceGroup label="Qualidade" className="segmented-control three" value={quality} onValueChange={setQuality} options={[{ value: "auto", label: "Auto" }, { value: "high", label: "Alta" }, { value: "custom", label: "Personalizada" }]} />
               {quality === "custom" && (
                 <label className="bitrate-field">
                   <span>Bitrate</span>

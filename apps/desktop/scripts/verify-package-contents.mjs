@@ -45,17 +45,19 @@ if (externalWorkspaceImports.length > 0) {
   throw new Error(`Packaged main process still imports workspace dependencies: ${externalWorkspaceImports.join(", ")}`);
 }
 
-const helper = path.join(
-  path.dirname(archive),
-  "app.asar.unpacked",
-  "native",
-  "audio-helper",
-  "bin",
-  "janjalive-audio-helper.exe",
-);
-const helperBytes = await readFile(helper).catch(() => null);
-if (!helperBytes || helperBytes.length < 2 || helperBytes[0] !== 0x4d || helperBytes[1] !== 0x5a) {
-  throw new Error("Packaged native audio helper is missing or is not a Windows executable");
-}
+for (const kind of ["audio", "window"]) {
+  const helper = path.join(
+    path.dirname(archive),
+    "app.asar.unpacked",
+    "native",
+    `${kind}-helper`,
+    "bin",
+    `janjalive-${kind}-helper.exe`,
+  );
+  const helperBytes = await readFile(helper).catch(() => null);
+  if (!helperBytes || helperBytes.length < 2 || helperBytes[0] !== 0x4d || helperBytes[1] !== 0x5a) {
+    throw new Error(`Packaged native ${kind} helper is missing or is not a Windows executable`);
+  }
 
-console.log(`Verified ${entries.length} ASAR entries and the packaged native audio helper`);
+}
+console.log(`Verified ${entries.length} ASAR entries and both packaged native Windows helpers`);

@@ -6,9 +6,11 @@ directories:
 files:
   - out/**/*
   - native/audio-helper/bin/janjalive-audio-helper.exe
+  - native/window-helper/bin/janjalive-window-helper.exe
   - "!**/*.map"
 asarUnpack:
   - native/audio-helper/bin/janjalive-audio-helper.exe
+  - native/window-helper/bin/janjalive-window-helper.exe
 afterPack: scripts/after-pack.cjs
 protocols:
   - name: JanjaLive

@@ -1,0 +1,18 @@
+{
+  "name": "@janjalive/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./room-removal-dialog": "./src/room-removal-dialog.tsx",
+    "./styles.css": "./src/styles.css"
+  },
+  "dependencies": {
+    "@base-ui/react": "1.9.0"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}

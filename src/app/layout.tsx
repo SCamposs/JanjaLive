@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo, IBM_Plex_Mono, Special_Elite } from "next/font/google";
 import type { ReactNode } from "react";
+import { InteractionProvider } from "@janjalive/ui";
 import { WebAnalytics } from "@/components/web-analytics";
 import "./globals.css";
+import "@janjalive/ui/styles.css";
 
 const specialElite = Special_Elite({
   display: "swap",
@@ -38,7 +40,7 @@ export const viewport: Viewport = { themeColor: "#050505", colorScheme: "dark" }
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html className={`${archivo.variable} ${ibmPlexMono.variable} ${specialElite.variable}`} lang="pt-BR">
-      <body>{children}<WebAnalytics /></body>
+      <body><InteractionProvider>{children}</InteractionProvider><WebAnalytics /></body>
     </html>
   );
 }

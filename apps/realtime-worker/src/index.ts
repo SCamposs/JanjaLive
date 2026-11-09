@@ -221,20 +221,30 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
   }
 
-  private emit(senderUserId: string, payload: ServerSignal) {
+  private stopViewerSessions(socket: WebSocket) {
+    const state = this.state(socket);
+    if (!state) return;
+    for (const session of state.mediaSessions) {
+      this.emit(state.userId, { type: "watch:stop", targetUserId: session.broadcasterUserId, mediaSessionId: session.id });
+    }
+    state.mediaSessions = [];
+    socket.serializeAttachment(state);
+  }
+
+  private emit(senderUserId: string, payload: ServerSignal, authorizationIssuedAt?: number) {
     const now = Date.now();
     this.lastCursor = Math.max(this.lastCursor + 1, now * 1_000);
     const id = crypto.randomUUID();
     const targetUserId = "targetUserId" in payload ? payload.targetUserId : null;
     for (const socket of this.sockets()) {
       const state = this.state(socket);
-      if (!state || state.userId === senderUserId || (targetUserId && state.userId !== targetUserId)) continue;
+      if (!state || (payload.type !== "room:peer-revoked" && (state.userId === senderUserId || (targetUserId && state.userId !== targetUserId)))) continue;
       const recipientPayload = state.protocol === LEGACY_PROTOCOL && "mediaSessionId" in payload
         ? stripMediaSessionIdForLegacy(payload as ClientSignal)
         : payload;
       socket.send(JSON.stringify({
         type: "event",
-        event: { id, senderUserId, sentAt: now, cursor: this.lastCursor, payload: recipientPayload },
+        event: { id, senderUserId, sentAt: now, ...(authorizationIssuedAt ? { authorizationIssuedAt } : {}), cursor: this.lastCursor, payload: recipientPayload },
       }));
     }
   }
@@ -302,6 +312,9 @@ export class RoomDurableObject extends DurableObject<Env> {
       const next = applyRevocationTransition(current, body.action === "BAN" ? "REVOKE" : "RESTORE", Number(body.changedAt));
       await this.ctx.storage.put(key, next);
       if (body.action === "BAN" && next.revoked && next.changedAt === Number(body.changedAt)) {
+        // A receiver can keep its P2P connection after closing signaling.
+        // Senders must enforce the cutoff even when that socket is gone.
+        this.emit(body.senderUserId, { type: "room:peer-revoked", targetUserId: body.targetUserId, changedAt: next.changedAt });
         const sentAt = Date.now();
         this.lastCursor = Math.max(this.lastCursor + 1, sentAt * 1_000);
         const message = JSON.stringify({ type: "event", event: {
@@ -313,6 +326,7 @@ export class RoomDurableObject extends DurableObject<Env> {
         for (const socket of this.ctx.getWebSockets(`user:${body.targetUserId}`)) {
           const state = this.state(socket);
           if (state && isTokenRevoked(state.tokenIssuedAtMs ?? (state.tokenIssuedAt ? state.tokenIssuedAt * 1_000 : state.connectedAt), next.changedAt)) {
+            this.stopViewerSessions(socket);
             if (socket.readyState === WebSocket.OPEN) socket.send(message);
             socket.close(4003, "Access revoked");
           }
@@ -323,16 +337,19 @@ export class RoomDurableObject extends DurableObject<Env> {
     }
 
     if (url.pathname === "/event" && request.method === "POST") {
-      const body = await request.json().catch(() => null) as { changedAt?: unknown; senderUserId?: unknown; payload?: unknown } | null;
+      const body = await request.json().catch(() => null) as { authorizationIssuedAt?: unknown; changedAt?: unknown; senderUserId?: unknown; payload?: unknown } | null;
       const parsed = signalingEventSchema.safeParse(body?.payload);
       if (!body || typeof body.senderUserId !== "string" || !parsed.success) return json({ error: "INVALID_EVENT" }, 400);
+      if (body.authorizationIssuedAt !== undefined && (!Number.isSafeInteger(body.authorizationIssuedAt) || Number(body.authorizationIssuedAt) <= 0)) return json({ error: "INVALID_EVENT" }, 400);
       let shouldEmit = true;
+      let peerRevocationCutoff: number | undefined;
       if (parsed.data.type === "room:revoked") {
         const key = membershipRevocationKey(parsed.data.targetUserId);
         const current = await this.ctx.storage.get<RevocationTransitionState>(key);
         const changedAt = Number.isSafeInteger(body.changedAt) && Number(body.changedAt) > 0 ? Number(body.changedAt) : Date.now();
         const next = applyRevocationTransition(current, "REVOKE", changedAt);
         shouldEmit = next.revoked && next.changedAt === changedAt;
+        peerRevocationCutoff = next.changedAt;
         await this.ctx.storage.put(key, next);
       } else if (parsed.data.type === "room:approved") {
         const key = membershipRevocationKey(parsed.data.targetUserId);
@@ -351,9 +368,13 @@ export class RoomDurableObject extends DurableObject<Env> {
         await this.ctx.storage.put(ROOM_CLOSED_KEY, true);
       }
       if (!shouldEmit) return json({ ok: true, stale: true }, 202);
-      this.emit(body.senderUserId, parsed.data);
+      this.emit(body.senderUserId, parsed.data, body.authorizationIssuedAt as number | undefined);
       if (parsed.data.type === "room:revoked") {
-        for (const socket of this.ctx.getWebSockets(`user:${parsed.data.targetUserId}`)) socket.close(4003, "Access revoked");
+        this.emit(body.senderUserId, { type: "room:peer-revoked", targetUserId: parsed.data.targetUserId, changedAt: peerRevocationCutoff! });
+        for (const socket of this.ctx.getWebSockets(`user:${parsed.data.targetUserId}`)) {
+          this.stopViewerSessions(socket);
+          socket.close(4003, "Access revoked");
+        }
         this.sendSnapshot();
       } else if (parsed.data.type === "room:closed") {
         for (const socket of this.sockets()) socket.close(4004, "Room closed");
@@ -386,6 +407,7 @@ export class RoomDurableObject extends DurableObject<Env> {
     const normalizedPayload = raw?.type === "signal"
       ? await normalizeLegacyMediaSessionId(raw.payload, state.userId)
       : raw.payload;
+    if (socket.readyState !== WebSocket.OPEN) return;
     const parsed = raw?.type === "signal" ? clientSignalingEventSchema.safeParse(normalizedPayload) : null;
     if (!parsed?.success) return socket.close(1008, "Invalid message");
 
@@ -402,7 +424,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       delete state.stream;
       this.releaseBroadcastSessions(state.userId);
     }
-    this.emit(state.userId, payload);
+    this.emit(state.userId, payload, state.tokenIssuedAtMs ?? (state.tokenIssuedAt ? state.tokenIssuedAt * 1_000 : state.connectedAt));
     removeWatchedSession(state, payload);
     socket.serializeAttachment(state);
     if (payload.type === "stream:start" || payload.type === "stream:stop") this.sendSnapshot();
