@@ -1,4 +1,8 @@
 /* Shared interaction surfaces; host applications retain their existing tokens. */
+.jl-user-avatar { position: relative; display: inline-grid; place-items: center; flex: 0 0 auto; overflow: hidden; border: 1px solid var(--border, #292929); border-radius: var(--avatar-radius, 50%); color: var(--text-soft, #b5b1aa); background: var(--surface-2, #151515); font-weight: 700; line-height: 1; vertical-align: middle; }
+.jl-user-avatar-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+.jl-user-avatar-image.is-loaded { opacity: 1; }
+.jl-user-avatar-fallback { display: grid; place-items: center; width: 100%; height: 100%; }
 .jl-menu-positioner, .jl-select-positioner { z-index: 40; outline: none; }
 .jl-tooltip-positioner { z-index: 80; pointer-events: none; }
 .jl-tooltip, .jl-select-popup, .jl-menu-popup {

@@ -40,9 +40,10 @@ const signals = [
 describe("web and desktop realtime contract", () => {
   it("keeps membership changes and sender-side revocations across the desktop HTTP boundary", () => {
     const events = [{ type: "room:members-changed" }, { type: "room:peer-revoked", targetUserId: "viewer", changedAt: 123 }].map((payload, index) => ({
-      id: `event-${index}`, roomId: "600d84a1-26a0-4758-8d81-14f8bbef08e2", senderUserId: "owner", sentAt: 123, cursor: index + 1, payload,
+      id: `event-${index}`, roomId: "600d84a1-26a0-4758-8d81-14f8bbef08e2", senderUserId: "owner", sentAt: 123, authorizationIssuedAt: 100, cursor: index + 1, payload,
     }));
     expect(parseRealtimePoll({ events, onlineUserIds: [], activeStreams: [], cursor: 2 }).events).toHaveLength(2);
+    expect(parseRealtimePoll({ events, onlineUserIds: [], activeStreams: [], cursor: 2 }).events[1].authorizationIssuedAt).toBe(100);
   });
   it.each(signals)("accepts $type with both runtime validators", (signal) => {
     expect(clientSignalingEventSchema.safeParse(signal).success).toBe(true);

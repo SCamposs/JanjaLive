@@ -25,13 +25,15 @@ it.each(["watch:stop", "room:peer-revoked"] as const)("cuts the honest sender's 
   vi.stubGlobal("RTCPeerConnection", Peer);
   let events: RealtimePoll["events"] = [];
   let cursor = 0;
-  const event = (senderUserId: string, payload: ServerSignal, sentAt = 100) => ({ id: String(++cursor), senderUserId, payload, cursor, sentAt });
+  const event = (senderUserId: string, payload: ServerSignal, sentAt = 100, authorizationIssuedAt = sentAt) => ({ id: String(++cursor), senderUserId, payload, cursor, sentAt, authorizationIssuedAt });
   const transport: RoomMediaTransport = { send: vi.fn().mockResolvedValue(undefined), getIceServers: async () => [], isRoomUnavailable: () => false,
     poll: async () => { const batch = events; events = []; return { events: batch, cursor, onlineUserIds: ["broadcaster", "viewer", "other"], activeStreams: [] }; } };
   const hook = renderHook(() => useRoomMediaCore({ roomId: "room", transport }));
   const stream = { getTracks: () => [{ kind: "video", stop: vi.fn() }] } as unknown as MediaStream;
   await act(async () => { await vi.advanceTimersByTimeAsync(0); await hook.result.current.startBroadcast(stream, { preset: "720p30", width: 1280, height: 720, frameRate: 30, hasAudio: false }, 1_000_000); });
-  events = [event("viewer", { type: "watch:request", targetUserId: "broadcaster", mediaSessionId: "old-session-fixture" }), event("other", { type: "watch:request", targetUserId: "broadcaster", mediaSessionId: "other-session-fixture" })];
+  // The old credential can send/queue a request after the DB cutoff but before
+  // signaling processes revocation. Delivery time must not make it fresh.
+  events = [event("viewer", { type: "watch:request", targetUserId: "broadcaster", mediaSessionId: "old-session-fixture" }, 300, 100), event("other", { type: "watch:request", targetUserId: "broadcaster", mediaSessionId: "other-session-fixture" })];
   await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
   expect(Peer.instances).toHaveLength(2);
   events = [event(type === "watch:stop" ? "viewer" : "owner", type === "watch:stop" ? { type, targetUserId: "broadcaster", mediaSessionId: "old-session-fixture" } : { type, targetUserId: "viewer", changedAt: 200 }, 200)];

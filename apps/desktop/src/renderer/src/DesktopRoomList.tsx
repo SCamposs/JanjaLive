@@ -41,7 +41,7 @@ export function DesktopRoomList({ rooms, onOpen, onRefresh }: {
     <section className="room-list-card" aria-label="Salas disponíveis">
       {rooms.length ? rooms.map((room) => <article className="desktop-room-row" data-confirming={open && selected?.id === room.id} key={room.id}>
         <button className="desktop-room-open" type="button" onClick={() => void onOpen(room.id)}>
-          <span><strong>{room.name}</strong><small>{room.role === "OWNER" ? "Sua sala" : "Membro"} · {expiryLabel(room.expiresInMs)}</small></span><b>Abrir</b>
+          <span><strong>{room.name}</strong><small>{room.role === "OWNER" ? "Sua sala" : "Membro"} · {expiryLabel(room.expiresInMs)}</small></span>
         </button>
         <button className="desktop-room-remove" type="button" aria-label={room.role === "OWNER" ? `Excluir ${room.name}` : `Remover ${room.name} da minha lista`} onClick={() => { setSelected(room); setError(null); setOpen(true); }}>
           {room.role === "OWNER" ? <Trash2 size={14} /> : <LogOut size={14} />}

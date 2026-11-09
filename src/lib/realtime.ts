@@ -35,6 +35,7 @@ export type StoredSignal = {
   roomId: string;
   senderUserId: string;
   sentAt: number;
+  authorizationIssuedAt?: number;
   cursor: number;
   payload: SignalingEvent;
 };
@@ -143,7 +144,7 @@ export async function publishSignal(
   roomId: string,
   senderUserId: string,
   payload: SignalingEvent,
-  options: { changedAt?: number } = {},
+  options: { changedAt?: number; authorizationIssuedAt?: number } = {},
 ) {
   const provider = getRealtimeProvider();
   if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
@@ -151,7 +152,7 @@ export async function publishSignal(
     await cloudflareRequest(`/internal/rooms/${encodeURIComponent(roomId)}/event`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ senderUserId, payload, changedAt: options.changedAt ?? Date.now() }),
+      body: JSON.stringify({ senderUserId, payload, changedAt: options.changedAt ?? Date.now(), ...(options.authorizationIssuedAt ? { authorizationIssuedAt: options.authorizationIssuedAt } : {}) }),
     });
     return { id: nanoid(), roomId, senderUserId, sentAt: Date.now(), cursor: 0, payload } satisfies StoredSignal;
   }
@@ -163,6 +164,7 @@ export async function publishSignal(
     roomId,
     senderUserId,
     sentAt: now,
+    ...(options.authorizationIssuedAt ? { authorizationIssuedAt: options.authorizationIssuedAt } : {}),
     cursor: getSignalCursor(now, sequence),
     payload,
   };
@@ -237,6 +239,7 @@ function parseStoredSignal(value: unknown): StoredSignal | null {
       !Number.isFinite(candidate.sentAt) ||
       typeof candidate.cursor !== "number" ||
       !Number.isSafeInteger(candidate.cursor) ||
+      (candidate.authorizationIssuedAt !== undefined && (!Number.isSafeInteger(candidate.authorizationIssuedAt) || candidate.authorizationIssuedAt <= 0)) ||
       !payload.success
     ) return null;
     return { ...candidate, payload: payload.data } as StoredSignal;
