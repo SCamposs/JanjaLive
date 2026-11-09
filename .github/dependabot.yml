@@ -17,3 +17,5 @@ updates:
     groups:
       codeql:
         patterns: ["github/codeql-action/*"]
+      store-artifacts:
+        patterns: ["actions/upload-artifact", "actions/download-artifact"]
