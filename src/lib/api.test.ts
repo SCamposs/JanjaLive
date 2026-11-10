@@ -13,6 +13,11 @@ vi.mock("@/lib/account-access", () => ({ getActiveUserById: mocks.getActiveUserB
 import { apiError, requireUser } from "./api";
 
 describe("central account access enforcement", () => {
+  it.each(["ACTIVE_ROOM_LIMIT_REACHED", "DAILY_ROOM_LIMIT_REACHED"])("preserves the reason for %s in the API response", async (error) => {
+    const response = apiError(new Error(error));
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toEqual({ error });
+  });
   beforeEach(() => {
     mocks.auth.mockReset();
     mocks.getDesktopUserFromToken.mockReset();

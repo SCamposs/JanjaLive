@@ -1,4 +1,5 @@
 import { DesktopAccessGate as AccessGate } from "./DesktopAccessGate";
+import { roomCreationErrorMessage } from "@janjalive/realtime-protocol";
 import { DesktopDeleteRoomAction } from "./DesktopDeleteRoomAction";
 import { subscribeAuthStatus } from "./auth-session";
 import { DesktopLogin } from "./DesktopLogin";
@@ -514,7 +515,7 @@ function Home({ rooms, onOpen, onOpenSnapshot, onRefresh }: { rooms: RoomSummary
     setBusy(true);
     setCreateError(null);
     try { onOpenSnapshot(await window.janja.rooms.create({ name: name || undefined, accessMode: "APPROVAL" })); }
-    catch { setCreateError("Não foi possível criar a sala. Se atingiu o limite, encerre uma sala ativa ou tente mais tarde."); }
+    catch (error) { setCreateError(roomCreationErrorMessage(error)); }
     finally { setBusy(false); }
   }
   async function joinCode(roomCode: string) { if (busy || !/^[2-9A-HJ-NP-Z]{7}$/.test(roomCode)) return; setBusy(true); try { onOpenSnapshot(await window.janja.rooms.joinCode(roomCode)); } finally { setBusy(false); void onRefresh(); } }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { ChoiceGroup } from "@janjalive/ui";
 import { Toast } from "./toast";
+import { roomCreationErrorMessage } from "@janjalive/realtime-protocol";
 
 const ROOM_CODE_LENGTH = 7;
 
@@ -33,14 +34,15 @@ export function CreateRoomForm() {
         body: JSON.stringify({ name, accessMode }),
       });
       if (!response.ok) {
-        if (response.status === 429) throw new Error("Limite de salas atingido. Encerre uma sala ativa ou tente mais tarde.");
-        if (response.status === 503) throw new Error("A criação de salas está temporariamente indisponível.");
-        throw new Error("Não foi possível criar a sala.");
+        const data = await response.json().catch(() => null);
+        setCreateError(roomCreationErrorMessage(data?.error));
+        setCreating(false);
+        return;
       }
       const data = (await response.json()) as { invitePath: string };
       router.push(data.invitePath);
     } catch (cause) {
-      setCreateError(cause instanceof Error ? cause.message : "Não foi possível criar a sala.");
+      setCreateError(roomCreationErrorMessage(cause));
       setCreating(false);
     }
   }

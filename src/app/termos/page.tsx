@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalPage } from "@/components/legal-page";
+import { ROOM_CREATION_LIMITS } from "@janjalive/realtime-protocol";
 
 export const metadata: Metadata = {
   title: "Termos de uso",
@@ -9,10 +10,11 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Termos de uso" updatedAt="2 de outubro de 2026">
+    <LegalPage title="Termos de uso" updatedAt="10 de novembro de 2026">
       <section>
         <h2>Uso do serviço</h2>
-        <p>JanjaLive permite criar salas privadas, autorizar participantes e compartilhar uma tela com pessoas escolhidas. Para usar o serviço, é necessário entrar com uma conta do Discord e respeitar as regras da sala.</p>
+        <p>O JanjaLive permite compartilhar tela e áudio em salas com pessoas escolhidas. O serviço é gratuito e exige uma conta do Discord. Cuide do acesso à sua conta e respeite as regras da sala.</p>
+        <p>Nas salas com aprovação, o proprietário aceita cada pedido de entrada. Nas salas por convite, quem tiver um convite válido pode entrar após fazer login. Compartilhe convites apenas com quem você deseja autorizar.</p>
       </section>
 
       <section>
@@ -28,8 +30,10 @@ export default function TermsPage() {
 
       <section>
         <h2>Salas e contas</h2>
-        <p>Salas inativas expiram após três dias. O proprietário pode fechar uma sala e remover membros a qualquer momento. O acesso ao serviço pode ser interrompido para proteger pessoas, dados ou a infraestrutura, ou em caso de uso incompatível com estes termos.</p>
-        <p>Sair da conta encerra a sessão no JanjaLive, mas não desvincula nem exclui sua conta do Discord.</p>
+        <p>Cada conta pode manter até {ROOM_CREATION_LIMITS.activeRoomsPerOwner} salas próprias ativas e criar até {ROOM_CREATION_LIMITS.roomCreationsPerDay} salas por período de 24 horas. Excluir uma sala libera espaço entre as salas ativas, mas não reduz o total de criações daquele período. Participar de salas de outras pessoas não ocupa esse limite de salas próprias.</p>
+        <p>Salas expiram após três dias sem atividade. O proprietário pode excluir uma sala para encerrar o acesso de todos ou remover membros individualmente. Um participante pode remover o próprio acesso pela lista de salas; para voltar, precisará entrar novamente conforme o modo de acesso da sala.</p>
+        <p>Sair de uma sala durante o uso não remove sua autorização. Sair da conta encerra a sessão naquele dispositivo; a opção “Sair de todos os dispositivos” encerra as demais sessões do JanjaLive. Nenhuma dessas ações exclui sua conta ou seus dados do Discord.</p>
+        <p>Podemos limitar ou suspender o acesso para conter abuso, proteger pessoas e manter o serviço funcionando. Os limites de uso podem mudar; as condições atualizadas serão informadas no aplicativo e nestes termos.</p>
       </section>
 
       <section>

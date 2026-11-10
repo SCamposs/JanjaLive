@@ -71,6 +71,9 @@ describe("resource limits against real PostgreSQL", () => {
   it("allows exactly five active rooms under concurrent creation", async () => {
     const results = await Promise.allSettled(Array.from({ length: 12 }, () => createRoom({ userId: "user-0", accessMode: "APPROVAL" })));
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(5);
+    for (const result of results) {
+      if (result.status === "rejected") expect(result.reason.message).toBe("ACTIVE_ROOM_LIMIT_REACHED");
+    }
     expect(await psql("select count(*) from rooms;")).toBe("5\n");
     expect(await psql("select count(*) from room_members where role = 'OWNER';")).toBe("5\n");
   });
@@ -79,7 +82,7 @@ describe("resource limits against real PostgreSQL", () => {
     await psql("update users set room_creation_count = 19 where id = 'user-0';");
     const room = await createRoom({ userId: "user-0", accessMode: "APPROVAL" });
     await psql(`delete from rooms where id = ${literal(room.id)};`);
-    await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL" })).rejects.toThrow("ROOM_LIMIT_REACHED");
+    await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL" })).rejects.toThrow("DAILY_ROOM_LIMIT_REACHED");
     await psql("update users set room_creation_window_at = now() - interval '25 hours' where id = 'user-0';");
     await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL" })).resolves.toHaveProperty("id");
     expect(await psql("select room_creation_count from users where id = 'user-0';")).toBe("1\n");

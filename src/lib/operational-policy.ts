@@ -1,7 +1,8 @@
+import { ROOM_CREATION_LIMITS } from "@janjalive/realtime-protocol";
+
 // Server-side switches. Changing them requires a deployment, not a new service.
 export const RESOURCE_LIMITS = {
-  activeRoomsPerOwner: 5,
-  roomCreationsPerDay: 20,
+  ...ROOM_CREATION_LIMITS,
   membersPerRoom: 20,
   turnRequestsPerHour: 60,
 } as const;

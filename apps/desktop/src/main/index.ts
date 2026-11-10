@@ -19,6 +19,7 @@ import {
 } from "electron";
 import electronUpdater from "electron-updater";
 import { z } from "zod";
+import { isRoomCreationErrorCode } from "@janjalive/realtime-protocol";
 import {
   authExchangeResponseSchema,
   authStatusSchema,
@@ -277,7 +278,13 @@ async function backendRequest(pathname: string, init: RequestInit = {}) {
     updateRequired = true;
     updateStatus({ state: "required" });
   }
-  if (!response.ok) throw new Error(`API_${response.status}`);
+  if (!response.ok) {
+    if (pathname === "/api/rooms" && init.method === "POST") {
+      const data = await response.json().catch(() => null);
+      if (isRoomCreationErrorCode(data?.error)) throw new Error(data.error);
+    }
+    throw new Error(`API_${response.status}`);
+  }
   return response;
 }
 

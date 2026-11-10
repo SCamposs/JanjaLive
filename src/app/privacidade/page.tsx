@@ -8,16 +8,16 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacidade" updatedAt="1 de novembro de 2026">
+    <LegalPage title="Privacidade" updatedAt="10 de novembro de 2026">
       <section>
         <h2>Sobre esta política</h2>
-        <p>Esta política descreve o tratamento de dados no site JanjaLive e no aplicativo para Windows, incluindo a edição distribuída pela Microsoft Store. Os dados são usados para identificar participantes, manter sessões e permissões de sala, estabelecer as transmissões escolhidas pelos usuários e proteger o serviço contra abuso.</p>
+        <p>Esta política vale para o site e o aplicativo JanjaLive para Windows, incluindo a edição da Microsoft Store. Usamos dados para manter sua conta conectada, controlar o acesso às salas, conectar as transmissões e proteger o serviço contra abuso.</p>
       </section>
       <section>
         <h2>O que é tratado</h2>
         <p>Ao entrar com o Discord, o JanjaLive recebe o identificador da sua conta, nome, nome de exibição e avatar. O aplicativo não solicita seu e-mail e não guarda os tokens de acesso do Discord.</p>
         <p>Também são mantidos os dados necessários às salas: nome opcional, proprietário, membros autorizados, pedidos de entrada, convites protegidos, código e datas de atividade. Um cookie de sessão estritamente necessário mantém sua conta conectada.</p>
-        <p>Para conter abuso, mantemos um contador de criação de salas por conta. Para encerrar acessos, mantemos a data de revogação de sessões e identificadores temporários das credenciais TURN, sem a senha dessas credenciais.</p>
+        <p>Também mantemos registros de segurança para aplicar limites de uso, encerrar sessões e revogar acessos às conexões. Esses registros não incluem o conteúdo transmitido.</p>
         <p>O responsável pelo serviço pode consultar contas e aplicar ou remover bloqueios. Essas ações mantêm um registro com a conta afetada, o responsável pela ação, a data e um motivo opcional. Esse registro não contém o conteúdo das transmissões nem um histórico de quem assistiu.</p>
       </section>
 
@@ -25,22 +25,24 @@ export default function PrivacyPage() {
         <h2>Tela e áudio</h2>
         <p>A captura só começa após você escolher uma tela, janela, aplicação ou guia. No site, essa escolha acontece no seletor do navegador. No aplicativo para Windows, ela acontece no seletor do JanjaLive e vale uma única vez; compartilhar novamente exige uma nova escolha.</p>
         <p>No aplicativo para Windows, nomes e miniaturas das telas e janelas disponíveis aparecem temporariamente no seletor para permitir a escolha. Eles não são armazenados nem enviados ao servidor. Somente a fonte escolhida se torna uma transmissão.</p>
-        <p>Incluir áudio é opcional. No navegador, a disponibilidade depende da fonte escolhida e do suporte do navegador. No Windows, o áudio de uma aplicação é capturado dos processos associados à janela escolhida; ao compartilhar um monitor com áudio, é capturada a mistura de sons do sistema, que pode incluir sons de outras aplicações.</p>
+        <p>Incluir áudio é opcional. No navegador, a disponibilidade depende do que você escolheu compartilhar e do suporte do navegador. No Windows, compartilhar uma aplicação inclui o áudio associado a ela. Ao compartilhar uma tela inteira, o áudio pode incluir sons de outras aplicações, inclusive conversas. Você pode escolher uma aplicação para excluir do áudio antes de começar.</p>
         <p>O JanjaLive não solicita câmera, microfone, seleção de arquivos ou leitura da área de transferência e não oferece controle remoto do computador. O aplicativo pode escrever um link de convite na área de transferência apenas quando o dono da sala pede.</p>
-        <p>A mídia segue por WebRTC entre quem transmite e quem escolheu assistir. Quando o TURN opcional estiver configurado e uma conexão direta não for possível, os pacotes podem passar por essa retransmissão. JanjaLive não grava nem armazena imagem ou áudio. Pessoas autorizadas que assistem ainda podem gravar o conteúdo por meios próprios.</p>
-        <p>Áudio e vídeo são criptografados em trânsito. Para estabelecer a conexão, participantes e provedores de STUN/TURN podem receber endereços de rede, incluindo seu IP. Esses dados não são exibidos na interface do JanjaLive nem intencionalmente registrados nos logs da aplicação. A infraestrutura dos provedores pode manter registros técnicos conforme suas próprias políticas.</p>
+        <p>A transmissão conecta quem compartilha a quem escolheu assistir. Quando uma conexão direta não é possível e o recurso está disponível, um serviço de retransmissão pode encaminhar os dados. O JanjaLive não grava nem armazena imagem ou áudio. Quem assiste ainda pode gravar o conteúdo por meios próprios.</p>
+        <p>Áudio e vídeo são criptografados em trânsito. Para conectar a transmissão, participantes e serviços de conexão podem receber endereços de rede, incluindo seu IP. Esses dados não aparecem na interface nem são intencionalmente registrados nos logs do JanjaLive. Os provedores de infraestrutura podem manter registros técnicos conforme suas próprias políticas.</p>
       </section>
 
       <section>
         <h2>Dados temporários e prazos</h2>
-        <p>Presença, anúncios de transmissão e mensagens de conexão são coordenados temporariamente pela Cloudflare. Essas mensagens podem incluir informações de rede necessárias ao WebRTC, mas não são gravadas no banco principal nem exibidas na interface.</p>
-        <p>A sessão do site expira em sete dias. No aplicativo para Windows, a sessão protegida pelo sistema operacional expira em até 30 dias e pode ser encerrada antes pela opção de sair da conta. Salas expiram após três dias sem atividade e são removidas definitivamente depois de mais 30 dias, desde que não haja ninguém presente. Dados de conta, autorização e pedidos de entrada permanecem enquanto necessários ao funcionamento ou até uma solicitação aplicável de exclusão.</p>
-        <p>A opção “Sair de todos os dispositivos”, no menu do site, invalida sessões web e desktop. Identificadores de credenciais TURN expiram em até uma hora e são removidos pela rotina de manutenção após expirar; também permitem tentar revogar o acesso em caso de banimento ou encerramento de sessões.</p>
+        <p>Informações de quem está online, transmissões disponíveis e mensagens para estabelecer conexões são coordenadas temporariamente pela Cloudflare. As mensagens de conexão podem incluir dados de rede; elas não são gravadas no banco principal nem exibidas na interface.</p>
+        <p>A sessão do site expira em sete dias. No aplicativo para Windows, a sessão protegida pelo sistema operacional expira em até 30 dias. Você pode sair da conta antes desses prazos.</p>
+        <p>Salas expiram após três dias sem atividade. A rotina de manutenção remove salas expiradas ou encerradas há mais de 30 dias, desde que não haja ninguém presente, junto com suas autorizações e pedidos de entrada.</p>
+        <p>Os dados da conta não têm exclusão automática por inatividade. Sair da conta ou remover uma sala da sua lista não apaga esses dados. Eles permanecem cadastrados até uma exclusão aplicável. Registros de bloqueios e outras ações administrativas também não têm prazo automático de exclusão.</p>
+        <p>Remover seu acesso a uma sala não exclui sua conta. Sair da conta encerra a sessão daquele dispositivo; “Sair de todos os dispositivos”, no menu do site, invalida sessões do site e do aplicativo. Registros temporários de autorização do serviço de retransmissão expiram em até uma hora e são removidos pela rotina de manutenção.</p>
       </section>
 
       <section>
         <h2>Serviços envolvidos</h2>
-        <p>Discord fornece a identidade; Vercel hospeda o aplicativo; Neon mantém o banco; e Cloudflare coordena temporariamente as conexões e pode retransmitir mídia quando o TURN opcional estiver configurado. Upstash permanece disponível apenas como alternativa técnica de retorno. Cada provedor trata os dados técnicos necessários para prestar seu serviço conforme seus próprios termos.</p>
+        <p>Discord fornece os dados de login; Vercel hospeda o site; Neon mantém os dados de contas e salas; e Cloudflare coordena as conexões e pode encaminhar transmissões quando o serviço de retransmissão estiver habilitado. Se a alternativa Upstash for ativada, ela assume a coordenação temporária das conexões. Cada provedor trata os dados necessários à sua função conforme suas próprias políticas.</p>
         <p>Na edição da Microsoft Store, a Microsoft também processa os dados necessários à aquisição, instalação e atualização do pacote conforme a política de privacidade dela. A conta Microsoft usada na loja não substitui o login com Discord no JanjaLive. Na edição obtida pelo site ou GitHub, arquivos de atualização são distribuídos pelo GitHub. Esses serviços de distribuição não recebem a transmissão de tela ou áudio por essa função.</p>
       </section>
 
@@ -52,7 +54,8 @@ export default function PrivacyPage() {
 
       <section>
         <h2>Seus direitos</h2>
-        <p>Você pode pedir confirmação do tratamento, acesso, correção ou exclusão dos seus dados quando aplicável, além de informações sobre compartilhamento. Consulte o <a href="/safety">canal de privacidade e denúncia</a> para entrar em contato com o responsável.</p>
+        <p>Você pode solicitar confirmação do tratamento, acesso, correção ou exclusão dos seus dados quando aplicável, além de informações sobre compartilhamento. O canal de atendimento ainda está em preparação. A disponibilidade será informada na página de <a href="/safety">privacidade e segurança</a>.</p>
+        <p>Os controles de sair da conta e remover acesso a salas continuam disponíveis no aplicativo, mas não substituem um pedido de exclusão dos dados da conta.</p>
         <p>Informações gerais sobre os direitos previstos na LGPD estão disponíveis no <a href="https://www.gov.br/anpd/pt-br/assuntos/titular-de-dados" rel="noreferrer">portal da ANPD</a>.</p>
       </section>
     </LegalPage>

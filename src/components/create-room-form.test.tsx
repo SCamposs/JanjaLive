@@ -24,6 +24,18 @@ describe("CreateRoomForm room code", () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    ["ACTIVE_ROOM_LIMIT_REACHED", "5 salas ativas"],
+    ["DAILY_ROOM_LIMIT_REACHED", "20 criações em 24 horas"],
+  ])("explains %s without navigating away", async (error, message) => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error }), { status: 429 }));
+    render(<CreateRoomForm />);
+    fireEvent.click(screen.getByRole("button", { name: "Criar sala" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(message));
+    expect((screen.getByRole("button", { name: "Criar sala" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
   it("submits automatically when all seven valid characters are present", async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ joinPath: "/join/example" }), {

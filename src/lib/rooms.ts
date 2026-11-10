@@ -46,8 +46,11 @@ export async function createRoom(input: {
 
   // Neon batch is a transaction. Lock first, then count in the next statement:
   // concurrent creates by this owner cannot both consume the final slot.
-  const [, inserted] = await db.batch([
+  const [, limits, inserted] = await db.batch([
     db.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("update"),
+    db.execute(sql`select account_status, room_creation_count, room_creation_window_at,
+      (select count(*)::int from rooms where owner_id = ${input.userId} and closed_at is null and expires_at > ${now}) as active_rooms
+      from users where id = ${input.userId}`),
     db.execute(sql`insert into rooms (id, owner_id, public_id, code, invite_hash, name, access_mode, last_active_at, expires_at)
       select ${id}::uuid, ${input.userId}, ${nanoid(18)}, ${createRoomCode()}, ${hashInviteToken(inviteToken)},
         ${input.name ?? null}, ${input.accessMode}::access_mode, ${now}, ${expiresAt}
@@ -63,7 +66,17 @@ export async function createRoom(input: {
     db.execute(sql`insert into room_members (room_id, user_id, role)
       select id, ${input.userId}, 'OWNER' from rooms where id = ${id}::uuid`),
   ]);
-  if (!inserted.rows.length) throw new Error("ROOM_LIMIT_REACHED");
+  if (!inserted.rows.length) {
+    // This snapshot was taken after the owner lock, before changing the counters.
+    const policy = limits.rows[0];
+    if (!policy || policy.account_status !== "ACTIVE") throw new Error("ACCOUNT_DISABLED");
+    if (Number(policy.active_rooms) >= RESOURCE_LIMITS.activeRoomsPerOwner) throw new Error("ACTIVE_ROOM_LIMIT_REACHED");
+    if (Number(policy.room_creation_count) >= RESOURCE_LIMITS.roomCreationsPerDay
+      && new Date(String(policy.room_creation_window_at)).getTime() > now.getTime() - 86_400_000) {
+      throw new Error("DAILY_ROOM_LIMIT_REACHED");
+    }
+    throw new Error("ROOM_LIMIT_REACHED");
+  }
 
   return { id, inviteToken };
 }
