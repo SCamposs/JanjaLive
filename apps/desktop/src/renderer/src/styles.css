@@ -44,6 +44,8 @@ button:disabled, input:disabled { opacity: .48; cursor: not-allowed; }
 .desktop-noir-screen > :not(.desktop-noir-backdrop) { position: relative; z-index: 1; }
 .desktop-noir-backdrop { position: absolute; z-index: -2; inset: 0 0 0 30%; overflow: hidden; pointer-events: none; -webkit-mask-image: linear-gradient(to right, transparent, #000 34%); mask-image: linear-gradient(to right, transparent, #000 34%); }
 .desktop-noir-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center; filter: contrast(1.04) brightness(.82); -webkit-user-drag: none; }
+.desktop-noir-backdrop { background: var(--bg, #050505); }
+.desktop-noir-backdrop:not([data-image-state="ready"]) .desktop-noir-frame { visibility: hidden; animation: none; }
 .desktop-noir-frame-base { opacity: .64; animation: desktop-noir-flicker 9s steps(1, end) infinite; }
 .desktop-noir-frame-shift { opacity: 0; mix-blend-mode: screen; }
 .desktop-noir-frame-shift-a { clip-path: inset(12% 0 62% 0); animation: desktop-noir-glitch-a 8.6s steps(1, end) infinite; }

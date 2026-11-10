@@ -7,6 +7,7 @@
     ".": "./src/index.tsx",
     "./room-removal-dialog": "./src/room-removal-dialog.tsx",
     "./dialog": "./src/dialog.tsx",
+    "./decorative-image": "./src/decorative-image.ts",
     "./styles.css": "./src/styles.css"
   },
   "dependencies": {
