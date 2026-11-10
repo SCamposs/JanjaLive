@@ -2,7 +2,8 @@
 
 import { Clock3, LoaderCircle, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useVisiblePolling } from "@janjalive/ui";
 
 export function AccessGate({ roomId, roomName, state }: { roomId: string; roomName: string; state: "invited" | "pending" | "rejected" }) {
   return <AccessGateState key={state} roomId={roomId} roomName={roomName} state={state} />;
@@ -14,11 +15,8 @@ function AccessGateState({ roomId, roomName, state }: { roomId: string; roomName
   const [requested, setRequested] = useState(state === "pending");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!requested) return;
-    const interval = setInterval(() => router.refresh(), 3_000);
-    return () => clearInterval(interval);
-  }, [requested, router]);
+  const checkApproval = useCallback(() => router.refresh(), [router]);
+  useVisiblePolling(checkApproval, requested);
 
   async function requestAccess() {
     setLoading(true);

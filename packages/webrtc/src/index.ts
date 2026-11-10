@@ -498,6 +498,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, pref
   const [onlineUserIds, setOnlineUserIds] = useState<string[]>(initialOnline);
   const [activeStreams, setActiveStreams] = useState<ActiveStream[]>([]);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
+  const [remoteConnectionStatuses, setRemoteConnectionStatuses] = useState<Record<string, ConnectionStatus>>({});
   const [viewerUserIds, setViewerUserIds] = useState<string[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -526,7 +527,12 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, pref
     await transport.send(roomId, payload);
   }, [roomId, transport]);
 
-  const refreshViewers = useCallback(() => {
+  const refreshPeerState = useCallback(() => {
+    const statuses = Object.fromEntries([...peersRef.current.values()]
+      .filter(({ direction }) => direction === "inbound")
+      .map(({ remoteUserId, peer }) => [remoteUserId, getPeerConnectionStatus([peer.connectionState])]));
+    setRemoteConnectionStatuses((current) => Object.keys(current).length === Object.keys(statuses).length
+      && Object.entries(statuses).every(([id, status]) => current[id] === status) ? current : statuses);
     const connected = [...new Set([...peersRef.current.values()]
       .filter(({ direction, peer }) => direction === "outbound" && peer.connectionState === "connected")
       .map(({ remoteUserId }) => remoteUserId))].sort();
@@ -545,7 +551,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, pref
     pendingWatchersRef.current.delete(mediaSessionId);
     session?.peer.close();
     peersRef.current.delete(mediaSessionId);
-    refreshViewers();
+    refreshPeerState();
     pendingCandidatesRef.current.delete(mediaSessionId);
     if (!session || session.direction !== "inbound") return;
     if (inboundSessionByStreamerRef.current.get(session.remoteUserId) === mediaSessionId) {
@@ -557,7 +563,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, pref
       delete next[session.remoteUserId];
       return next;
     });
-  }, [refreshViewers]);
+  }, [refreshPeerState]);
 
   const closePeers = useCallback((predicate: (session: PeerSession) => boolean) => {
     for (const session of [...peersRef.current.values()]) {
@@ -717,7 +723,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, pref
       else publishStream();
     };
     peer.onconnectionstatechange = () => {
-      refreshViewers();
+      refreshPeerState();
       traceMedia("peer.connection.changed", { direction, state: peer.connectionState });
       if (peer.connectionState === "connected") {
         clearStartupTimer();
@@ -738,7 +744,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, pref
       }
     };
     return peer;
-  }, [closePeer, refreshViewers, resolveIceServers, roomId, send]);
+  }, [closePeer, refreshPeerState, resolveIceServers, roomId, send]);
 
   const offerBroadcastTo = useCallback(async (remoteUserId: string, mediaSessionId: string, authorizationIssuedAt = peersRef.current.get(mediaSessionId)?.authorizationIssuedAt ?? Date.now()) => {
     if (authorizationIssuedAt <= (revokedPeersRef.current.get(remoteUserId) ?? -1)) return;
@@ -1064,6 +1070,7 @@ export function useRoomMediaCore({ roomId, transport, initialOnlineUserIds, pref
     membershipRevision,
     onlineUserIds,
     remoteStreams,
+    remoteConnectionStatuses,
     viewerUserIds,
     replaceBroadcast,
     roomUnavailable,

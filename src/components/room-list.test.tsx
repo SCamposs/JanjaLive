@@ -12,7 +12,7 @@ describe("room removal confirmation", () => {
     render(<RoomList rooms={[{ ...baseRoom, role: "MEMBER" }]} />);
     fireEvent.click(screen.getByRole("button", { name: "Remover Amigos da minha lista" }));
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog.textContent).toContain("precisará pedir aprovação novamente");
+    expect(dialog.textContent).toContain("entrar novamente conforme as regras de acesso da sala");
     expect(mocks.fetch).not.toHaveBeenCalled();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remover da lista" }));
     await waitFor(() => expect(mocks.fetch).toHaveBeenCalledWith("/api/rooms/room-id/membership", { method: "DELETE" }));

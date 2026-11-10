@@ -8,6 +8,13 @@ beforeEach(() => { vi.resetAllMocks(); leave.mockResolvedValue(undefined); remov
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("desktop room removal", () => {
+  it("reports a failed room open and allows another attempt", async () => {
+    open.mockRejectedValueOnce(new Error("offline"));
+    render(<DesktopRoomList rooms={[{ ...room, role: "OWNER" }]} onOpen={open} onRefresh={refresh} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Amigos/ }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Não foi possível abrir");
+    expect((screen.getByRole("button", { name: /^Amigos/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
   it("only revokes a member's own access after explicit confirmation", async () => {
     render(<DesktopRoomList rooms={[{ ...room, role: "MEMBER" }]} onOpen={open} onRefresh={refresh} />);
     fireEvent.click(screen.getByRole("button", { name: "Remover Amigos da minha lista" }));

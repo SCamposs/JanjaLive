@@ -13,6 +13,21 @@ class Peer {
 }
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it("keeps connection feedback scoped to the affected stream", async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("RTCPeerConnection", Peer);
+  const transport: RoomMediaTransport = { send: vi.fn().mockResolvedValue(undefined), getIceServers: async () => [], isRoomUnavailable: () => false,
+    poll: async () => ({ events: [], cursor: 0, onlineUserIds: [], activeStreams: [] }) };
+  const hook = renderHook(() => useRoomMediaCore({ roomId: "room", transport }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); await hook.result.current.watch("a"); });
+  const first = Peer.current;
+  await act(async () => { first.connectionState = "connected"; first.onconnectionstatechange!(); await hook.result.current.watch("b"); });
+  const second = Peer.current;
+  await act(async () => { second.connectionState = "disconnected"; second.onconnectionstatechange!(); });
+  expect(hook.result.current.remoteConnectionStatuses).toEqual({ a: "good", b: "unstable" });
+  hook.unmount();
+});
+
 it.each(["missing", "muted", "audio-only", "before-connection", "after-connection"])("bounds waiting for the first inbound video (%s)", async (state) => {
   vi.useFakeTimers();
   vi.stubGlobal("RTCPeerConnection", Peer);

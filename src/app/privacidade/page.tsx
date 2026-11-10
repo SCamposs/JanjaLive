@@ -18,6 +18,7 @@ export default function PrivacyPage() {
         <p>Ao entrar com o Discord, o JanjaLive recebe o identificador da sua conta, nome, nome de exibição e avatar. O aplicativo não solicita seu e-mail e não guarda os tokens de acesso do Discord.</p>
         <p>Também são mantidos os dados necessários às salas: nome opcional, proprietário, membros autorizados, pedidos de entrada, convites protegidos, código e datas de atividade. Um cookie de sessão estritamente necessário mantém sua conta conectada.</p>
         <p>Também mantemos registros de segurança para aplicar limites de uso, encerrar sessões e revogar acessos às conexões. Esses registros não incluem o conteúdo transmitido.</p>
+        <p>Preferências de volume e qualidade são salvas apenas neste dispositivo para facilitar o próximo uso. Elas não são enviadas ao servidor e podem ser removidas ao limpar os dados do site ou aplicativo.</p>
         <p>O responsável pelo serviço pode consultar contas e aplicar ou remover bloqueios. Essas ações mantêm um registro com a conta afetada, o responsável pela ação, a data e um motivo opcional. Esse registro não contém o conteúdo das transmissões nem um histórico de quem assistiu.</p>
       </section>
 

@@ -5,10 +5,15 @@ import { Tooltip } from "@base-ui/react/tooltip";
 import { Select } from "@base-ui/react/select";
 import { Radio } from "@base-ui/react/radio";
 import { RadioGroup } from "@base-ui/react/radio-group";
+import { Popover } from "@base-ui/react/popover";
 export { Menu } from "@base-ui/react/menu";
 export { Input as TextInput } from "@base-ui/react/input";
 export { usePlayerControlsAutoHide } from "./player-controls";
 export { UserAvatar } from "./user-avatar";
+export { useVisiblePolling } from "./visible-polling";
+export { PlayerAudioProvider, usePlayerAudio } from "./player-audio";
+export { useVideoActions } from "./video-actions";
+export { useCapturePreferences } from "./capture-preferences";
 
 export function ChoiceGroup<Value extends string>({ value, onValueChange, options, label, className }: {
   value: Value;
@@ -33,6 +38,18 @@ const subscribeFullscreen = (notify: () => void) => {
 };
 const fullscreenSnapshot = () => document.fullscreenElement instanceof HTMLElement ? document.fullscreenElement : null;
 const serverSnapshot = () => null;
+
+export function PlayerVolumeControl({ muted, volume, onToggleMute, onVolumeChange, icon }: {
+  muted: boolean; volume: number; onToggleMute: () => void; onVolumeChange: (value: number) => void; icon: ReactNode;
+}) {
+  const container = useContext(PopupContainer);
+  const label = muted ? "Ativar som" : "Silenciar";
+  const slider = <input aria-label="Volume" type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => onVolumeChange(Number(event.target.value))} />;
+  return <>
+    <div className="jl-volume-inline"><TooltipButton className="icon-button icon-action" tooltip={label} aria-label={label} onClick={onToggleMute}>{icon}</TooltipButton>{slider}</div>
+    <Popover.Root><Popover.Trigger className="jl-volume-touch" aria-label="Ajustar volume">{icon}</Popover.Trigger><Popover.Portal container={container ?? undefined}><Popover.Positioner side="top" sideOffset={10} collisionPadding={12} className="jl-volume-positioner"><Popover.Popup className="jl-volume-popup"><Popover.Title>Volume</Popover.Title>{slider}<button type="button" onClick={onToggleMute}>{label}</button></Popover.Popup></Popover.Positioner></Popover.Portal></Popover.Root>
+  </>;
+}
 
 export function InteractionProvider({ children }: { children: ReactNode }) {
   const container = useSyncExternalStore(subscribeFullscreen, fullscreenSnapshot, serverSnapshot);

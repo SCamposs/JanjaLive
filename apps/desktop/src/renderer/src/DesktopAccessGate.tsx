@@ -1,19 +1,15 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useVisiblePolling } from "@janjalive/ui";
 import type { RoomSnapshot } from "../../shared/contracts";
 
 export function DesktopAccessGate({ room, onRequest, onUpdate }: { room: RoomSnapshot; onRequest: () => Promise<void>; onUpdate: (room: RoomSnapshot) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (room.access !== "pending") return;
-    let stopped = false;
-    const interval = setInterval(() => {
-      void window.janja.rooms.getPublic(room.room.publicId).then((next) => {
-        if (!stopped) onUpdate(next);
-      }).catch(() => undefined);
-    }, 3_000);
-    return () => { stopped = true; clearInterval(interval); };
-  }, [onUpdate, room.access, room.room.publicId]);
+  const checkApproval = useCallback(async (signal: AbortSignal) => {
+    const next = await window.janja.rooms.getPublic(room.room.publicId);
+    if (!signal.aborted) onUpdate(next);
+  }, [onUpdate, room.room.publicId]);
+  useVisiblePolling(checkApproval, room.access === "pending");
   async function requestAccess() {
     if (busy) return;
     setBusy(true);

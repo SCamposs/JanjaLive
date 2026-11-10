@@ -19,7 +19,18 @@ export function DesktopRoomList({ rooms, onOpen, onRefresh }: {
   const [selected, setSelected] = useState<RoomSummary | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  async function openRoom(id: string) {
+    if (openingId) return;
+    setOpeningId(id);
+    setOpenError(null);
+    try { await onOpen(id); }
+    catch { setOpenError("Não foi possível abrir a sala. Tente novamente."); }
+    finally { setOpeningId(null); }
+  }
 
   async function removeRoom() {
     if (!selected || busy) return;
@@ -39,8 +50,9 @@ export function DesktopRoomList({ rooms, onOpen, onRefresh }: {
 
   return <>
     <section className="room-list-card" aria-label="Salas disponíveis">
+      {openError && <p role="alert">{openError}</p>}
       {rooms.length ? rooms.map((room) => <article className="desktop-room-row" data-confirming={open && selected?.id === room.id} key={room.id}>
-        <button className="desktop-room-open" type="button" onClick={() => void onOpen(room.id)}>
+        <button className="desktop-room-open" type="button" disabled={openingId !== null} aria-busy={openingId === room.id} onClick={() => void openRoom(room.id)}>
           <span><strong>{room.name}</strong><small>{room.role === "OWNER" ? "Sua sala" : "Membro"} · {expiryLabel(room.expiresInMs)}</small></span>
         </button>
         <button className="desktop-room-remove" type="button" aria-label={room.role === "OWNER" ? `Excluir ${room.name}` : `Remover ${room.name} da minha lista`} onClick={() => { setSelected(room); setError(null); setOpen(true); }}>

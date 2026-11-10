@@ -1,4 +1,5 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { type RefObject } from "react";
+import { Dialog } from "@janjalive/ui/dialog";
 import { AppWindow } from "lucide-react";
 import { ChoiceGroup } from "@janjalive/ui";
 import type { NativeAudioMode } from "../../shared/contracts";
@@ -24,15 +25,13 @@ type Props = {
 };
 
 export function CaptureConfig({ previewRef, deferred, busy, name, audioMode, resolution, fps, quality, customBitrate, onResolution, onFps, onQuality, onCustomBitrate, onCancel, onStart }: Props) {
-  const dialog = useRef<HTMLElement>(null);
-  useEffect(() => { dialog.current?.focus(); }, []);
+
   const audioLabel = audioMode === "application" ? "Áudio da aplicação"
     : audioMode === "system-excluding-application" ? "Áudio do sistema · Aplicação excluída"
       : audioMode === "system" ? "Áudio do sistema"
         : audioMode === "unavailable" ? "Áudio indisponível — somente vídeo" : "Somente vídeo";
-  return <div className="modal-backdrop">
-    <section className="capture-panel capture-modal" ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Configurar transmissão" aria-busy={busy}
-      onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onCancel(); } }}>
+  return <Dialog.Root open onOpenChange={(open) => { if (!open) onCancel(); }}><Dialog.Portal><div className="modal-backdrop">
+    <Dialog.Popup render={<section />} className="capture-panel capture-modal" aria-label="Configurar transmissão" aria-busy={busy}>
       {deferred ? <div className="capture-deferred-preview"><AppWindow size={32} aria-hidden="true" /><strong>{name}</strong><span>{busy ? "Iniciando transmissão…" : "A aplicação será restaurada ao compartilhar."}</span></div>
         : <video ref={previewRef} autoPlay muted playsInline />}
       <div className="capture-title"><strong>{name}</strong><span>{audioLabel}</span></div>
@@ -44,8 +43,8 @@ export function CaptureConfig({ previewRef, deferred, busy, name, audioMode, res
         </div>
         <div className="capture-actions"><button className="quiet-button" type="button" onClick={onCancel}>Cancelar</button><button className="primary-button" type="button" disabled={busy} onClick={() => void onStart()}>{busy ? "Iniciando…" : "Compartilhar"}</button></div>
       </div>
-    </section>
-  </div>;
+    </Dialog.Popup>
+  </div></Dialog.Portal></Dialog.Root>;
 }
 
 function OptionGroup({ label, value, values, labels = {}, onChange, disabled }: { label: string; value: string; values: string[]; labels?: Record<string, string>; onChange(value: string): void; disabled: boolean }) {

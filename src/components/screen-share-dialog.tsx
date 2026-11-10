@@ -3,7 +3,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, MonitorUp, ShieldCheck, Volume2, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { ChoiceGroup } from "@janjalive/ui";
+import { ChoiceGroup, useCapturePreferences } from "@janjalive/ui";
 import {
   QUALITY_PROFILES,
   clampCustomBitrate,
@@ -31,10 +31,7 @@ function toPreset(resolution: Resolution, frameRate: 30 | 60): QualityPreset {
 }
 
 export function ScreenShareDialog({ open, onCancel, onStart }: Props) {
-  const [resolution, setResolution] = useState<Resolution>("1080p");
-  const [frameRate, setFrameRate] = useState<30 | 60>(60);
-  const [quality, setQuality] = useState<"auto" | "high" | "custom">("auto");
-  const [customBitrate, setCustomBitrate] = useState(10);
+  const { resolution, setResolution, fps: frameRate, setFps: setFrameRate, quality, setQuality, customBitrate, setCustomBitrate } = useCapturePreferences();
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
 

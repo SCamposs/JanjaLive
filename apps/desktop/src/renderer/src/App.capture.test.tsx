@@ -17,6 +17,7 @@ const room = { room: { id: "room", name: "Capture QA", publicId: "room-public", 
 let track: MediaStreamTrack;
 let stream: MediaStream;
 beforeEach(() => {
+  localStorage.clear();
   vi.clearAllMocks();
   track = Object.assign(new EventTarget(), { kind: "video", readyState: "live", stop: vi.fn(), applyConstraints: vi.fn().mockResolvedValue(undefined), getSettings: () => ({ width: 1920, height: 1080, frameRate: 60 }) }) as unknown as MediaStreamTrack;
   stream = { getVideoTracks: () => [track], getAudioTracks: () => [], getTracks: () => [track] } as unknown as MediaStream;
@@ -34,6 +35,16 @@ beforeEach(() => {
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+
+it("shows an invalid room code error without locking the home screen", async () => {
+  const joinCode = vi.fn().mockRejectedValue(new Error("API_404"));
+  window.janja.rooms.joinCode = joinCode;
+  render(<App />);
+  await screen.findByRole("button", { name: /^Capture QA/ });
+  fireEvent.change(screen.getByLabelText("Código da sala, 7 caracteres"), { target: { value: "ABCD234" } });
+  expect((await screen.findByRole("alert")).textContent).toContain("Sala não encontrada");
+  expect((screen.getByLabelText("Código da sala, 7 caracteres") as HTMLInputElement).disabled).toBe(false);
+});
 
 async function choose() {
   render(<App />);
@@ -53,6 +64,13 @@ it("configures a minimized application without restoring or capturing it before 
   expect(mocks.core.startBroadcast).not.toHaveBeenCalled();
 });
 
+it("offers playback recovery instead of waiting forever when autoplay is blocked", async () => {
+  vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(new DOMException("blocked", "NotAllowedError"));
+  await choose();
+  fireEvent.click(screen.getByRole("button", { name: "Compartilhar" }));
+  expect(await screen.findByRole("button", { name: "Reproduzir" })).toBeTruthy();
+});
+
 it("restores, captures and publishes in one confirmation using the selected FPS", async () => {
   await choose();
   fireEvent.click(screen.getByRole("radio", { name: "30" }));
@@ -63,6 +81,10 @@ it("restores, captures and publishes in one confirmation using the selected FPS"
   expect(mocks.startAudio).toHaveBeenCalledOnce();
   expect(screen.queryByRole("dialog", { name: "Configurar transmissão" })).toBeNull();
   expect(await screen.findByRole("button", { name: "Trocar tela" })).toBeTruthy();
+  const preview = document.querySelector(".desktop-player video") as HTMLVideoElement;
+  expect(preview.muted).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Ativar som" }));
+  expect(preview.muted).toBe(false);
 });
 
 it("cancels an in-flight restore without opening display capture when it completes late", async () => {

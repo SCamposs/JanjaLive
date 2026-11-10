@@ -9,6 +9,13 @@ const monitor: CaptureSource = { token: "monitor", name: "Tela cheia", kind: "sc
 const props = () => ({ sources: { windows: [game], screens: [monitor] }, audioEnabled: false, onAudioEnabled: vi.fn(), excludedAudioSource: null, onExcludedAudioSource: vi.fn(), onSelect: vi.fn(async () => {}), onClose: vi.fn(), selecting: null });
 afterEach(cleanup);
 describe("source picker", () => {
+  it("filters applications without hiding available monitors", () => {
+    render(<SourcePicker {...props()} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
+    expect(screen.queryByRole("button", { name: /VALORANT/ })).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Nenhuma aplicação");
+    expect(screen.getByRole("button", { name: "Tela cheia" })).toBeTruthy();
+  });
   it("keeps application and monitor choices and displays minimized applications without a broken image", () => {
     const input = props(); render(<SourcePicker {...input} />);
     expect(screen.getByRole("heading", { name: "Aplicações" }).isConnected).toBe(true);

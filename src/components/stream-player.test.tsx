@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { PlayerAudioProvider } from "@janjalive/ui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StreamPlayer } from "./stream-player";
 
@@ -22,6 +23,7 @@ describe("StreamPlayer controls", () => {
     expect(stopFirst).not.toHaveBeenCalled();
   });
   beforeEach(() => {
+    localStorage.clear();
     vi.useFakeTimers();
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
     Object.defineProperty(HTMLMediaElement.prototype, "play", {
@@ -34,6 +36,42 @@ describe("StreamPlayer controls", () => {
     cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("moves audio focus between live streams and keeps the others muted", () => {
+    const view = render(<PlayerAudioProvider><StreamPlayer stream={{} as MediaStream} streamerName="A" status="good" onStop={vi.fn()} /><StreamPlayer stream={{} as MediaStream} streamerName="B" status="good" onStop={vi.fn()} initiallyMuted /></PlayerAudioProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Ativar som" }));
+    const videos = view.container.querySelectorAll("video");
+    expect(videos[0].muted).toBe(true);
+    expect(videos[1].muted).toBe(false);
+  });
+
+  it("does not run player shortcuts while changing volume", () => {
+    const view = render(<StreamPlayer stream={{} as MediaStream} streamerName="A" status="good" onStop={vi.fn()} />);
+    const video = view.container.querySelector("video")!;
+    fireEvent.keyDown(screen.getByLabelText("Volume"), { key: "m" });
+    expect(video.muted).toBe(false);
+    fireEvent.keyDown(view.container.querySelector(".player-shell")!, { key: "m" });
+    expect(video.muted).toBe(true);
+  });
+
+  it("disables unavailable video actions and exposes volume in the touch popover", () => {
+    render(<StreamPlayer stream={{} as MediaStream} streamerName="A" status="good" onStop={vi.fn()} />);
+    expect((screen.getByRole("button", { name: "Picture in Picture" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Ajustar volume" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(within(screen.getByRole("dialog")).getByRole("slider", { name: "Volume" })).toBeTruthy();
+  });
+
+  it("offers a retry when autoplay is blocked and clears it once playback starts", async () => {
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(new DOMException("blocked", "NotAllowedError"));
+    const view = render(<StreamPlayer stream={{} as MediaStream} streamerName="A" status="good" onStop={vi.fn()} />);
+    await act(async () => {});
+    const retry = screen.getByRole("button", { name: "Reproduzir" });
+    vi.mocked(HTMLMediaElement.prototype.play).mockResolvedValue(undefined);
+    fireEvent.click(retry);
+    fireEvent.playing(view.container.querySelector("video")!);
+    expect(screen.queryByRole("button", { name: "Reproduzir" })).toBeNull();
   });
 
   it("hides after inactivity and returns immediately with pointer movement", () => {

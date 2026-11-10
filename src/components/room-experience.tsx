@@ -1,6 +1,7 @@
 "use client";
 
-import { TooltipButton } from "@janjalive/ui";
+import { TooltipButton, PlayerAudioProvider } from "@janjalive/ui";
+import { RoomRemovalDialog } from "@janjalive/ui/room-removal-dialog";
 
 import {
   Check,
@@ -43,6 +44,9 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   const [selectedStreamers, setSelectedStreamers] = useState<string[]>([]);
   const selectedStreamer = selectedStreamers.at(-1) ?? null;
   const [copied, setCopied] = useState(false);
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [closingRoom, setClosingRoom] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [captureFallbackAvailable, setCaptureFallbackAvailable] = useState(false);
   const [dismissedConnectionError, setDismissedConnectionError] = useState<string | null>(null);
@@ -208,16 +212,18 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   }
 
   async function handleMember(userId: string, action: "approve" | "reject" | "revoke") {
-    const response = await fetch(`/api/rooms/${snapshot.room.id}/members`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, action }),
-    });
-    if (!response.ok) {
-      setCaptureError(response.status === 409 ? "A sala atingiu o limite de membros." : "Não foi possível alterar o acesso. Tente novamente.");
-      return;
-    }
-    router.refresh();
+    try {
+      const response = await fetch(`/api/rooms/${snapshot.room.id}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, action }),
+      });
+      if (!response.ok) {
+        setCaptureError(response.status === 409 ? "A sala atingiu o limite de membros." : "Não foi possível alterar o acesso. Tente novamente.");
+        return;
+      }
+      router.refresh();
+    } catch { setCaptureError("Não foi possível alterar o acesso. Confira sua conexão e tente novamente."); }
   }
 
   async function copyInvite() {
@@ -234,18 +240,27 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   }
 
   async function regenerateInvite() {
-    const response = await fetch(`/api/rooms/${snapshot.room.id}/invite`, { method: "POST" });
-    if (!response.ok) return;
-    const data = (await response.json()) as { invitePath: string };
-    const nextUrl = new URL(data.invitePath, window.location.origin).toString();
-    await navigator.clipboard.writeText(nextUrl);
-    router.replace(data.invitePath);
+    try {
+      const response = await fetch(`/api/rooms/${snapshot.room.id}/invite`, { method: "POST" });
+      if (!response.ok) throw new Error("INVITE_FAILED");
+      const data = (await response.json()) as { invitePath: string };
+      const nextUrl = new URL(data.invitePath, window.location.origin).toString();
+      await navigator.clipboard.writeText(nextUrl);
+      router.replace(data.invitePath);
+    } catch { setCaptureError("Não foi possível copiar o novo convite. Use Convidar para tentar novamente."); }
   }
 
   async function closeRoom() {
-    if (isBroadcasting) await stopSharing();
-    await fetch(`/api/rooms/${snapshot.room.id}/close`, { method: "POST" });
-    router.push("/");
+    if (closingRoom) return;
+    setClosingRoom(true);
+    setCloseError(null);
+    try {
+      const response = await fetch(`/api/rooms/${snapshot.room.id}/close`, { method: "POST" });
+      if (!response.ok) throw new Error("CLOSE_FAILED");
+      if (isBroadcasting) await stopSharing();
+      router.push("/");
+    } catch { setCloseError("Não foi possível excluir a sala. Tente novamente."); }
+    finally { setClosingRoom(false); }
   }
 
   async function leaveRoom() {
@@ -279,7 +294,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
                 <strong>Configurações da sala</strong>
                 <span>{snapshot.room.accessMode === "APPROVAL" ? "Entrada com aprovação" : "Entrada pelo convite"}</span>
                 <button type="button" onClick={regenerateInvite}>Gerar novo convite</button>
-                <button type="button" className="danger-text" onClick={closeRoom}>Fechar sala</button>
+                <button type="button" className="danger-text" onClick={() => { setCloseError(null); setCloseDialogOpen(true); }}>Fechar sala</button>
               </div>
             </details>
           )}
@@ -315,13 +330,13 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
           )}
 
           <section className="stage">
-            {selectedStreamers.length > 0 ? <div className="multilive-grid" data-multiple={selectedStreamers.length > 1}>
+            {selectedStreamers.length > 0 ? <PlayerAudioProvider><div className="multilive-grid" data-multiple={selectedStreamers.length > 1}>
               {selectedStreamers.map((id, index) => {
                 const own = id === currentUser.id;
                 const stream = own ? localStream : realtime.remoteStreams[id];
-                return <div className="multilive-tile" key={id}>{stream ? <StreamPlayer stream={stream} streamerName={own ? "Sua transmissão" : membersById.get(id)?.name ?? "Amigo"} status={realtime.connectionStatus} mode={own ? "local" : "remote"} viewerNames={own ? realtime.viewerUserIds.map((viewerId) => membersById.get(viewerId)?.name ?? "Membro") : undefined} initiallyMuted={own || index > 0} onStop={() => void (own ? stopSharing() : leaveStream(id))} /> : <div className="stream-connecting" role="status"><span>Conectando a {membersById.get(id)?.name ?? "transmissão"}…</span><button className="button secondary compact" type="button" onClick={() => void leaveStream(id)}>Cancelar</button></div>}</div>;
+                return <div className="multilive-tile" key={id}>{stream ? <StreamPlayer stream={stream} streamerName={own ? "Sua transmissão" : membersById.get(id)?.name ?? "Amigo"} status={realtime.remoteConnectionStatuses?.[id] ?? "connecting"} mode={own ? "local" : "remote"} viewerNames={own ? realtime.viewerUserIds.map((viewerId) => membersById.get(viewerId)?.name ?? "Membro") : undefined} initiallyMuted={own || index > 0} onStop={() => void (own ? stopSharing() : leaveStream(id))} /> : <div className="stream-connecting" role="status"><span>Conectando a {membersById.get(id)?.name ?? "transmissão"}…</span><button className="button secondary compact" type="button" onClick={() => void leaveStream(id)}>Cancelar</button></div>}</div>;
               })}
-            </div> : remoteActiveStreams.length > 0 ? (
+            </div></PlayerAudioProvider> : remoteActiveStreams.length > 0 ? (
               <div className="stream-picker">
                 <div className="stream-picker-heading">
                   <div><h1>Transmissões</h1><p>Escolha uma tela para assistir.</p></div>
@@ -400,6 +415,7 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
         </aside>
       </div>
 
+      <RoomRemovalDialog room={{ name: snapshot.room.name, role: "OWNER" }} open={closeDialogOpen} busy={closingRoom} error={closeError} onClose={() => setCloseDialogOpen(false)} onConfirm={() => void closeRoom()} />
       <ScreenShareDialog
         open={shareDialogOpen}
         onCancel={cancelCapture}

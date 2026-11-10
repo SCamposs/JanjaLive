@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 
-const IMAGE_URL = "/janja-live-noir.png";
+const IMAGE_URL = "/janja-live-noir.webp";
 const TARGET_FRAME_TIME = 1000 / 30;
 const RENDER_SCALE = 0.72;
 

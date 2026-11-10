@@ -23,7 +23,7 @@ export function RoomRemovalDialog({ room, open, busy, error, onClose, onConfirm 
           <AlertDialog.Title className="jl-confirm-title">{owner ? "Excluir sala?" : "Remover da minha lista?"}</AlertDialog.Title>
           <AlertDialog.Description className="jl-confirm-description">
             {owner ? <>A sala <strong>{room?.name}</strong> será excluída para todos. Essa ação não pode ser desfeita.</>
-              : <>Você perderá o acesso à sala <strong>{room?.name}</strong>. Para voltar, precisará pedir aprovação novamente.</>}
+              : <>Você perderá o acesso à sala <strong>{room?.name}</strong>. Para voltar, precisará entrar novamente conforme as regras de acesso da sala.</>}
           </AlertDialog.Description>
           {error && <p className="jl-confirm-error" role="alert">{error}</p>}
           <div className="jl-confirm-actions">

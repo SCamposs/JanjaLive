@@ -1,4 +1,23 @@
 /* Shared interaction surfaces; host applications retain their existing tokens. */
+:where(:root) { --bg: #050505; --surface: #0d0d0d; --surface-2: #151515; --surface-3: #1b1b1b; --text: #e6e3dc; --text-soft: #b5b1aa; --muted: #a09b95; --border: #292929; --accent: #8c1d2c; --accent-strong: #c13b4d; }
+.jl-volume-inline { display: contents; }
+.jl-volume-touch { display: none; }
+.jl-volume-positioner { z-index: 80; }
+.jl-volume-popup { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); font-size: 12px; }
+.jl-volume-popup h2 { margin: 0; font-size: 13px; }
+.jl-volume-popup input { width: 160px; accent-color: var(--accent); }
+.jl-volume-popup button { min-height: 44px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-3); color: var(--text); }
+.player-action-error { position: absolute; z-index: 3; top: 12px; right: 12px; max-width: 65%; padding: 9px; background: var(--surface-2); color: var(--text); border-radius: 5px; font-size: 12px; }
+.player-shell:focus-visible, .desktop-player:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: -3px; }
+@media (pointer: coarse), (max-width: 600px) {
+  .jl-volume-inline { display: none; }
+  .jl-volume-touch { display: inline-grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; border: 0; border-radius: 6px; background: transparent; color: var(--text); }
+  .player-controls .icon-button, .player-controls .stop-button { min-width: 44px; min-height: 44px; }
+  .player-controls { gap: 4px; height: auto; min-height: 52px; }
+  .player-controls .stop-button span { display: none; }
+  .member-actions button, .toast-dismiss, .room-delete-trigger { min-width: 44px; min-height: 44px; }
+  .room-delete-trigger { opacity: 1; }
+}
 .jl-user-avatar { position: relative; display: inline-grid; place-items: center; flex: 0 0 auto; overflow: hidden; border: 1px solid var(--border, #292929); border-radius: var(--avatar-radius, 50%); color: var(--text-soft, #b5b1aa); background: var(--surface-2, #151515); font-weight: 700; line-height: 1; vertical-align: middle; }
 .jl-user-avatar-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
 .jl-user-avatar-image.is-loaded { opacity: 1; }

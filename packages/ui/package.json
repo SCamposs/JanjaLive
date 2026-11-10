@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.tsx",
     "./room-removal-dialog": "./src/room-removal-dialog.tsx",
+    "./dialog": "./src/dialog.tsx",
     "./styles.css": "./src/styles.css"
   },
   "dependencies": {
