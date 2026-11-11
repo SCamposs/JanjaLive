@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { getLoginDestination } from "@/lib/login-destination";
 import { ArrowRight } from "lucide-react";
 import { auth, signIn } from "@/auth";
 import { AccountMenu } from "@/components/account-menu";
@@ -14,13 +16,17 @@ import { requireAdmin } from "@/lib/admin";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const destination = getLoginDestination((await searchParams).returnTo);
   const session = await auth();
   if (session?.user) {
     const activeUser = session.user.id ? await getActiveUserById(session.user.id).catch(() => null) : null;
     if (!activeUser) {
       return <main className="landing-page"><LandingNoirBackground /><header className="landing-header"><Brand /></header><section className="login-shell"><div className="login-card"><h1>Acesso indisponível</h1><p>Esta conta não pode usar o JanjaLive.</p><AccountMenu image={session.user.image} name={session.user.name || "Conta Discord"} /></div></section></main>;
     }
+    if (destination) redirect(destination);
     const displayName = activeUser.name.split(" ")[0] ?? "Conta Discord";
     const availableRooms = await listAvailableRooms(activeUser.id);
     const isAdmin = await requireAdmin().then(() => true).catch(() => false);
@@ -53,10 +59,10 @@ export default async function HomePage() {
       <header className="landing-header"><Brand /></header>
       <section className="login-shell">
         <div className="login-card">
-          <h1>Compartilhe sua tela</h1>
-          <p>Entre com o Discord para criar uma sala ou abrir um convite.</p>
-          <form action={async () => { "use server"; await signIn("discord"); }}>
-            <button className="button discord wide" type="submit"><DiscordMark /> Entrar com Discord <ArrowRight size={17} /></button>
+          <h1>{destination ? "Entre para acessar a sala" : "Compartilhe sua tela"}</h1>
+          <p>{destination ? "Após entrar com o Discord, você continuará neste convite." : "Entre com o Discord para criar uma sala ou abrir um convite."}</p>
+          <form action={async () => { "use server"; await signIn("discord", { redirectTo: destination ?? "/" }); }}>
+            <button className="button discord wide" type="submit"><DiscordMark /> {destination ? "Continuar com Discord" : "Entrar com Discord"} <ArrowRight size={17} /></button>
           </form>
           <small className="login-note">Pedimos apenas sua identidade básica do Discord.</small>
         </div>

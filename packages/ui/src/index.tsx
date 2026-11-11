@@ -11,7 +11,7 @@ export { Input as TextInput } from "@base-ui/react/input";
 export { usePlayerControlsAutoHide } from "./player-controls";
 export { UserAvatar } from "./user-avatar";
 export { useVisiblePolling } from "./visible-polling";
-export { PlayerAudioProvider, usePlayerAudio } from "./player-audio";
+export { usePlayerAudio } from "./player-audio";
 export { useVideoActions } from "./video-actions";
 export { useCapturePreferences } from "./capture-preferences";
 

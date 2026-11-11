@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { PlayerAudioProvider } from "@janjalive/ui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StreamPlayer } from "./stream-player";
 
@@ -38,12 +37,21 @@ describe("StreamPlayer controls", () => {
     vi.unstubAllGlobals();
   });
 
-  it("moves audio focus between live streams and keeps the others muted", () => {
-    const view = render(<PlayerAudioProvider><StreamPlayer stream={{} as MediaStream} streamerName="A" status="good" onStop={vi.fn()} /><StreamPlayer stream={{} as MediaStream} streamerName="B" status="good" onStop={vi.fn()} initiallyMuted /></PlayerAudioProvider>);
+  it("allows simultaneous audio with independent volume and mute", () => {
+    const view = render(<><StreamPlayer stream={{} as MediaStream} streamerName="A" status="good" onStop={vi.fn()} /><StreamPlayer stream={{} as MediaStream} streamerName="B" status="good" onStop={vi.fn()} initiallyMuted /></>);
     fireEvent.click(screen.getByRole("button", { name: "Ativar som" }));
     const videos = view.container.querySelectorAll("video");
+    expect(videos[0].muted).toBe(false);
+    expect(videos[1].muted).toBe(false);
+    const first = within(view.container.querySelectorAll(".player-shell")[0] as HTMLElement);
+    fireEvent.change(first.getByLabelText("Volume"), { target: { value: "0.25" } });
+    expect(videos[0].volume).toBe(0.25);
+    expect(videos[1].volume).toBe(1);
+    fireEvent.click(first.getByRole("button", { name: "Silenciar" }));
     expect(videos[0].muted).toBe(true);
     expect(videos[1].muted).toBe(false);
+    fireEvent.change(first.getByLabelText("Volume"), { target: { value: "0.5" } });
+    expect(videos[0].muted).toBe(true);
   });
 
   it("does not run player shortcuts while changing volume", () => {

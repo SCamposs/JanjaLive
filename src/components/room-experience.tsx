@@ -1,6 +1,6 @@
 "use client";
 
-import { TooltipButton, PlayerAudioProvider } from "@janjalive/ui";
+import { TooltipButton } from "@janjalive/ui";
 import { RoomRemovalDialog } from "@janjalive/ui/room-removal-dialog";
 
 import {
@@ -330,13 +330,13 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
           )}
 
           <section className="stage">
-            {selectedStreamers.length > 0 ? <PlayerAudioProvider><div className="multilive-grid" data-multiple={selectedStreamers.length > 1}>
+            {selectedStreamers.length > 0 ? <div className="multilive-grid" data-multiple={selectedStreamers.length > 1}>
               {selectedStreamers.map((id, index) => {
                 const own = id === currentUser.id;
                 const stream = own ? localStream : realtime.remoteStreams[id];
                 return <div className="multilive-tile" key={id}>{stream ? <StreamPlayer stream={stream} streamerName={own ? "Sua transmissão" : membersById.get(id)?.name ?? "Amigo"} status={realtime.remoteConnectionStatuses?.[id] ?? "connecting"} mode={own ? "local" : "remote"} viewerNames={own ? realtime.viewerUserIds.map((viewerId) => membersById.get(viewerId)?.name ?? "Membro") : undefined} initiallyMuted={own || index > 0} onStop={() => void (own ? stopSharing() : leaveStream(id))} /> : <div className="stream-connecting" role="status"><span>Conectando a {membersById.get(id)?.name ?? "transmissão"}…</span><button className="button secondary compact" type="button" onClick={() => void leaveStream(id)}>Cancelar</button></div>}</div>;
               })}
-            </div></PlayerAudioProvider> : remoteActiveStreams.length > 0 ? (
+            </div> : remoteActiveStreams.length > 0 ? (
               <div className="stream-picker">
                 <div className="stream-picker-heading">
                   <div><h1>Transmissões</h1><p>Escolha uma tela para assistir.</p></div>

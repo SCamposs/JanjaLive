@@ -8,9 +8,9 @@ import { requireAdmin } from "@/lib/admin";
 export const dynamic = "force-dynamic";
 
 export default async function RoomPage({ params }: { params: Promise<{ token: string }> }) {
-  const user = await requireUser().catch(() => null);
-  if (!user) redirect("/");
   const { token } = await params;
+  const user = await requireUser().catch(() => null);
+  if (!user) redirect(`/?${new URLSearchParams({ returnTo: `/room/${token}` })}`);
   const snapshot = await getRoomSnapshot(token, user.id);
   if (!snapshot) notFound();
   if (snapshot.access !== "authorized") return <AccessGate roomId={snapshot.room.id} roomName={snapshot.room.name} state={snapshot.access} />;
