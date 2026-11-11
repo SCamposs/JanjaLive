@@ -75,3 +75,7 @@
   .jl-confirm-backdrop, .jl-confirm-popup { transition: none; }
   .jl-tooltip, .jl-select-popup, .jl-menu-popup, .jl-select-trigger, .jl-select-icon, .jl-input { transition: none; }
 }
+
+.member-action-spinner { flex: none; animation: member-action-spin .8s linear infinite; }
+@keyframes member-action-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .member-action-spinner { animation: none; } }

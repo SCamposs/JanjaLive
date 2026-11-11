@@ -8,13 +8,14 @@ import {
   Copy,
   DoorOpen,
   MonitorUp,
+  LoaderCircle,
   Play,
   Settings,
   UsersRound,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, useSyncExternalStore } from "react";
 import { playRoomCue } from "@janjalive/webrtc";
 import { getWebDisplayCaptureOptions, prepareDisplayCapture } from "@/lib/display-capture";
 import type { RoomSnapshot } from "@/lib/rooms";
@@ -44,6 +45,9 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   const [selectedStreamers, setSelectedStreamers] = useState<string[]>([]);
   const selectedStreamer = selectedStreamers.at(-1) ?? null;
   const [copied, setCopied] = useState(false);
+  const memberRequestRef = useRef(false);
+  const [memberBusy, startMemberAction] = useTransition();
+  const [memberAction, setMemberAction] = useState<{ userId: string; action: string } | null>(null);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [closingRoom, setClosingRoom] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -212,18 +216,24 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
   }
 
   async function handleMember(userId: string, action: "approve" | "reject" | "revoke") {
-    try {
-      const response = await fetch(`/api/rooms/${snapshot.room.id}/members`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, action }),
-      });
-      if (!response.ok) {
-        setCaptureError(response.status === 409 ? "A sala atingiu o limite de membros." : "Não foi possível alterar o acesso. Tente novamente.");
-        return;
-      }
-      router.refresh();
-    } catch { setCaptureError("Não foi possível alterar o acesso. Confira sua conexão e tente novamente."); }
+    if (memberRequestRef.current || memberBusy) return;
+    memberRequestRef.current = true;
+    setMemberAction({ userId, action });
+    startMemberAction(async () => {
+      try {
+        const response = await fetch(`/api/rooms/${snapshot.room.id}/members`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId, action }),
+        });
+        if (!response.ok) {
+          setCaptureError(response.status === 409 ? "A sala atingiu o limite de membros." : "Não foi possível alterar o acesso. Tente novamente.");
+          return;
+        }
+        startMemberAction(() => router.refresh());
+      } catch { setCaptureError("Não foi possível alterar o acesso. Confira sua conexão e tente novamente."); }
+      finally { memberRequestRef.current = false; }
+    });
   }
 
   async function copyInvite() {
@@ -384,7 +394,10 @@ export function RoomExperience({ snapshot, currentUser, isAdmin = false }: Props
                 <div className="pending-card" key={person.userId}>
                   <MemberAvatar person={person} />
                   <strong>{person.name}</strong><span>quer entrar</span>
-                  <div><button type="button" onClick={() => handleMember(person.userId, "approve")}>Aprovar</button><button type="button" onClick={() => handleMember(person.userId, "reject")}>Recusar</button></div>
+                  <div>{(["approve", "reject"] as const).map((action) => {
+                    const busy = memberBusy && memberAction?.userId === person.userId && memberAction.action === action;
+                    return <button key={action} type="button" disabled={memberBusy} aria-busy={busy} onClick={() => void handleMember(person.userId, action)}>{busy && <LoaderCircle size={12} className="member-action-spinner" aria-hidden="true" />}{action === "approve" ? busy ? "Aprovando…" : "Aprovar" : busy ? "Recusando…" : "Recusar"}</button>;
+                  })}</div>
                 </div>
               ))}
             </section>

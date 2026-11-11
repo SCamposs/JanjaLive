@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { RoomSnapshot } from "@/lib/rooms";
 
@@ -41,4 +41,26 @@ it("leaves the room only after the server confirms closing it", async () => {
   fireEvent.click(within(dialog).getByRole("button", { name: "Excluir sala" }));
   await vi.waitFor(() => expect(mocks.router.push).toHaveBeenCalledWith("/"));
   expect(request).toHaveBeenCalledWith("/api/rooms/room/close", { method: "POST" });
+});
+
+it("shows a minimal approval state, prevents duplicate requests and permits retry after failure", async () => {
+  let finish!: (response: Response) => void;
+  request.mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }));
+  const pending = { ...snapshot, pending: [{ userId: "friend", name: "Friend", image: null }] };
+  render(<RoomExperience snapshot={pending} currentUser={{ id: "owner" }} />);
+  const approve = screen.getByRole("button", { name: "Aprovar" });
+  fireEvent.click(approve);
+  const busy = screen.getByRole("button", { name: "Aprovando…" });
+  expect(busy.getAttribute("aria-busy")).toBe("true");
+  expect((busy as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Recusar" }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(busy);
+  expect(request).toHaveBeenCalledTimes(1);
+  await act(async () => finish(new Response(null, { status: 503 })));
+  expect((screen.getByRole("button", { name: "Aprovar" }) as HTMLButtonElement).disabled).toBe(false);
+  request.mockResolvedValueOnce(new Response(null, { status: 204 }));
+  const refreshes = mocks.router.refresh.mock.calls.length;
+  fireEvent.click(screen.getByRole("button", { name: "Aprovar" }));
+  await vi.waitFor(() => expect(mocks.router.refresh.mock.calls.length).toBeGreaterThan(refreshes));
+  expect(request).toHaveBeenCalledTimes(2);
 });
