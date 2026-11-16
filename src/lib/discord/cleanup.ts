@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import { rooms } from "@/db/schema";
 import { enforceRateLimit } from "@/lib/realtime";
@@ -20,13 +20,27 @@ export function canReadDiscordHistory(permissions: string) {
   return (BigInt(permissions) & (READ_HISTORY | ADMINISTRATOR)) !== BigInt(0);
 }
 
-type Message = { id: string; author?: { id: string } };
+type Message = { id: string; author?: { id: string }; components?: Array<{ components?: Array<{ url?: string }> }> };
+
+function cardPublicId(message: Message, origin: string) {
+  const prefix = `${origin}/call/`;
+  for (const row of message.components ?? []) {
+    for (const button of row.components ?? []) {
+      if (button.url?.startsWith(prefix)) {
+        const id = button.url.slice(prefix.length);
+        if (/^[A-Za-z0-9_-]{18}$/.test(id)) return id;
+      }
+    }
+  }
+  return null;
+}
 
 /** Explicit, bounded cleanup; no room deletion, membership or media operations. */
 export async function cleanDiscordMessages(guildId: string, channelId: string, userId: string) {
   assertDiscordGuild(guildId);
   if (!snowflake.test(channelId) || !snowflake.test(userId)) throw new Error("DISCORD_UNAVAILABLE");
   const config = discordConfig();
+  const staleReservationBefore = new Date(Date.now() - 60_000);
   await enforceRateLimit(`discord:cleanup:channel:${channelId}`, 1, 30);
   await enforceRateLimit(`discord:cleanup:user:${userId}`, 2, 60);
   const channel = await discordRequest<{ id: string; guild_id: string }>(`/channels/${channelId}`);
@@ -48,13 +62,25 @@ export async function cleanDiscordMessages(guildId: string, channelId: string, u
           if (!(error instanceof DiscordApiError && error.status === 404 && error.code === 10008)) throw error;
         }
         deleted++;
+        const publicId = cardPublicId(message, config.origin);
         await getDb().update(rooms).set({ discordMessageId: null, discordCardClaimedAt: null })
-          .where(and(eq(rooms.discordGuildId, guildId), eq(rooms.discordChannelId, channelId), eq(rooms.discordMessageId, message.id)));
+          .where(and(eq(rooms.discordGuildId, guildId), eq(rooms.discordChannelId, channelId),
+            publicId ? or(eq(rooms.discordMessageId, message.id), and(isNull(rooms.discordMessageId), eq(rooms.publicId, publicId)))
+              : eq(rooms.discordMessageId, message.id)));
       }
       if (messages.length < 100) { complete = true; break; }
       const cursor = messages.at(-1)!.id;
       if (cursor === before) throw new Error("DISCORD_UNAVAILABLE");
       before = cursor;
+    }
+    if (complete) {
+      // Explicit cleanup exhausted the channel history and removed all this
+      // bot's messages. Release receiptless reservations too, including cards
+      // deleted in an earlier cleanup whose acknowledgement was never saved.
+      // Recent reservations may belong to a publisher currently in flight.
+      await getDb().update(rooms).set({ discordCardClaimedAt: null })
+        .where(and(eq(rooms.discordGuildId, guildId), eq(rooms.discordChannelId, channelId), isNull(rooms.discordMessageId),
+          lt(rooms.discordCardClaimedAt, staleReservationBefore)));
     }
   } catch (error) {
     if (!deleted) throw error;

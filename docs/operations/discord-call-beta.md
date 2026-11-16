@@ -76,6 +76,8 @@ Cada execução consulta no máximo cinco páginas de 100 mensagens e apaga até
 
 Somente referências de cartões efetivamente apagados são desassociadas no banco, condicionadas a servidor, canal e ID da mensagem. Não são encerradas salas, alterados membros, prazos ou transmissões. O próximo `/janja` pode publicar um novo cartão para a mesma sala ativa. O publicador também detecta HTTP 404/10008 de cartões removidos, recuperando referências antigas inclusive após uma falha de persistência da limpeza. Indisponibilidade/permissão negada não é considerada evidência de exclusão.
 
+Para cartões cujo recibo nunca foi persistido, a limpeza reconhece o link exato da sessão nas mensagens do próprio bot. Quando esgota todo o histórico do canal, também libera reservas sem recibo com mais de um minuto, inclusive de uma limpeza anterior. Não libera essas reservas em varreduras parciais nem libera reservas recentes que podem pertencer a uma publicação em andamento. Essa recuperação altera apenas metadados de publicação.
+
 Registrar explicitamente com `tools/discord-call/register.mjs`, com as variáveis do bot oficial carregadas localmente; o script mantém `/janja` e adiciona `/janja-limpar` sem substituir outros comandos. Não registrar antes de publicar o backend que reconhece o novo comando. Não há serviço novo, polling ou dependência de npm.
 
 ### Próxima expansão: instalação privada em outros servidores
