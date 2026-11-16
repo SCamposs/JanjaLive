@@ -6,7 +6,7 @@ vi.mock("./access", () => ({ discordIdentity: mocks.identity, assertCallEntry: m
 import { getCallIntent, callCard } from "./calls";
 
 const id = "a".repeat(32);
-const fixtureDiscordUserId = (100_000_000_000_000_000n + 1n).toString();
+const fixtureDiscordUserId = "1".padEnd(18, "0");
 const intent = { id, discordUserId: fixtureDiscordUserId, guildId: "1156443434362617927", channelId: "100000000000000001" };
 function result(rows: unknown[]) {
   const query = { from: () => query, where: () => query, limit: () => Promise.resolve(rows) };
