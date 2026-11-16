@@ -11,11 +11,11 @@ Microsoft. Não instalar o pacote unsigned diretamente em computadores de usuár
 2. Na visão geral, escolha **Atualizar / Update** ou **Criar novo envio / Create
    a new submission**. Se já houver um envio em certificação, aguarde ou resolva
    esse envio antes de iniciar outro.
-3. Abra **Pacotes / Packages** e envie `JanjaLive-Store-0.1.33-x64.msix`, disponível
-   na release v0.1.33. O AppX equivalente também é gerado localmente; não envie os
+3. Abra **Pacotes / Packages** e envie `JanjaLive-Store-0.1.41-x64.msix`, disponível
+   na release v0.1.41. O AppX equivalente também é gerado localmente; não envie os
    dois pacotes x64 com a mesma identidade/versão no mesmo envio. Não envie o EXE,
    o blockmap, latest.yml ou pacote PREVIEW à Store.
-4. Confirme a versão **0.1.33.0**, arquitetura **x64** e família **Windows 10/11
+4. Confirme a versão **0.1.41.0**, arquitetura **x64** e família **Windows 10/11
    Desktop**. Não habilite Mobile, Xbox, Team ou Mixed Reality.
 5. Mantenha a identidade existente:
    - Name: `SCamposs.JanjaLive`
@@ -23,9 +23,8 @@ Microsoft. Não instalar o pacote unsigned diretamente em computadores de usuár
    - PublisherDisplayName: `SCamposs`
 6. Em **Listagens da Store → Português (Brasil) → Novidades**, use:
 
-   > Melhorias na segurança e no encerramento das salas e transmissões.
-   > Correções no cancelamento do compartilhamento, login, solicitações de acesso
-   > e convites. Controles mais consistentes e acessíveis na web e no desktop.
+   > Melhorias no acesso a salas por convite e nas mensagens de conexão.
+   > Correções de confiabilidade e segurança.
 
 7. Mantenha preço gratuito, mercados, visibilidade, classificação etária,
    descrição, imagens e política de privacidade existentes. Para esta atualização
@@ -41,7 +40,7 @@ Microsoft. Não instalar o pacote unsigned diretamente em computadores de usuár
 Não altere a identidade, o protocolo `janjalive`, o nome público, nem os canais
 de atualização para fazer uma atualização comum. A versão do pacote deve sempre
 ser maior que a última aceita pela Store; o quarto componente permanece zero.
-Para uma versão futura, substitua 0.1.33 pela versão da release escolhida.
+Para uma versão futura, substitua 0.1.41 pela versão da release escolhida.
 
 ## Gerar novamente sem publicar
 

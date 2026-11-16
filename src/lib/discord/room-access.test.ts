@@ -2,7 +2,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ select: vi.fn(), batch: vi.fn(), voice: vi.fn(), values: vi.fn(), conflict: vi.fn() }));
 vi.mock("@/db", () => ({ getDb: () => ({ select: mocks.select, batch: mocks.batch, insert: () => ({ values: mocks.values }) }) }));
 vi.mock("./access", () => ({ assertCallEntry: mocks.voice }));
+vi.mock("../realtime", () => ({ getCallRoomLifecycle: vi.fn(async () => ({ active: true, closed: false, idleExpiresAt: null })) }));
 import { getRoomSnapshotByPublicId, requestRoomAccess, assertAuthorizedRoom } from "../rooms";
+import { getCallRoomLifecycle } from "../realtime";
 
 const call = { id: "room", publicId: "public", name: "Sala da call", accessMode: "INVITE", discordGuildId: "1156443434362617927",
   discordChannelId: "100000000000000001", discordSessionEndsAt: new Date(Date.now() + 60000), closedAt: null, expiresAt: new Date(Date.now() + 60000) };
@@ -11,7 +13,7 @@ function selectResult(rows: unknown[]) {
   const query = { from: () => query, where: () => query, leftJoin: () => query, limit: () => Promise.resolve(rows) };
   return query;
 }
-beforeEach(() => { vi.resetAllMocks(); mocks.values.mockReturnValue({ onConflictDoUpdate: mocks.conflict }); vi.stubEnv("DISCORD_CALLS_ENABLED", "true"); vi.stubEnv("DISCORD_CALLS_GUILD_ID", call.discordGuildId); });
+beforeEach(() => { vi.resetAllMocks(); vi.mocked(getCallRoomLifecycle).mockResolvedValue({ active: true, closed: false, idleExpiresAt: null }); mocks.values.mockReturnValue({ onConflictDoUpdate: mocks.conflict }); vi.stubEnv("DISCORD_CALLS_ENABLED", "true"); vi.stubEnv("DISCORD_CALLS_GUILD_ID", call.discordGuildId); });
 afterEach(() => vi.unstubAllEnvs());
 
 it("offers owner approval recovery without restoring a revoked membership even in the correct call", async () => {
@@ -56,6 +58,15 @@ it("keeps ordinary-room authorization independent of Discord with the flag disab
   mocks.select.mockReturnValue(selectResult([{ room: { ...call, discordGuildId: null }, member: { ...revoked, revokedAt: null } }]));
   await expect(assertAuthorizedRoom("room", "user")).resolves.toHaveProperty("room");
   expect(mocks.voice).not.toHaveBeenCalled();
+  expect(getCallRoomLifecycle).not.toHaveBeenCalled();
+});
+
+it("keeps an occupied call authorized beyond its original deadline and fails closed if lifecycle cannot be checked", async () => {
+  const old = { ...call, expiresAt: new Date(1), discordSessionEndsAt: new Date(1) };
+  mocks.select.mockReturnValue(selectResult([{ room: old, member: { ...revoked, revokedAt: null } }]));
+  await expect(assertAuthorizedRoom("room", "user")).resolves.toHaveProperty("room");
+  vi.mocked(getCallRoomLifecycle).mockRejectedValue(new Error("REALTIME_UNAVAILABLE"));
+  await expect(assertAuthorizedRoom("room", "user")).rejects.toThrow("REALTIME_UNAVAILABLE");
 });
 
 it("keeps call creation fields unavailable in the ordinary API schema", async () => {

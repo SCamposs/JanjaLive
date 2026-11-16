@@ -1,12 +1,18 @@
 # ADR 0002 — Beta de salas de call do Discord
 
-Data: 16/11/2026. Estado: implementada para beta restrita; validação integrada privada pendente. A sequência de ativação e rollback está no roteiro de operações.
+Data: 16/11/2026. Estado: beta restrita ativada; fluxo integrado validado com duas contas. A sequência de ativação e rollback está no roteiro de operações.
 
 ## Decisão e escopo
 
 Integração opcional, desligada por padrão e limitada ao servidor `1156443434362617927`. Reutiliza Vercel, PostgreSQL e Cloudflare existentes. Não adiciona dependências npm, serviços pagos, bot com Gateway permanente, transporte de mídia ou alterações na captura/codificação.
 
-O fluxo atual de salas comuns continua disponível e mantém o contrato das APIs consumidas por web e desktop. A integração usa salas específicas com prazo máximo de seis horas. O prazo é verificado no backend e assinado na credencial de tempo real; um alarme único do Durable Object encerra as conexões ao expirar. Salas comuns não recebem esse campo nem agendam esse alarme.
+O fluxo atual de salas comuns continua disponível e mantém o contrato das APIs consumidas por web e desktop. Salas da integração expiram após **uma hora sem conexões no JanjaLive**. Enquanto houver um participante conectado, inclusive transmitindo ou assistindo, não há limite fixo de seis horas. Presença na call do Discord não substitui presença na sala do JanjaLive.
+
+O Durable Object existente é a autoridade desse prazo: inicializa uma hora na criação, cancela o alarme ao admitir uma conexão e inicia outra hora quando a última conexão fecha. Leituras, comandos e repetições de fechamento não renovam uma sala vazia. O estado e o alarme sobrevivem à hibernação; no vencimento a sala recebe um marcador durável de encerramento e não é reaberta por uma credencial antiga. A detecção de desconexões abruptas depende do fechamento do WebSocket pelo transporte.
+
+O backend consulta esse estado nos caminhos já existentes de entrada, listagem e reutilização. Reconcilia o encerramento no PostgreSQL e agenda a atualização best effort do cartão quando encontra o vencimento. Não há callback do alarme para a Vercel nem polling novo: o cartão pode permanecer visualmente antigo até uma consulta posterior, mas o acesso já é recusado pelo Worker. `discord_session_ends_at` conserva o prazo inicial para inicialização/migração, não é um teto para uma sala ocupada. O formato público da listagem permanece igual; seu prazo é projetado a partir do estado do Worker.
+
+A política de uma hora é assinada apenas para salas Discord; a rota interna de inicialização exige o segredo de serviço. O Worker ignora headers de política fornecidos pelo cliente. Credenciais antigas com prazo fixo continuam aceitas durante a transição, mas o prazo fixo deixa de governar uma sala já migrada para inatividade. Salas comuns não são configuradas nesse mecanismo.
 
 Esta primeira versão usa um cartão estável de **Sala da call → Entrar**. Não anuncia automaticamente quem está transmitindo nem conta espectadores no Discord. As transmissões continuam visíveis na interface existente do JanjaLive. Isso evita polling e dependência do bot no caminho da mídia.
 
@@ -45,13 +51,13 @@ A UI distingue publicação reconhecida, confirmação pendente e rejeição con
 
 As telas de escolha de cliente incluem um link manual e sublinhado para a Microsoft Store, abaixo dos botões. Abrir o aplicativo não baixa instalador nem dispara redirecionamento temporizado quando o protocolo não existe.
 
-Encerramento/exclusão primeiro aplica a autorização e notifica os participantes pelo mecanismo atual. A atualização visual do cartão é best effort em `after()`, sem atrasar a resposta nem impedir o encerramento. Expiração automática bloqueia o link e encerra conexões, mas não modifica o cartão no Discord; a página informa que a sessão terminou.
+Encerramento/exclusão primeiro aplica a autorização e notifica os participantes pelo mecanismo atual. A atualização visual do cartão é best effort em `after()`, sem atrasar a resposta nem impedir o encerramento. A preparação de 15 minutos é independente da duração da sala. Se vencer ou sua sala for encerrada durante o uso da página, a ação substitui o botão Continuar por uma orientação definitiva para executar `/janja` novamente. Falhas transitórias preservam uma nova tentativa com espaçamento e estado de carregamento.
 
 ## Isolamento e custo
 
 `DISCORD_CALLS_ENABLED` ausente ou diferente de `true` desativa os endpoints e esconde salas de call da listagem. O ID configurado precisa corresponder ao servidor beta fixado no código. A integração exige o provedor Cloudflare já configurado; não usa Upstash como fallback.
 
-Não existe job por segundo, enumeração contínua de membros, monitoramento de mensagens ou bot ouvindo a call. Limites adicionais: 5 comandos/minuto por pessoa, 30 comandos/10 minutos para o servidor e 5 preparações de sala/minuto por conta. O alarme de prazo é pontual, não periódico.
+Não existe job por segundo, enumeração contínua de membros, monitoramento de mensagens ou bot ouvindo a call. Limites adicionais: 5 comandos/minuto por pessoa, 30 comandos/10 minutos para o servidor e 5 preparações de sala/minuto por conta. O alarme de inatividade é pontual, não periódico. Nenhum botão de descoberta da integração é incluído na navegação normal da web ou do desktop.
 
 Custo adicional zero significa operar dentro da folga dos planos gratuitos existentes, sem contratar ou habilitar serviços pagos. Requisições REST, consultas ao banco e operações Cloudflare ainda consomem cotas compartilhadas. Não é garantia de consumo zero ou gratuidade ilimitada.
 
@@ -63,7 +69,7 @@ São armazenados IDs da interação, conta Discord, servidor, canal, preparaçã
 
 Rotas de preparação/entrada não são indexáveis; seus identificadores são ocultados no Analytics. Textos de privacidade e termos exibem uma seção específica somente quando a beta está habilitada.
 
-## Validação local
+## Evidência histórica da preparação local
 
 - Prova Discord real: identificação da call, publicação, verificação na call correta, recusa em outra call/fora da voz, negação/restauração de Connect e Send Messages, edição do mesmo cartão após aproximadamente 22 minutos e encerramento visual confirmado pelo usuário.
 - PostgreSQL descartável local: concorrência entre donos, uma sala/uma criação consumida, reutilização sem cota de criação disponível, expiração sem ressurreição, limites normais e diários, revogação, conta banida, admissão sem aprovação de participante verificado e recusa de usuário sem concessão. A API de presença do Discord é simulada nesses testes SQL.
@@ -75,6 +81,8 @@ Rotas de preparação/entrada não são indexáveis; seus identificadores são o
 
 Os resultados e comandos finais ficam no roteiro de ativação abaixo. Não interpretar compilação e testes controlados como prova de login externo, descoberta do aplicativo instalado, latência de cold start hospedado ou qualidade de mídia numa nova sessão real.
 
-## Antes de ativar ou publicar a beta
+## Aceitação integrada e limites
 
-Seguir `docs/operations/discord-call-beta.md`. Validar em uma sessão real o login/retorno, abertura do desktop, entrada de outro participante autorizado e revogação durante uso. A instrumentação local e a prova do Discord estão aprovadas; essa etapa externa ainda não foi executada com o código integrado.
+Em 16/11/2026, com duas contas no servidor autorizado: login/retorno, identificação da call, entrada web, revogação, recusa de aprovação na call errada, nova solicitação e aprovação na call correta, reprodução Opera → navegador secundário, limpeza do cartão sem parar a transmissão, republicação para a mesma sala, encerramento pelo dono e nome/código corretos no deep link do desktop passaram. O usuário confirmou a abertura do aplicativo. Uma reconexão observada ocorreu após parada manual da transmissão confirmada pelo usuário; não foi atribuída à integração. Áudio anunciado e controles foram observados; essa rodada não é prova independente de escuta do áudio.
+
+O relógio de uma hora e a permanência além de seis horas são exercitados com tempo controlado, estado persistente e eventos reais do código do Worker. Isso não equivale a aguardar seis horas de uma sessão de produção. As rodadas SQL usam PostgreSQL real e simulam apenas as APIs externas de presença/lifecycle. Evidências de CI, deploy e pacote ficam na issue #17 e no roteiro de operações.

@@ -1,6 +1,14 @@
 # Ativação e validação da beta Discord
 
-Preparação da entrega em 16/11/2026: a beta foi implementada e validada localmente; a ativação deve seguir a sequência abaixo. A prova usou uma aplicação separada; por decisão do usuário, a rodada integrada usa a aplicação oficial do JanjaLive. A validação real integrada continua pendente até a rodada privada. Evidências de deploy e ativação são acompanhadas na issue #17.
+Entrega em 16/11/2026: beta ativada na aplicação oficial, restrita ao servidor de teste. O fluxo integrado foi exercitado com duas contas, incluindo reprodução web, revogação/recuperação, limpeza/republicação de cartão, encerramento e deep link do desktop confirmado pelo usuário. Evidências de deploy e ativação são acompanhadas na issue #17. A sequência abaixo também serve para futuras reativações.
+
+## Expiração por inatividade
+
+A sala da call não tem mais um teto fixo de seis horas. Fica ativa enquanto existir ao menos uma conexão na sala do JanjaLive. Quando a última fecha, começa **uma hora de inatividade**; voltar antes disso cancela o prazo. Sair apenas da call do Discord não inicia esse prazo se o JanjaLive continua conectado. Uma sala criada e nunca aberta também vence em uma hora. Repetir `/janja` ou consultar a página não renova uma sala vazia.
+
+O relógio fica no Durable Object já existente, com armazenamento e alarme pontual. Não há processo local, job novo ou polling periódico. Ao vencer, o acesso é bloqueado imediatamente no Worker; banco e cartão são reconciliados na próxima consulta existente. A detecção de uma queda abrupta depende do fechamento do WebSocket. O vencimento não apaga fisicamente todos os registros nesse instante.
+
+Ordem de rollout: publicar o Worker compatível com credenciais antigas e com a nova política; depois publicar a web/backend. Salas comuns mantêm a política atual. Salas Discord existentes são migradas ao consultar listagem/entrada/reutilização. Não reduzir o prazo em produção para testar: os limites de uma hora e permanência acima de seis horas são cobertos por relógio controlado e testes SQL com serviços externos simulados.
 
 ## Variáveis exatas na Vercel
 
@@ -66,7 +74,7 @@ Depois de validar, trocar **somente** `DISCORD_BOT_APPLICATION_ID`, `DISCORD_BOT
 
 Encerrar as salas criadas pelo bot antigo e remover seus cards/comando antes da troca; IDs de mensagens pertencem ao bot que as publicou. A aplicação nova não pode editar esses cards. Desativar o endpoint antigo e remover o bot de teste quando não for mais necessário.
 
-## Evidência local e limites
+## Evidência e limites
 
 ### Limpar mensagens do bot
 
@@ -86,6 +94,8 @@ No Developer Portal da aplicação oficial, Bot → Public Bot desativado permit
 
 **O backend atual continua restrito ao servidor beta por código e variável.** Alterar somente DISCORD_CALLS_GUILD_ID ou desativar Public Bot não habilita outro servidor. Antes da expansão, substituir essa fixação por uma lista explícita de servidores permitidos, propagar guildId pelas verificações de presença/preparações e registrar ambos os comandos nos servidores autorizados (ou globalmente com contexto apenas Guild após validação). Recomenda-se manter instalação privada + lista permitida, sem abrir automaticamente a qualquer servidor nem alterar o aplicativo OAuth existente.
 
-Até esta etapa: 314 testes da suíte web/compartilhada/Worker, 78 do desktop e 12 com PostgreSQL local passaram. Builds web/desktop, typechecks e Worker dry-run passaram. Um servidor local com o build de produção também confirmou: início/privacidade com HTTP 200, APIs de sala sem autenticação com HTTP 401 e novas rotas Discord com HTTP 404 enquanto a flag está desligada. A rodada SQL usa PostgreSQL real com presença Discord simulada. A rodada Discord anterior foi real, mas ainda sem OAuth e salas integrados. Nenhum desses resultados equivale à rodada privada acima.
+Na rodada integrada de 16/11/2026, a conta principal foi operada pelo usuário e a secundária pelo navegador de testes. Aprovação na call errada foi recusada; na correta, aceita. Revogação retirou o acesso e não houve readmissão automática. `/janja-limpar` apagou o cartão sem encerrar a sala/transmissão e seu aviso sumiu após seis segundos; cartões do bot antigo foram apagados manualmente pelo usuário. Uma nova execução recuperou o cartão da mesma sessão. O encerramento da sala retirou o acesso e desativou o cartão. A sala seguinte recebeu nome `teste-janja` e o usuário confirmou abertura com nome/código corretos no desktop.
 
-Não publicar como funcionalidade validada ponta a ponta até concluir essa rodada integrada. Não há serviço pago novo; operar gratuitamente continua dependendo das cotas compartilhadas.
+Foi observada reprodução de vídeo Opera → conta secundária com avanço do tempo de reprodução durante a limpeza. Não foi feita escuta independente do áudio nesta rodada. Uma parada posterior foi confirmada como manual pelo usuário. Os testes SQL usam PostgreSQL real e simulam presença Discord/lifecycle externo; relógio controlado não equivale a manter uma call de produção por seis horas. Resultados finais e links de CI/release devem ser registrados na issue #17.
+
+Não há serviço pago novo; operar gratuitamente continua dependendo das cotas compartilhadas.

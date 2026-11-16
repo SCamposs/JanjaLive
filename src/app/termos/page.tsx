@@ -15,7 +15,7 @@ export default function TermsPage() {
       {discordEnabled() && <section>
         <h2>Salas de calls do Discord</h2>
         <p>Em servidores habilitados, o comando /janja prepara uma sala temporária para os participantes da call. O acesso exige autenticação e verificação da presença naquele canal. Banimentos e revogações continuam válidos, assim como os limites de criação e participação.</p>
-        <p>Essas sessões duram no máximo seis horas e podem ser encerradas antes pelo proprietário. Sair do Discord não expulsa automaticamente quem já entrou no JanjaLive. O compartilhamento só começa quando você escolhe a fonte e confirma no JanjaLive.</p>
+        <p>Essas salas permanecem disponíveis enquanto houver alguém conectado ao JanjaLive e expiram após uma hora vazias. O proprietário também pode encerrá-las antes. Sair do Discord não expulsa automaticamente quem já entrou no JanjaLive. O compartilhamento só começa quando você escolhe a fonte e confirma no JanjaLive.</p>
       </section>}
       <section>
         <h2>Uso do serviço</h2>

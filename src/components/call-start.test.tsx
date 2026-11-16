@@ -5,6 +5,14 @@ const mocks = vi.hoisted(() => ({ start: vi.fn() }));
 vi.mock("@/app/discord/actions", () => ({ startCallAction: mocks.start }));
 import { CallStart } from "./call-start";
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
+it("replaces an expired preparation with a terminal notice instead of a misleading retry button", async () => {
+  mocks.start.mockResolvedValue({ expired: true, error: "Esta sessão foi encerrada." });
+  render(<CallStart intentId={"a".repeat(32)} />);
+  fireEvent.click(screen.getByRole("button", { name: "Continuar" }));
+  expect(await screen.findByRole("heading", { name: "Este convite não está mais disponível" })).toBeDefined();
+  expect(screen.queryByRole("button", { name: "Continuar" })).toBeNull();
+  expect(screen.getByRole("status").textContent).toContain("/janja novamente");
+});
 it("disables submission while preparing and offers explicit app/browser continuation", async () => {
   let finish!: (value: { publicId: string; desktopLink: string; cardPublished: boolean }) => void;
   mocks.start.mockReturnValue(new Promise(resolve => { finish = resolve; }));

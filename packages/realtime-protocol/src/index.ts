@@ -122,3 +122,5 @@ export type ServerSignal = z.infer<typeof signalingEventSchema>;
 export type RealtimeEvent = z.infer<typeof realtimeEventSchema>;
 export type RealtimeSocketMessage = z.infer<typeof realtimeSocketMessageSchema>;
 export type RealtimeSession = z.infer<typeof realtimeSessionSchema>;
+/** Discord call rooms remain alive while occupied, then expire after an hour. */
+export const DISCORD_CALL_IDLE_TIMEOUT_MS = 60 * 60_000;

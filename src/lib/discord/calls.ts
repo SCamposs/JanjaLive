@@ -2,7 +2,7 @@ import { and, eq, gt, isNull, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb } from "@/db";
 import { discordCallIntents, rooms, type Room } from "@/db/schema";
-import { createRoom } from "@/lib/rooms";
+import { createRoom, isAvailableRoom } from "@/lib/rooms";
 import { createShareableInvite } from "@/lib/shareable-invite";
 import { enforceRateLimit } from "@/lib/realtime";
 import { assertCallEntry, discordIdentity } from "./access";
@@ -122,7 +122,7 @@ export async function startCall(id: string, userId: string, verifyCard = false) 
   let room: Room | undefined;
   if (intent.roomId) {
     [room] = await db.select().from(rooms).where(eq(rooms.id, intent.roomId)).limit(1);
-    if (!room || room.closedAt || room.expiresAt <= new Date()) throw new Error("DISCORD_EXPIRED");
+    if (!room || !await isAvailableRoom(room)) throw new Error("DISCORD_EXPIRED");
     await assertCallEntry(room, userId);
   } else {
     const created = await createRoom({ userId, name: await getDiscordCallName(intent.channelId), accessMode: "APPROVAL",

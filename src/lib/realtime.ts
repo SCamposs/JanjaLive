@@ -2,6 +2,7 @@ import { Redis } from "@upstash/redis";
 import { SignJWT } from "jose";
 import { nanoid } from "nanoid";
 import { signalingEventSchema, type SignalingEvent } from "./schemas";
+import { DISCORD_CALL_IDLE_TIMEOUT_MS } from "@janjalive/realtime-protocol";
 import type { RealtimeSession } from "@janjalive/realtime-protocol";
 
 export const SIGNAL_RETENTION_MS = 180_000;
@@ -72,7 +73,7 @@ async function cloudflareRequest(pathname: string, init: RequestInit = {}) {
   return response;
 }
 
-export async function createRealtimeSession(roomId: string, userId: string, roomDeadline?: number): Promise<RealtimeSession> {
+export async function createRealtimeSession(roomId: string, userId: string, roomDeadline?: number, callIdle = false): Promise<RealtimeSession> {
   if (roomDeadline !== undefined && (!Number.isSafeInteger(roomDeadline) || roomDeadline <= Date.now())) throw new Error("ROOM_UNAVAILABLE");
   const provider = getRealtimeProvider();
   if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
@@ -80,7 +81,8 @@ export async function createRealtimeSession(roomId: string, userId: string, room
   const { url, tokenSecret } = getCloudflareRealtimeConfig();
   const expiresAt = new Date(Date.now() + 60_000);
   const issuedAtMs = Date.now();
-  const token = await new SignJWT({ roomId, issuedAtMs, ...(roomDeadline === undefined ? {} : { roomDeadline }) })
+  const token = await new SignJWT({ roomId, issuedAtMs, ...(roomDeadline === undefined ? {} : { roomDeadline }),
+    ...(callIdle ? { roomIdleTimeoutMs: DISCORD_CALL_IDLE_TIMEOUT_MS } : {}) })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(userId)
     .setIssuer("https://www.janja.live")
@@ -90,6 +92,19 @@ export async function createRealtimeSession(roomId: string, userId: string, room
     .setExpirationTime(Math.floor(expiresAt.getTime() / 1_000))
     .sign(new TextEncoder().encode(tokenSecret));
   return { provider, url, token, expiresAt: expiresAt.toISOString() };
+}
+
+export async function getCallRoomLifecycle(roomId: string, initialExpiresAt: number) {
+  if (getRealtimeProvider() !== "cloudflare") throw new Error("REALTIME_NOT_CONFIGURED");
+  const response = await cloudflareRequest(`/internal/rooms/${encodeURIComponent(roomId)}/session`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(7000),
+    body: JSON.stringify({ initialExpiresAt, idleTimeoutMs: DISCORD_CALL_IDLE_TIMEOUT_MS }),
+  });
+  const value = await response.json() as { active?: unknown; closed?: unknown; idleExpiresAt?: unknown };
+  if (typeof value.active !== "boolean" || typeof value.closed !== "boolean"
+    || (value.idleExpiresAt !== null && (!Number.isSafeInteger(value.idleExpiresAt) || Number(value.idleExpiresAt) <= 0))
+    || (value.active && (value.closed || value.idleExpiresAt !== null))) throw new Error("REALTIME_UNAVAILABLE");
+  return { active: value.active, closed: value.closed, idleExpiresAt: value.idleExpiresAt as number | null };
 }
 
 export function getRealtimeCredentials(

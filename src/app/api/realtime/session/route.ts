@@ -9,8 +9,9 @@ export async function GET(request: Request) {
     if (!roomId) throw new Error("INVALID_REQUEST");
     const authorization = await assertAuthorizedRoom(roomId, user.id);
     await enforceRateLimit(`realtime-session:${user.id}`, 30, 60);
-    const deadline = authorization?.room.discordGuildId ? authorization.room.discordSessionEndsAt?.getTime() : undefined;
-    const session = deadline === undefined ? await createRealtimeSession(roomId, user.id) : await createRealtimeSession(roomId, user.id, deadline);
+    const session = authorization?.room.discordGuildId
+      ? await createRealtimeSession(roomId, user.id, undefined, true)
+      : await createRealtimeSession(roomId, user.id);
     await refreshRoomActivity(roomId);
     return Response.json(session, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

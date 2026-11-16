@@ -17,12 +17,41 @@ function fixture() {
   };
   const storage = new Map<string, unknown>();
   const ctx = { getWebSockets: (tag?: string) => sockets.filter((s) => !tag || tag === `user:${s.deserializeAttachment().userId}`),
-    storage: { get: async (key: string) => storage.get(key), put: async (key: string, value: unknown) => { storage.set(key, value); } } };
+    storage: { get: async (key: string) => storage.get(key), put: async (key: string, value: unknown) => { storage.set(key, value); },
+      setAlarm: vi.fn<(...time: [number]) => Promise<void>>(async () => {}), deleteAlarm: vi.fn(async () => {}) } };
   const room = new RoomDurableObject(ctx as unknown as DurableObjectState, {} as never);
   return { room, socket, storage };
 }
 afterEach(() => vi.unstubAllGlobals());
 describe("durable room termination", () => {
+  it("binds call lifecycle to actual socket departures, persists it and refuses reconnect at expiry", async () => {
+    vi.stubGlobal("WebSocket", { OPEN: 1 });
+    const f = fixture(); const viewer = f.socket("viewer");
+    const request = () => new Request("https://room.internal/session", { method: "POST", body: JSON.stringify({
+      initialExpiresAt: Date.now() + 6 * 3_600_000, idleTimeoutMs: 3_600_000 }) });
+    const active = await (await f.room.fetch(request())).json();
+    expect(active).toEqual({ active: true, closed: false, idleExpiresAt: null });
+    expect(viewer.deserializeAttachment()).toHaveProperty("callIdle", true);
+    await f.room.webSocketClose(viewer as unknown as WebSocket);
+    const end = (f.storage.get("room:idle") as { expiresAt: number }).expiresAt;
+    expect(end).toBeGreaterThan(Date.now() + 3_590_000);
+    const now = vi.spyOn(Date, "now").mockReturnValue(end);
+    try {
+      const response = await f.room.fetch(new Request("https://room.internal/connect", { headers: {
+        upgrade: "websocket", "x-janjalive-user-id": "viewer", "x-janjalive-token-issued-at": "100", "x-janjalive-call-idle": "true" } }));
+      expect(response.status).toBe(403);
+      expect(await (await f.room.fetch(request())).json()).toHaveProperty("closed", true);
+    } finally { now.mockRestore(); }
+  });
+
+  it("requires an initialized lifecycle for idle tokens and validates internal lifecycle configuration", async () => {
+    vi.stubGlobal("WebSocket", { OPEN: 1 });
+    const f = fixture();
+    expect((await f.room.fetch(new Request("https://room.internal/connect", { headers: {
+      upgrade: "websocket", "x-janjalive-user-id": "viewer", "x-janjalive-token-issued-at": "100", "x-janjalive-call-idle": "true" } }))).status).toBe(403);
+    expect((await f.room.fetch(new Request("https://room.internal/session", { method: "POST", body: JSON.stringify({ initialExpiresAt: 1, idleTimeoutMs: 1 }) }))).status).toBe(400);
+    expect(f.storage.has("room:idle")).toBe(false);
+  });
   it("binds media signals to authentication time, not client claims or delivery time", async () => {
     vi.stubGlobal("WebSocket", { OPEN: 1 });
     const f = fixture();

@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { jwtVerify } from "jose";
 import {
+  DISCORD_CALL_IDLE_TIMEOUT_MS,
   clientSignalingEventSchema,
   signalingEventSchema,
   type ActiveStream,
@@ -25,6 +26,7 @@ import {
   type SocketProtocol,
 } from "./connection-policy";
 import { normalizeLegacyMediaSessionId } from "./legacy-media-session";
+import { CallIdleSession } from "./call-idle";
 
 type Env = {
   ROOMS: DurableObjectNamespace<RoomDurableObject>;
@@ -41,12 +43,14 @@ type RealtimeClaims = {
   issuedAt: number;
   issuedAtMs: number;
   roomDeadline?: number;
+  callIdle?: boolean;
 };
 
 type ConnectionState = SignalingConnectionState & {
   connectedAt: number;
   tokenIssuedAt?: number;
   tokenIssuedAtMs?: number;
+  callIdle?: boolean;
   stream?: StreamMetadata & { startedAt: number };
 };
 
@@ -98,10 +102,12 @@ async function verifyRealtimeToken(token: string, env: Env): Promise<RealtimeCla
   const issuedAtMs = payload.issuedAtMs ?? payload.iat! * 1_000;
   if (!Number.isSafeInteger(issuedAtMs) || Math.floor(Number(issuedAtMs) / 1_000) !== payload.iat) throw new Error("INVALID_CLAIMS");
   const roomDeadline = payload.roomDeadline;
+  if (payload.roomIdleTimeoutMs !== undefined && payload.roomIdleTimeoutMs !== DISCORD_CALL_IDLE_TIMEOUT_MS) throw new Error("INVALID_CLAIMS");
   if (roomDeadline !== undefined && (!Number.isSafeInteger(roomDeadline) || Number(roomDeadline) <= Date.now()
     || Number(roomDeadline) > Date.now() + 6 * 60 * 60_000)) throw new Error("INVALID_CLAIMS");
   return { roomId: payload.roomId, sub: payload.sub, issuedAt: payload.iat!, issuedAtMs: Number(issuedAtMs),
-    ...(roomDeadline === undefined ? {} : { roomDeadline: Number(roomDeadline) }) };
+    ...(roomDeadline === undefined ? {} : { roomDeadline: Number(roomDeadline) }),
+    ...(payload.roomIdleTimeoutMs === DISCORD_CALL_IDLE_TIMEOUT_MS ? { callIdle: true } : {}) };
 }
 
 function internalRoomRequest(request: Request, roomId: string, pathname: string) {
@@ -135,6 +141,8 @@ export default {
         headers.set("x-janjalive-token-issued-ms", String(claims.issuedAtMs));
         headers.set("x-janjalive-protocol", session.protocol);
         headers.delete("x-janjalive-room-deadline");
+        headers.delete("x-janjalive-call-idle");
+        if (claims.callIdle) headers.set("x-janjalive-call-idle", "true");
         if (claims.roomDeadline !== undefined) headers.set("x-janjalive-room-deadline", String(claims.roomDeadline));
         const stub = env.ROOMS.getByName(claims.roomId);
         return stub.fetch(new Request("https://room.internal/connect", { headers }));
@@ -147,7 +155,7 @@ export default {
       return json({ error: "NOT_FOUND" }, 404);
     }
 
-    const roomMatch = /^\/internal\/rooms\/([0-9a-f-]{36})\/(access|event|presence)$/.exec(url.pathname);
+    const roomMatch = /^\/internal\/rooms\/([0-9a-f-]{36})\/(access|event|presence|session)$/.exec(url.pathname);
     if (roomMatch) {
       const [, roomId, action] = roomMatch;
       const stub = env.ROOMS.getByName(roomId!);
@@ -175,8 +183,17 @@ export default {
 
 export class RoomDurableObject extends DurableObject<Env> {
   private lastCursor = 0;
+  private idle = new CallIdleSession(this.ctx, () => this.sockets().length > 0);
 
   async alarm() {
+    const lifecycle = await this.idle.alarm();
+    if (lifecycle !== "unconfigured") {
+      if (lifecycle === "expired") {
+        this.emit("system", { type: "room:closed" });
+        for (const socket of this.sockets()) socket.close(4004, "Session ended");
+      }
+      return;
+    }
     const deadline = await this.ctx.storage.get<number>("room:deadline");
     if (!deadline) return;
     if (deadline > Date.now()) { await this.ctx.storage.setAlarm(deadline); return; }
@@ -196,6 +213,7 @@ export class RoomDurableObject extends DurableObject<Env> {
       connectedAt: value.connectedAt ?? Date.now(),
       tokenIssuedAt: value.tokenIssuedAt,
       tokenIssuedAtMs: value.tokenIssuedAtMs,
+      ...(value.callIdle ? { callIdle: true } : {}),
       userId: value.userId,
       protocol: value.protocol === PROTOCOL ? PROTOCOL : LEGACY_PROTOCOL,
       mediaSessions: value.mediaSessions ?? [],
@@ -267,6 +285,17 @@ export class RoomDurableObject extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/session" && request.method === "POST") {
+      const body = await request.json().catch(() => null) as { initialExpiresAt?: unknown; idleTimeoutMs?: unknown } | null;
+      if (!body || !Number.isSafeInteger(body.initialExpiresAt) || Number(body.initialExpiresAt) <= 0
+        || body.idleTimeoutMs !== DISCORD_CALL_IDLE_TIMEOUT_MS) return json({ error: "INVALID_REQUEST" }, 400);
+      const lifecycle = await this.idle.configure(Number(body.initialExpiresAt));
+      for (const socket of this.sockets()) {
+        const state = this.state(socket);
+        if (state) socket.serializeAttachment({ ...state, callIdle: true });
+      }
+      return json(lifecycle);
+    }
     if (url.pathname === "/connect") {
       const userId = request.headers.get("x-janjalive-user-id");
       const issuedAt = Number(request.headers.get("x-janjalive-token-issued-at"));
@@ -274,7 +303,11 @@ export class RoomDurableObject extends DurableObject<Env> {
       const protocol = request.headers.get("x-janjalive-protocol") === PROTOCOL ? PROTOCOL : LEGACY_PROTOCOL;
       if (!userId || !Number.isInteger(issuedAt) || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return json({ error: "INVALID_CONNECT" }, 400);
       const deadlineHeader = request.headers.get("x-janjalive-room-deadline");
-      if (deadlineHeader !== null) {
+      const idleState = await this.ctx.storage.get("room:idle");
+      const callIdle = Boolean(idleState);
+      if (request.headers.get("x-janjalive-call-idle") === "true" && !callIdle) return json({ error: "ROOM_CLOSED" }, 403);
+      if (callIdle) await this.idle.alarm();
+      if (deadlineHeader !== null && !callIdle) {
         const deadline = Number(deadlineHeader);
         if (!Number.isSafeInteger(deadline) || deadline <= Date.now()) return json({ error: "ROOM_CLOSED" }, 403);
         const stored = await this.ctx.storage.get<number>("room:deadline");
@@ -305,10 +338,12 @@ export class RoomDurableObject extends DurableObject<Env> {
         connectedAt: now,
         tokenIssuedAt: issuedAt,
         tokenIssuedAtMs: issuedAtMs,
+        ...(callIdle ? { callIdle: true } : {}),
         mediaSessions: [],
         signalWindowStartedAt: now,
         signalCount: 0,
       } satisfies ConnectionState);
+      if (callIdle) await this.idle.connected();
       this.sendSnapshot();
       return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": protocol } });
     }
@@ -455,13 +490,15 @@ export class RoomDurableObject extends DurableObject<Env> {
     if (payload.type === "stream:start" || payload.type === "stream:stop") this.sendSnapshot();
     if (payload.type === "presence:leave") {
       socket.close(1000, "Left room");
+      if (state.callIdle) await this.idle.disconnected();
       this.sendSnapshot();
     }
   }
 
-  webSocketClose(socket: WebSocket) {
+  async webSocketClose(socket: WebSocket) {
     const state = this.state(socket);
     socket.close();
+    if (state?.callIdle) await this.idle.disconnected();
     if (state && !this.sockets().some((current) => {
       const currentState = this.state(current);
       return currentState?.userId === state.userId && Boolean(currentState.stream);
@@ -469,9 +506,10 @@ export class RoomDurableObject extends DurableObject<Env> {
     this.sendSnapshot();
   }
 
-  webSocketError(socket: WebSocket) {
+  async webSocketError(socket: WebSocket) {
     const state = this.state(socket);
     socket.close(1011, "Socket error");
+    if (state?.callIdle) await this.idle.disconnected();
     if (state && !this.sockets().some((current) => {
       const currentState = this.state(current);
       return currentState?.userId === state.userId && Boolean(currentState.stream);

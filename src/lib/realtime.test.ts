@@ -3,6 +3,7 @@ import { jwtVerify } from "jose";
 import {
   getRealtimeCredentials,
   createRealtimeSession,
+  getCallRoomLifecycle,
   getRealtimeProvider,
   getSignalCursor,
   getSignalCutoff,
@@ -32,6 +33,24 @@ describe("realtime revocation precision", () => {
     expect(Number.isSafeInteger(payload.issuedAtMs)).toBe(true);
     expect(Math.floor(Number(payload.issuedAtMs) / 1000)).toBe(payload.iat);
     expect(payload.roomDeadline).toBeUndefined();
+    expect(payload.roomIdleTimeoutMs).toBeUndefined();
+  });
+
+  it("signs only the idle policy for call rooms and validates the internal lifecycle response", async () => {
+    vi.stubEnv("REALTIME_PROVIDER", "cloudflare");
+    vi.stubEnv("CLOUDFLARE_REALTIME_URL", "https://realtime.example.com");
+    vi.stubEnv("REALTIME_TOKEN_SECRET", "test-secret-at-least-32-characters-long");
+    vi.stubEnv("REALTIME_INTERNAL_SECRET", "test-internal-secret");
+    const session = await createRealtimeSession("room", "user", undefined, true);
+    if (session.provider !== "cloudflare") throw new Error("Expected Cloudflare session");
+    const { payload } = await jwtVerify(session.token, new TextEncoder().encode(process.env.REALTIME_TOKEN_SECRET));
+    expect(payload.roomIdleTimeoutMs).toBe(3_600_000); expect(payload.roomDeadline).toBeUndefined();
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ active: true, closed: false, idleExpiresAt: null }))
+      .mockResolvedValueOnce(Response.json({ active: true, closed: true, idleExpiresAt: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(getCallRoomLifecycle("room", Date.now() + 3_600_000)).resolves.toHaveProperty("active", true);
+    expect(fetchMock.mock.calls[0][1].headers.get("Authorization")).toBe("Bearer test-internal-secret");
+    await expect(getCallRoomLifecycle("room", 1)).rejects.toThrow("REALTIME_UNAVAILABLE");
   });
 
   it("binds call connections to a signed deadline and refuses expired sessions", async () => {

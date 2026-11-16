@@ -16,6 +16,14 @@ import { GET } from "./route";
 describe("GET /api/realtime/session", () => {
   beforeEach(() => Object.values(mocks).forEach((mock) => mock.mockReset()));
 
+  it.each([false, true])("issues idle policy only for Discord rooms (call=%s)", async call => {
+    mocks.requireUser.mockResolvedValue({ id: "user" });
+    mocks.assertAuthorizedRoom.mockResolvedValue({ room: { discordGuildId: call ? "guild" : null } });
+    mocks.createRealtimeSession.mockResolvedValue({ provider: "cloudflare" });
+    expect((await GET(new Request("https://www.janja.live/api/realtime/session?roomId=room"))).status).toBe(200);
+    expect(mocks.createRealtimeSession).toHaveBeenCalledWith(...(call ? ["room", "user", undefined, true] : ["room", "user"]));
+  });
+
   it("does not issue a new realtime credential to a banned account", async () => {
     mocks.requireUser.mockRejectedValue(new Error("ACCOUNT_DISABLED"));
     const response = await GET(new Request("https://www.janja.live/api/realtime/session?roomId=11111111-1111-4111-8111-111111111111"));

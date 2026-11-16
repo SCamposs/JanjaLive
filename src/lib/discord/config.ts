@@ -1,7 +1,7 @@
-import { discordCallErrorMessage } from "@janjalive/realtime-protocol";
+import { discordCallErrorMessage, DISCORD_CALL_IDLE_TIMEOUT_MS } from "@janjalive/realtime-protocol";
 
 export const DISCORD_BETA_GUILD = "1156443434362617927";
-export const CALL_MAX_MS = 6 * 60 * 60_000;
+export const CALL_IDLE_MS = DISCORD_CALL_IDLE_TIMEOUT_MS;
 
 export function discordEnabled(env: Readonly<Record<string, string | undefined>> = process.env) {
   return env.DISCORD_CALLS_ENABLED === "true" && env.DISCORD_CALLS_GUILD_ID === DISCORD_BETA_GUILD;

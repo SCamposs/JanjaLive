@@ -8,9 +8,12 @@ import * as schema from "../src/db/schema";
 
 const holder = vi.hoisted(() => ({ db: undefined as unknown }));
 vi.mock("@/db", () => ({ getDb: () => holder.db }));
-const discordMock = vi.hoisted(() => ({ channelId: "100000000000000001" }));
+const discordMock = vi.hoisted(() => ({ channelId: "100000000000000001", expired: new Set<string>() }));
 vi.mock("../src/lib/discord/api", () => ({ getDiscordVoiceChannel: vi.fn(async () => discordMock.channelId) }));
-import { activateRoomMember, createRoom, assertAuthorizedRoom, getRoomSnapshotByPublicId, requestRoomAccess, manageRoomMember } from "../src/lib/rooms";
+vi.mock("../src/lib/discord/notifications", () => ({ scheduleClosedCallCard: vi.fn() }));
+vi.mock("../src/lib/realtime", async original => ({ ...await original<object>(),
+  getCallRoomLifecycle: vi.fn(async (id: string) => ({ active: !discordMock.expired.has(id), closed: discordMock.expired.has(id), idleExpiresAt: null })) }));
+import { activateRoomMember, createRoom, assertAuthorizedRoom, getRoomSnapshotByPublicId, requestRoomAccess, manageRoomMember, listAvailableRooms } from "../src/lib/rooms";
 import { generateTurnCredentials } from "../src/lib/turn";
 
 const testUrl = process.env.SECURITY_TEST_POSTGRES_URL;
@@ -76,6 +79,7 @@ describe("resource limits against real PostgreSQL", () => {
   beforeEach(async () => {
     delete process.env.ROOM_CREATION_ENABLED;
     discordMock.channelId = "100000000000000001";
+    discordMock.expired.clear();
     await psql("truncate users cascade; insert into users(id, discord_id) select 'user-' || n, (100000000000000000::bigint + n)::text from generate_series(0,30) n;");
   });
   afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
@@ -135,6 +139,7 @@ describe("resource limits against real PostgreSQL", () => {
     vi.stubEnv("DISCORD_CALLS_GUILD_ID", "1156443434362617927");
     const input = { guildId: "1156443434362617927", channelId: "100000000000000001" };
     const first = await createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: input });
+    discordMock.expired.add(first.id);
     await psql(`update rooms set expires_at = now() - interval '1 minute' where id = ${literal(first.id)};`);
     const second = await createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: input });
     expect(second.id).not.toBe(first.id);
@@ -144,6 +149,24 @@ describe("resource limits against real PostgreSQL", () => {
     discordMock.channelId = "100000000000000002";
     await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: { ...input, channelId: "100000000000000002" } }))
       .rejects.toThrow("DAILY_ROOM_LIMIT_REACHED");
+  });
+
+  it("keeps occupied call rooms reusable and joinable past their initial deadline without changing ordinary expiry", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true");
+    vi.stubEnv("DISCORD_CALLS_GUILD_ID", "1156443434362617927");
+    const input = { guildId: "1156443434362617927", channelId: "100000000000000001" };
+    const call = await createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: input });
+    const ordinary = await createRoom({ userId: "user-0", accessMode: "APPROVAL" });
+    await psql(`update rooms set expires_at = now() - interval '8 hours' where owner_id = 'user-0';`);
+    await expect(assertAuthorizedRoom(call.id, "user-0")).resolves.toHaveProperty("room.id", call.id);
+    await expect(assertAuthorizedRoom(ordinary.id, "user-0")).rejects.toThrow("ROOM_UNAVAILABLE");
+    expect((await createRoom({ userId: "user-1", accessMode: "APPROVAL", discordCall: input })).id).toBe(call.id);
+    await expect(getRoomSnapshotByPublicId((await assertAuthorizedRoom(call.id, "user-0")).room.publicId, "user-1"))
+      .resolves.toHaveProperty("access", "authorized");
+    const listed = await listAvailableRooms("user-0");
+    expect(listed).toHaveLength(1); expect(listed[0].id).toBe(call.id);
+    expect(listed[0]).not.toHaveProperty("discordGuildId");
+    expect(await psql("select sum(room_creation_count) from users;")).toBe("2\n");
   });
 
   it("does not create a Discord session with flag off or wrong guild", async () => {

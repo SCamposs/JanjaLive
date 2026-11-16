@@ -6,14 +6,33 @@ import { joinRequests, roomMembers, rooms, users, type Room } from "@/db/schema"
 import { createInviteToken, createRoomCode, hashInviteToken } from "./crypto";
 import { canAutoJoinInvite, canManageRoom, isAuthorizedMember, isRoomActive } from "./room-policy";
 import { assertCanTargetMember, getMembershipTransition } from "./membership";
-import { hasActiveRoomPresence, publishSignal } from "./realtime";
+import { getCallRoomLifecycle, hasActiveRoomPresence, publishSignal } from "./realtime";
 import { assertRoomCreationEnabled, RESOURCE_LIMITS } from "./operational-policy";
 import { shareableInviteRoomId, verifyShareableInvite } from "./shareable-invite";
-import { assertDiscordGuild, discordEnabled, CALL_MAX_MS } from "./discord/config";
+import { assertDiscordGuild, discordEnabled, CALL_IDLE_MS } from "./discord/config";
 import { assertCallEntry } from "./discord/access";
+import { scheduleClosedCallCard } from "./discord/notifications";
 
 export const ROOM_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1_000;
 export const ROOM_PURGE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
+
+// Only Discord rooms use provider-owned idle time. Ordinary room expiry stays
+// database-owned. Reading a room must never reset an empty call's idle clock.
+export async function isAvailableRoom(room: Room): Promise<boolean> {
+  if (!room.discordGuildId) return isRoomActive(room);
+  if (room.closedAt) return false;
+  assertDiscordGuild(room.discordGuildId);
+  if (!room.discordChannelId) return false;
+  const lifecycle = await getCallRoomLifecycle(room.id, (room.discordSessionEndsAt ?? room.expiresAt).getTime());
+  if (lifecycle.closed) {
+    const [closed] = await getDb().update(rooms).set({ closedAt: new Date() })
+      .where(and(eq(rooms.id, room.id), isNull(rooms.closedAt))).returning();
+    if (closed) scheduleClosedCallCard(closed);
+    return false;
+  }
+  room.expiresAt = new Date(lifecycle.idleExpiresAt ?? Date.now() + CALL_IDLE_MS);
+  return true;
+}
 
 export type RoomSnapshot = {
   room: {
@@ -48,16 +67,19 @@ export async function createRoom(input: {
     await assertCallEntry({ discordGuildId: call.guildId, discordChannelId: call.channelId }, input.userId);
   }
   const db = getDb();
+  if (call) {
+    const previous = await db.select().from(rooms).where(and(eq(rooms.discordGuildId, call.guildId),
+      eq(rooms.discordChannelId, call.channelId), isNull(rooms.closedAt))).limit(1);
+    if (previous[0]) await isAvailableRoom(previous[0]);
+  }
   const id = randomUUID();
   const inviteToken = createInviteToken();
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + (call ? CALL_MAX_MS : ROOM_INACTIVITY_MS));
+  const expiresAt = new Date(now.getTime() + (call ? CALL_IDLE_MS : ROOM_INACTIVITY_MS));
   const prefix = call ? [
     db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`discord:${call.guildId}:${call.channelId}`}, 0))`),
-    db.execute(sql`update rooms set closed_at = ${now} where discord_guild_id = ${call.guildId}
-      and discord_channel_id = ${call.channelId} and closed_at is null and expires_at <= ${now}`),
     db.execute(sql`select id from rooms where discord_guild_id = ${call.guildId}
-      and discord_channel_id = ${call.channelId} and closed_at is null and expires_at > ${now} limit 1`),
+      and discord_channel_id = ${call.channelId} and closed_at is null limit 1`),
   ] : [];
 
   // Neon batch is a transaction. Lock first, then count in the next statement:
@@ -67,19 +89,19 @@ export async function createRoom(input: {
     ...prefix.slice(1),
     ...(call ? [db.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).for("update")] : []),
     db.execute(sql`select account_status, room_creation_count, room_creation_window_at,
-      (select count(*)::int from rooms where owner_id = ${input.userId} and closed_at is null and expires_at > ${now}) as active_rooms
+      (select count(*)::int from rooms where owner_id = ${input.userId} and closed_at is null and (expires_at > ${now} or discord_guild_id is not null)) as active_rooms
       from users where id = ${input.userId}`),
     db.execute(sql`insert into rooms (id, owner_id, public_id, code, invite_hash, name, access_mode, last_active_at, expires_at,
       discord_guild_id, discord_channel_id, discord_session_ends_at)
       select ${id}::uuid, ${input.userId}, ${nanoid(18)}, ${createRoomCode()}, ${hashInviteToken(inviteToken)},
         ${input.name ?? null}, ${input.accessMode}::access_mode, ${now}, ${expiresAt},
-        ${call?.guildId ?? null}, ${call?.channelId ?? null}, ${call ? new Date(now.getTime() + CALL_MAX_MS) : null}::timestamptz
+        ${call?.guildId ?? null}, ${call?.channelId ?? null}, ${call ? expiresAt : null}::timestamptz
       where exists (select 1 from users where id = ${input.userId} and account_status = 'ACTIVE')
-        and (select count(*) from rooms where owner_id = ${input.userId} and closed_at is null and expires_at > ${now}) < ${RESOURCE_LIMITS.activeRoomsPerOwner}
+        and (select count(*) from rooms where owner_id = ${input.userId} and closed_at is null and (expires_at > ${now} or discord_guild_id is not null)) < ${RESOURCE_LIMITS.activeRoomsPerOwner}
         and exists (select 1 from users where id = ${input.userId} and
           (room_creation_window_at <= ${new Date(now.getTime() - 86_400_000)} or room_creation_count < ${RESOURCE_LIMITS.roomCreationsPerDay}))
         ${call ? sql`and not exists (select 1 from rooms where discord_guild_id = ${call.guildId}
-          and discord_channel_id = ${call.channelId} and closed_at is null and expires_at > ${now})` : sql``}
+          and discord_channel_id = ${call.channelId} and closed_at is null)` : sql``}
       returning id`),
     db.execute(sql`update users set
       room_creation_count = case when room_creation_window_at <= ${new Date(now.getTime() - 86_400_000)} then 1 else room_creation_count + 1 end,
@@ -91,8 +113,12 @@ export async function createRoom(input: {
   const limits = result[prefix.length + 1] as { rows: Record<string, unknown>[] };
   const inserted = result[prefix.length + 2] as { rows: Record<string, unknown>[] };
   if (call) {
-    const existing = (result[2] as { rows: Record<string, unknown>[] }).rows[0];
-    if (typeof existing?.id === "string") return { id: existing.id, inviteToken: null };
+    const existing = (result[1] as { rows: Record<string, unknown>[] }).rows[0];
+    if (typeof existing?.id === "string") {
+      const [room] = await db.select().from(rooms).where(eq(rooms.id, existing.id)).limit(1);
+      if (!room || !await isAvailableRoom(room)) throw new Error("DISCORD_EXPIRED");
+      return { id: existing.id, inviteToken: null };
+    }
   }
   if (!inserted.rows.length) {
     // This snapshot was taken after the owner lock, before changing the counters.
@@ -106,6 +132,7 @@ export async function createRoom(input: {
     throw new Error("ROOM_LIMIT_REACHED");
   }
 
+  if (call) await getCallRoomLifecycle(id, expiresAt.getTime());
   return { id, inviteToken };
 }
 
@@ -121,39 +148,30 @@ export type AvailableRoom = {
 export async function listAvailableRooms(userId: string): Promise<AvailableRoom[]> {
   const now = new Date();
   const rows = await getDb()
-    .select({
-      id: rooms.id,
-      publicId: rooms.publicId,
-      name: rooms.name,
-      role: roomMembers.role,
-      expiresAt: rooms.expiresAt,
-    })
+    .select({ room: rooms, role: roomMembers.role })
     .from(roomMembers)
     .innerJoin(rooms, eq(roomMembers.roomId, rooms.id))
     .where(and(
       eq(roomMembers.userId, userId),
       isNull(roomMembers.revokedAt),
       isNull(rooms.closedAt),
-      gt(rooms.expiresAt, now),
+      or(gt(rooms.expiresAt, now), sql`${rooms.discordGuildId} is not null`),
       ...(discordEnabled() ? [] : [isNull(rooms.discordGuildId)]),
     ))
     .orderBy(desc(rooms.lastActiveAt));
 
-  const renderedAt = Date.now();
-  return rows.map((room) => ({
-    ...room,
-    name: room.name || "Sala",
-    expiresInMs: Math.max(0, room.expiresAt.getTime() - renderedAt),
-  }));
+  const available = await Promise.all(rows.map(async ({ room, role }) => await isAvailableRoom(room)
+    ? { id: room.id, publicId: room.publicId, name: room.name || "Sala", role,
+      expiresAt: room.expiresAt, expiresInMs: Math.max(0, room.expiresAt.getTime() - Date.now()) } : null));
+  return available.filter((room): room is AvailableRoom => room !== null);
 }
 
 export async function refreshRoomActivity(roomId: string) {
   const now = new Date();
   await getDb()
     .update(rooms)
-    .set({ lastActiveAt: now, expiresAt: sql`case when ${rooms.discordGuildId} is null then ${new Date(now.getTime() + ROOM_INACTIVITY_MS)}::timestamptz
-      else ${rooms.discordSessionEndsAt} end` })
-    .where(and(eq(rooms.id, roomId), isNull(rooms.closedAt), gt(rooms.expiresAt, now)));
+    .set({ lastActiveAt: now, expiresAt: new Date(now.getTime() + ROOM_INACTIVITY_MS) })
+    .where(and(eq(rooms.id, roomId), isNull(rooms.discordGuildId), isNull(rooms.closedAt), gt(rooms.expiresAt, now)));
 }
 
 export async function purgeStaleRooms(now = new Date()) {
@@ -195,11 +213,7 @@ export async function assertAuthorizedRoom(roomId: string, userId: string) {
     .leftJoin(roomMembers, and(eq(roomMembers.roomId, rooms.id), eq(roomMembers.userId, userId)))
     .where(eq(rooms.id, roomId))
     .limit(1);
-  if (!result?.room || !isRoomActive(result.room)) throw new Error("ROOM_UNAVAILABLE");
-  if (result.room.discordGuildId) {
-    assertDiscordGuild(result.room.discordGuildId);
-    if (!result.room.discordChannelId || !result.room.discordSessionEndsAt || result.room.discordSessionEndsAt <= new Date()) throw new Error("ROOM_UNAVAILABLE");
-  }
+  if (!result?.room || !await isAvailableRoom(result.room)) throw new Error("ROOM_UNAVAILABLE");
   if (!isAuthorizedMember(result.member)) throw new Error("ROOM_FORBIDDEN");
   return { room: result.room, member: result.member! };
 }
@@ -213,7 +227,7 @@ export async function getRoomSnapshot(inviteToken: string, userId: string): Prom
     .where(publicId ? eq(rooms.publicId, publicId) : eq(rooms.inviteHash, hashInviteToken(inviteToken)))
     .limit(1);
 
-  if (!room || !isRoomActive(room)) return null;
+  if (!room || !await isAvailableRoom(room)) return null;
   if (publicId && !verifyShareableInvite(inviteToken, room)) return null;
 
   return buildRoomSnapshot(room, userId, true, true);
@@ -221,7 +235,7 @@ export async function getRoomSnapshot(inviteToken: string, userId: string): Prom
 
 export async function getRoomSnapshotByPublicId(publicId: string, userId: string): Promise<RoomSnapshot | null> {
   const [room] = await getDb().select().from(rooms).where(eq(rooms.publicId, publicId)).limit(1);
-  if (!room || !isRoomActive(room)) return null;
+  if (!room || !await isAvailableRoom(room)) return null;
   return buildRoomSnapshot(room, userId, false, true);
 }
 
@@ -232,7 +246,7 @@ export async function getAuthorizedRoomSnapshot(roomId: string, userId: string):
 
 export async function resolveRoomCode(code: string): Promise<string | null> {
   const [room] = await getDb().select().from(rooms).where(eq(rooms.code, code)).limit(1);
-  return room && isRoomActive(room) ? room.publicId : null;
+  return room && await isAvailableRoom(room) ? room.publicId : null;
 }
 
 async function buildRoomSnapshot(room: Room, userId: string, allowInviteAutoJoin: boolean, callEntry = false): Promise<RoomSnapshot> {
@@ -328,7 +342,7 @@ async function buildRoomSnapshot(room: Room, userId: string, allowInviteAutoJoin
 export async function requestRoomAccess(roomId: string, userId: string) {
   const db = getDb();
   const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
-  if (!room || !isRoomActive(room)) throw new Error("ROOM_UNAVAILABLE");
+  if (!room || !await isAvailableRoom(room)) throw new Error("ROOM_UNAVAILABLE");
   const member = await getMember(room.id, userId);
   if (room.discordGuildId) {
     // Only a previously revoked member can use approval recovery. New call
@@ -414,7 +428,7 @@ export async function activateRoomMember(roomId: string, userId: string, restore
     db.select({ id: rooms.id }).from(rooms).where(eq(rooms.id, roomId)).for("update"),
     db.execute(sql`insert into room_members (room_id, user_id, role, approved_at)
       select ${roomId}::uuid, ${userId}, 'MEMBER', ${now}
-      where exists (select 1 from rooms where id = ${roomId}::uuid and closed_at is null and expires_at > ${now})
+      where exists (select 1 from rooms where id = ${roomId}::uuid and closed_at is null and (expires_at > ${now} or discord_guild_id is not null))
         and exists (select 1 from users where id = ${userId} and account_status = 'ACTIVE')
         and ((select count(*) from room_members where room_id = ${roomId}::uuid and revoked_at is null) < ${RESOURCE_LIMITS.membersPerRoom}
           or exists (select 1 from room_members where room_id = ${roomId}::uuid and user_id = ${userId} and revoked_at is null))

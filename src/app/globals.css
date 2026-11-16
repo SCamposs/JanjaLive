@@ -74,6 +74,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .button.primary { border: 1px solid var(--accent-hover); background: var(--accent); color: var(--accent-ink); }
 .button.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .call-entry-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 20px; }
+.call-start-form { display: grid; justify-items: start; gap: 16px; }
+.call-start-form > [role="alert"] { margin: 0; color: var(--muted); }
 .call-install-note a { color: var(--text-soft); text-decoration: underline; text-underline-offset: 3px; }
 .call-install-note a:hover { color: var(--text); }
 .button.secondary { color: var(--text-soft); background: var(--surface-2); border: 1px solid var(--border); }
