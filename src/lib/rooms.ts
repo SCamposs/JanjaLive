@@ -241,11 +241,14 @@ async function buildRoomSnapshot(room: Room, userId: string, allowInviteAutoJoin
   let member = await getMember(room.id, userId);
   if (room.discordGuildId) {
     assertDiscordGuild(room.discordGuildId);
-    if (member?.revokedAt) throw new Error("ROOM_FORBIDDEN");
     if (callEntry) {
       await assertCallEntry(room, userId);
-      await activateRoomMember(room.id, userId, false);
-      member = await getMember(room.id, userId);
+      // A revoked participant may request the owner's approval again, but
+      // presence in Discord must never restore their grant automatically.
+      if (!member?.revokedAt) {
+        await activateRoomMember(room.id, userId, false);
+        member = await getMember(room.id, userId);
+      }
     }
   }
   if (!room.discordGuildId && canAutoJoinInvite(member, room.accessMode, allowInviteAutoJoin)) {
@@ -326,8 +329,13 @@ export async function requestRoomAccess(roomId: string, userId: string) {
   const db = getDb();
   const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
   if (!room || !isRoomActive(room)) throw new Error("ROOM_UNAVAILABLE");
-  if (room.discordGuildId) throw new Error("DISCORD_CALL_REQUIRED");
   const member = await getMember(room.id, userId);
+  if (room.discordGuildId) {
+    // Only a previously revoked member can use approval recovery. New call
+    // participants use verified admission, never the normal approval shortcut.
+    if (!member?.revokedAt) throw new Error("DISCORD_CALL_REQUIRED");
+    await assertCallEntry(room, userId);
+  }
   if (isAuthorizedMember(member)) return;
 
   await db

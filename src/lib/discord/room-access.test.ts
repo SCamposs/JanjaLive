@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ select: vi.fn(), batch: vi.fn(), voice: vi.fn() }));
-vi.mock("@/db", () => ({ getDb: () => ({ select: mocks.select, batch: mocks.batch }) }));
+const mocks = vi.hoisted(() => ({ select: vi.fn(), batch: vi.fn(), voice: vi.fn(), values: vi.fn(), conflict: vi.fn() }));
+vi.mock("@/db", () => ({ getDb: () => ({ select: mocks.select, batch: mocks.batch, insert: () => ({ values: mocks.values }) }) }));
 vi.mock("./access", () => ({ assertCallEntry: mocks.voice }));
 import { getRoomSnapshotByPublicId, requestRoomAccess, assertAuthorizedRoom } from "../rooms";
 
@@ -11,13 +11,14 @@ function selectResult(rows: unknown[]) {
   const query = { from: () => query, where: () => query, leftJoin: () => query, limit: () => Promise.resolve(rows) };
   return query;
 }
-beforeEach(() => { vi.clearAllMocks(); vi.stubEnv("DISCORD_CALLS_ENABLED", "true"); vi.stubEnv("DISCORD_CALLS_GUILD_ID", call.discordGuildId); });
+beforeEach(() => { vi.resetAllMocks(); mocks.values.mockReturnValue({ onConflictDoUpdate: mocks.conflict }); vi.stubEnv("DISCORD_CALLS_ENABLED", "true"); vi.stubEnv("DISCORD_CALLS_GUILD_ID", call.discordGuildId); });
 afterEach(() => vi.unstubAllEnvs());
 
-it("does not restore a revoked membership just because the user is in the call", async () => {
-  mocks.select.mockReturnValueOnce(selectResult([call])).mockReturnValueOnce(selectResult([revoked]));
-  await expect(getRoomSnapshotByPublicId("public", "user")).rejects.toThrow("ROOM_FORBIDDEN");
-  expect(mocks.voice).not.toHaveBeenCalled(); expect(mocks.batch).not.toHaveBeenCalled();
+it("offers owner approval recovery without restoring a revoked membership even in the correct call", async () => {
+  mocks.select.mockReturnValueOnce(selectResult([call])).mockReturnValueOnce(selectResult([revoked])).mockReturnValueOnce(selectResult([]));
+  const snapshot = await getRoomSnapshotByPublicId("public", "user");
+  expect(snapshot?.access).toBe("invited"); expect(snapshot?.members).toEqual([]);
+  expect(mocks.voice).toHaveBeenCalledWith(call, "user"); expect(mocks.batch).not.toHaveBeenCalled();
 });
 it("checks voice at entry even for a previously admitted member", async () => {
   mocks.select.mockReturnValueOnce(selectResult([call])).mockReturnValueOnce(selectResult([{ ...revoked, revokedAt: null }]));
@@ -26,8 +27,22 @@ it("checks voice at entry even for a previously admitted member", async () => {
   expect(mocks.batch).not.toHaveBeenCalled();
 });
 it("does not offer ordinary approval as a back door into a call room", async () => {
-  mocks.select.mockReturnValueOnce(selectResult([call]));
+  mocks.select.mockReturnValueOnce(selectResult([call])).mockReturnValueOnce(selectResult([]));
   await expect(requestRoomAccess("room", "user")).rejects.toThrow("DISCORD_CALL_REQUIRED");
+  expect(mocks.values).not.toHaveBeenCalled();
+});
+it("accepts a revoked participant's new request only after checking current call presence, without granting access", async () => {
+  mocks.select.mockReturnValueOnce(selectResult([call])).mockReturnValueOnce(selectResult([revoked]));
+  await requestRoomAccess("room", "user");
+  expect(mocks.voice).toHaveBeenCalledWith(call, "user");
+  expect(mocks.values).toHaveBeenCalledWith({ roomId: "room", userId: "user" });
+  expect(mocks.batch).not.toHaveBeenCalled();
+});
+it("refuses recovery from another call or when Discord cannot verify presence", async () => {
+  mocks.select.mockReturnValueOnce(selectResult([call])).mockReturnValueOnce(selectResult([revoked]));
+  mocks.voice.mockRejectedValue(new Error("DISCORD_CALL_REQUIRED"));
+  await expect(requestRoomAccess("room", "user")).rejects.toThrow("DISCORD_CALL_REQUIRED");
+  expect(mocks.values).not.toHaveBeenCalled(); expect(mocks.batch).not.toHaveBeenCalled();
 });
 it("requires a valid grant for realtime and refuses call rooms when flag is disabled", async () => {
   mocks.select.mockReturnValue(selectResult([{ room: call, member: null }]));

@@ -6,7 +6,7 @@ import { createRoom } from "@/lib/rooms";
 import { createShareableInvite } from "@/lib/shareable-invite";
 import { enforceRateLimit } from "@/lib/realtime";
 import { assertCallEntry, discordIdentity } from "./access";
-import { DiscordApiError, discordRequest, getDiscordVoiceChannel } from "./api";
+import { DiscordApiError, discordRequest, getDiscordVoiceChannel, getDiscordCallName } from "./api";
 import { assertDiscordGuild, discordConfig } from "./config";
 
 export async function createCallIntent(interactionId: string, discordUserId: string) {
@@ -125,7 +125,7 @@ export async function startCall(id: string, userId: string, verifyCard = false) 
     if (!room || room.closedAt || room.expiresAt <= new Date()) throw new Error("DISCORD_EXPIRED");
     await assertCallEntry(room, userId);
   } else {
-    const created = await createRoom({ userId, name: "Sala da call", accessMode: "APPROVAL",
+    const created = await createRoom({ userId, name: await getDiscordCallName(intent.channelId), accessMode: "APPROVAL",
       discordCall: { guildId: intent.guildId, channelId: intent.channelId } });
     [room] = await db.select().from(rooms).where(eq(rooms.id, created.id)).limit(1);
     if (!room) throw new Error("DISCORD_UNAVAILABLE");

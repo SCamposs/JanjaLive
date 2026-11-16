@@ -40,3 +40,11 @@ export async function getDiscordVoiceChannel(discordId: string): Promise<string 
   const channel = await discordRequest<{ id: string; guild_id: string; type: number }>(`/channels/${voice.channel_id}`);
   return channel.guild_id === guildId && channel.type === 2 ? channel.id : null;
 }
+
+export async function getDiscordCallName(channelId: string): Promise<string> {
+  const { guildId } = discordConfig();
+  if (!/^\d{17,20}$/.test(channelId)) throw new Error("DISCORD_UNAVAILABLE");
+  const channel = await discordRequest<{ id: string; guild_id: string; type: number; name?: string }>(`/channels/${channelId}`);
+  if (channel.id !== channelId || channel.guild_id !== guildId || channel.type !== 2) throw new Error("DISCORD_UNAVAILABLE");
+  return channel.name?.trim().slice(0, 60).replace(/[\uD800-\uDBFF]$/u, "").trim() || "Sala da call";
+}

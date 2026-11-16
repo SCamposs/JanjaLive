@@ -10,7 +10,7 @@ const holder = vi.hoisted(() => ({ db: undefined as unknown }));
 vi.mock("@/db", () => ({ getDb: () => holder.db }));
 const discordMock = vi.hoisted(() => ({ channelId: "100000000000000001" }));
 vi.mock("../src/lib/discord/api", () => ({ getDiscordVoiceChannel: vi.fn(async () => discordMock.channelId) }));
-import { activateRoomMember, createRoom, assertAuthorizedRoom, getRoomSnapshotByPublicId } from "../src/lib/rooms";
+import { activateRoomMember, createRoom, assertAuthorizedRoom, getRoomSnapshotByPublicId, requestRoomAccess, manageRoomMember } from "../src/lib/rooms";
 import { generateTurnCredentials } from "../src/lib/turn";
 
 const testUrl = process.env.SECURITY_TEST_POSTGRES_URL;
@@ -164,11 +164,34 @@ describe("resource limits against real PostgreSQL", () => {
     await activateRoomMember(created.id, "user-1", false);
     await psql("update room_members set revoked_at = now() where user_id = 'user-1'; update users set account_status = 'BANNED' where id = 'user-2';");
     const publicId = (await psql(`select public_id from rooms where id = ${literal(created.id)};`)).trim();
-    await expect(getRoomSnapshotByPublicId(publicId, "user-1")).rejects.toThrow("ROOM_FORBIDDEN");
+    expect((await getRoomSnapshotByPublicId(publicId, "user-1"))?.access).toBe("invited");
     await expect(assertAuthorizedRoom(created.id, "user-1")).rejects.toThrow("ROOM_FORBIDDEN");
     await expect(activateRoomMember(created.id, "user-2", false)).rejects.toThrow("ROOM_MEMBER_LIMIT_REACHED");
     await expect(getRoomSnapshotByPublicId(publicId, "user-2")).rejects.toThrow("ACCOUNT_DISABLED");
     expect(await psql("select count(*) from room_members where revoked_at is null;")).toBe("1\n");
+  });
+
+  it("restores a revoked call grant only through an explicit request and owner approval in the correct call", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true");
+    vi.stubEnv("DISCORD_CALLS_GUILD_ID", "1156443434362617927");
+    const created = await createRoom({ userId: "user-0", accessMode: "APPROVAL",
+      discordCall: { guildId: "1156443434362617927", channelId: "100000000000000001" } });
+    await activateRoomMember(created.id, "user-1", false);
+    await manageRoomMember({ roomId: created.id, ownerId: "user-0", userId: "user-1", action: "revoke" });
+    discordMock.channelId = "100000000000000002";
+    await expect(requestRoomAccess(created.id, "user-1")).rejects.toThrow("DISCORD_CALL_REQUIRED");
+    expect(await psql("select count(*) from join_requests;")).toBe("0\n");
+    discordMock.channelId = "100000000000000001";
+    await requestRoomAccess(created.id, "user-1");
+    await expect(assertAuthorizedRoom(created.id, "user-1")).rejects.toThrow("ROOM_FORBIDDEN");
+    expect(await psql("select status from join_requests where user_id = 'user-1';")).toBe("PENDING\n");
+    discordMock.channelId = "100000000000000002";
+    await expect(manageRoomMember({ roomId: created.id, ownerId: "user-0", userId: "user-1", action: "approve" })).rejects.toThrow("DISCORD_CALL_REQUIRED");
+    await expect(assertAuthorizedRoom(created.id, "user-1")).rejects.toThrow("ROOM_FORBIDDEN");
+    discordMock.channelId = "100000000000000001";
+    await manageRoomMember({ roomId: created.id, ownerId: "user-0", userId: "user-1", action: "approve" });
+    await expect(assertAuthorizedRoom(created.id, "user-1")).resolves.toHaveProperty("room.id", created.id);
+    expect(await psql("select status from join_requests where user_id = 'user-1';")).toBe("APPROVED\n");
   });
 
   it("admits a verified call participant without approval but keeps outsiders out of realtime", async () => {

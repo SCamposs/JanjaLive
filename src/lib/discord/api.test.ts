@@ -1,7 +1,7 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { discordEnabled, discordConfig, DISCORD_BETA_GUILD } from "./config";
-import { getDiscordVoiceChannel, verifyDiscordSignature } from "./api";
+import { getDiscordVoiceChannel, getDiscordCallName, verifyDiscordSignature } from "./api";
 
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
 const publicHex = publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("hex");
@@ -56,5 +56,15 @@ describe("Discord beta boundary", () => {
   it("handles a disconnected user", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ code: 10065 }, { status: 404 })));
     expect(await getDiscordVoiceChannel(userId)).toBeNull();
+  });
+  it("uses the verified voice channel name within the shared web/desktop name limit", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ id: "100000000000000001", guild_id: DISCORD_BETA_GUILD, type: 2, name: " teste-janja " })));
+    expect(await getDiscordCallName("100000000000000001")).toBe("teste-janja");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ id: "100000000000000001", guild_id: DISCORD_BETA_GUILD, type: 2, name: "x".repeat(59) + "🎮" })));
+    expect(await getDiscordCallName("100000000000000001")).toBe("x".repeat(59));
+  });
+  it("never takes the name from a different guild or non-voice channel", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ id: "100000000000000001", guild_id: "other", type: 2, name: "not-allowed" })));
+    await expect(getDiscordCallName("100000000000000001")).rejects.toThrow("DISCORD_UNAVAILABLE");
   });
 });

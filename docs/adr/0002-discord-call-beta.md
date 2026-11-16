@@ -28,7 +28,8 @@ Esta primeira versão usa um cartão estável de **Sala da call → Entrar**. N�
 - Sair da call do Discord não expulsa automaticamente uma sessão já autorizada. Sair da tela da sala também não revoga a associação existente; esse é o comportamento atual do JanjaLive, mantido nesta beta. Uma nova abertura pelo fluxo de convite verifica a call novamente.
 - Dentro da sessão ativa, a associação autorizada continua sendo a credencial de acesso às APIs; não se trata de controle contínuo de presença no Discord.
 - Revogações impedem readmissão automática. O dono pode restaurar explicitamente o acesso, mas essa aprovação em sala de call também verifica a presença do destinatário.
-- O modo normal de pedir aprovação não serve como alternativa para entrar em uma sala de call.
+- O modo normal de pedir aprovação não serve como alternativa para entrar em uma sala de call. Um participante previamente revogado pode pedir aprovação novamente somente na call correta; tanto a solicitação quanto a aprovação explícita do dono verificam a presença. A solicitação não reativa a concessão nem libera tempo real.
+- Novas salas usam o nome verificado do canal de voz no momento da criação, limitado a 60 caracteres para compatibilidade web/desktop. Não há sincronização contínua de nome nem alteração de salas já existentes.
 - Banimentos continuam sendo verificados pela autenticação e pela ativação de membros. Os limites existentes de 5 salas próprias ativas, 20 criações em 24 horas e 20 membros por sala permanecem.
 - Links antigos não criam sessões novas. Sessões expiradas ou encerradas recusam novas entradas.
 
