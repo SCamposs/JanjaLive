@@ -41,29 +41,45 @@ export function callCard(room: Pick<Room, "publicId">, ended = false) {
     components: ended ? [] : [{ type: 1, components: [{ type: 2, style: 5, label: "Entrar", url: `${origin}/call/${room.publicId}` }] }] };
 }
 
-export async function publishCallCard(room: Room) {
-  if (!room.discordChannelId) return false;
-  if (room.discordMessageId) return true;
+export type CallCardStatus = "published" | "pending" | "failed";
+
+export async function publishCallCard(room: Room): Promise<CallCardStatus> {
+  if (!room.discordChannelId) return "failed";
+  if (room.discordMessageId) return "published";
   const db = getDb();
   const [claimed] = await db.update(rooms).set({ discordCardClaimedAt: new Date() })
     .where(and(eq(rooms.id, room.id), isNull(rooms.discordMessageId), isNull(rooms.discordCardClaimedAt), isNull(rooms.closedAt)))
     .returning({ id: rooms.id });
-  if (!claimed) return false;
+  if (!claimed) {
+    // Another request may have published after this request read the room.
+    const [current] = await db.select({ messageId: rooms.discordMessageId }).from(rooms).where(eq(rooms.id, room.id)).limit(1);
+    return current?.messageId ? "published" : "pending";
+  }
+  let message: { id: string };
   try {
-    const message = await discordRequest<{ id: string }>(`/channels/${room.discordChannelId}/messages`, {
+    message = await discordRequest<{ id: string }>(`/channels/${room.discordChannelId}/messages`, {
       method: "POST", body: { ...callCard(room), nonce: room.publicId, enforce_nonce: true },
     });
     if (!/^\d{17,20}$/.test(message.id)) throw new Error("DISCORD_UNAVAILABLE");
-    await db.update(rooms).set({ discordMessageId: message.id }).where(eq(rooms.id, room.id));
-    return true;
   } catch (error) {
     // A definitive HTTP rejection can be retried. A timeout is ambiguous: keep
     // the claim to avoid publishing duplicates after the Discord nonce window.
     if (error instanceof DiscordApiError) {
       await db.update(rooms).set({ discordCardClaimedAt: null }).where(eq(rooms.id, room.id));
+      console.warn("Discord card publication rejected.", { status: error.status });
+      return "failed";
     }
-    throw error;
+    console.warn("Discord card publication could not be confirmed.");
+    return "pending";
   }
+  // Discord has acknowledged the message. A persistence failure must not turn
+  // that acknowledgement into a false 'not published' result or another POST.
+  try { await db.update(rooms).set({ discordMessageId: message.id }).where(eq(rooms.id, room.id)); }
+  catch {
+    try { await db.update(rooms).set({ discordMessageId: message.id }).where(eq(rooms.id, room.id)); }
+    catch { console.warn("Published Discord card receipt could not be saved."); }
+  }
+  return "published";
 }
 
 export async function startCall(id: string, userId: string) {
@@ -83,10 +99,10 @@ export async function startCall(id: string, userId: string) {
     await db.update(discordCallIntents).set({ roomId: room.id }).where(eq(discordCallIntents.id, id));
   }
   // Card failure must not turn room creation into a duplicate-creation retry.
-  let cardPublished = Boolean(room.discordMessageId);
-  try { cardPublished = await publishCallCard(room); }
-  catch { /* The room remains available; the UI offers explicit retry. */ }
-  return { room, cardPublished };
+  let cardStatus: CallCardStatus = room.discordMessageId ? "published" : "pending";
+  try { cardStatus = await publishCallCard(room); }
+  catch { console.warn("Discord card status could not be read."); }
+  return { room, cardStatus, cardPublished: cardStatus === "published" };
 }
 
 export function desktopCallLink(room: Room) {

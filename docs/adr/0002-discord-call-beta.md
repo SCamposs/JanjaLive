@@ -40,6 +40,10 @@ O vínculo entre cartão e sala é persistente. Uma atualização condicional re
 
 Na falha ambígua, o usuário pode continuar na sala, mas a publicação pode exigir reconciliação administrativa; não há promessa de retry durável automático nesta beta. Não habilitar filas/planos pagos para contornar isso.
 
+A UI distingue publicação reconhecida, confirmação pendente e rejeição confirmada. Quando outra requisição já reivindicou a publicação, o backend relê o registro antes de responder. Um POST reconhecido pelo Discord continua sendo sucesso mesmo se salvar o recibo falhar; somente essa gravação idempotente é repetida uma vez. Uma confirmação antiga perdida pode continuar pendente, sem republicação às cegas. Os logs registram a etapa da falha sem payloads ou credenciais.
+
+As telas de escolha de cliente incluem um link manual e sublinhado para a Microsoft Store, abaixo dos botões. Abrir o aplicativo não baixa instalador nem dispara redirecionamento temporizado quando o protocolo não existe.
+
 Encerramento/exclusão primeiro aplica a autorização e notifica os participantes pelo mecanismo atual. A atualização visual do cartão é best effort em `after()`, sem atrasar a resposta nem impedir o encerramento. Expiração automática bloqueia o link e encerra conexões, mas não modifica o cartão no Discord; a página informa que a sessão terminou.
 
 ## Isolamento e custo

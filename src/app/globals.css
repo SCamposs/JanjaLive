@@ -74,6 +74,8 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .button.primary { border: 1px solid var(--accent-hover); background: var(--accent); color: var(--accent-ink); }
 .button.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .call-entry-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 20px; }
+.call-install-note a { color: var(--text-soft); text-decoration: underline; text-underline-offset: 3px; }
+.call-install-note a:hover { color: var(--text); }
 .button.secondary { color: var(--text-soft); background: var(--surface-2); border: 1px solid var(--border); }
 .button.ghost { color: var(--muted); background: transparent; }
 .button.discord { background: var(--accent); color: var(--accent-ink); min-width: 220px; justify-content: space-between; }
@@ -104,6 +106,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .login-card { grid-column: 1; padding: 38px 0; }
 .login-card h1 { margin: 0 0 13px; font-size: 38px; line-height: 1.08; letter-spacing: -.035em; font-weight: 650; text-wrap: balance; }
 .login-card > p:not(.section-kicker) { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0 0 24px; text-wrap: pretty; }
+.login-card > p.call-install-note { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .home-intro h1 { margin: 0 0 10px; font-size: 36px; line-height: 1.1; letter-spacing: -.035em; font-weight: 620; text-wrap: balance; }
 .home-intro > p { color: var(--muted); line-height: 1.6; max-width: 540px; font-size: 14px; margin: 0; }
 .available-room-list { margin-top: 28px; border-top: 1px solid var(--border-soft); }

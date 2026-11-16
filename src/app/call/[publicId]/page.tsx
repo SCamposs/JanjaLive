@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { CallEntryActions } from "@/components/call-entry-actions";
 import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/api";
@@ -21,6 +21,5 @@ export default async function CallEntryPage({ params }: { params: Promise<{ publ
   const [room] = await getDb().select().from(rooms).where(eq(rooms.publicId, publicId)).limit(1);
   if (!room?.discordGuildId || !isRoomActive(room)) return <CallNotice message="Esta sessão foi encerrada. Use /janja no Discord para continuar." />;
   return <CallShell><h1>Entre na sala da call</h1><p>Continue com a mesma conta usada no Discord.</p>
-    <div className="call-entry-actions"><a className="button primary" href={desktopCallLink(room)}>Abrir no aplicativo</a>
-      <Link className="button secondary" href={`/join/${room.publicId}`}>Continuar no navegador</Link></div></CallShell>;
+    <CallEntryActions desktopLink={desktopCallLink(room)} publicId={room.publicId} /></CallShell>;
 }
