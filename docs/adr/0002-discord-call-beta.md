@@ -40,7 +40,7 @@ O vínculo entre cartão e sala é persistente. Uma atualização condicional re
 
 Na falha ambígua, o usuário pode continuar na sala, mas a publicação pode exigir reconciliação administrativa; não há promessa de retry durável automático nesta beta. Não habilitar filas/planos pagos para contornar isso.
 
-A UI distingue publicação reconhecida, confirmação pendente e rejeição confirmada. Quando outra requisição já reivindicou a publicação, o backend relê o registro antes de responder. Um POST reconhecido pelo Discord continua sendo sucesso mesmo se salvar o recibo falhar; somente essa gravação idempotente é repetida uma vez. Uma confirmação antiga perdida pode continuar pendente, sem republicação às cegas. Os logs registram a etapa da falha sem payloads ou credenciais.
+A UI distingue publicação reconhecida, confirmação pendente e rejeição confirmada. Quando outra requisição já reivindicou a publicação, o backend relê o registro antes de responder. Um POST reconhecido pelo Discord continua sendo sucesso mesmo se salvar o recibo falhar; somente essa gravação idempotente é repetida uma vez. A ação manual Verificar convite consulta até 100 mensagens recentes, considera somente cartões do próprio bot com a URL exata da sessão e recupera o recibo encontrado. Não há monitoramento de conversas ou gravação de seu conteúdo. Essa recuperação depende de Ler histórico de mensagens no canal; sem acesso ou sem encontrar o cartão nesse limite, permanece pendente e não republica às cegas. Os logs registram a etapa da falha sem payloads ou credenciais.
 
 As telas de escolha de cliente incluem um link manual e sublinhado para a Microsoft Store, abaixo dos botões. Abrir o aplicativo não baixa instalador nem dispara redirecionamento temporizado quando o protocolo não existe.
 
@@ -50,7 +50,7 @@ Encerramento/exclusão primeiro aplica a autorização e notifica os participant
 
 `DISCORD_CALLS_ENABLED` ausente ou diferente de `true` desativa os endpoints e esconde salas de call da listagem. O ID configurado precisa corresponder ao servidor beta fixado no código. A integração exige o provedor Cloudflare já configurado; não usa Upstash como fallback.
 
-Não existe job por segundo, enumeração contínua de membros, leitura de mensagens ou bot ouvindo a call. Limites adicionais: 5 comandos/minuto por pessoa, 30 comandos/10 minutos para o servidor e 5 preparações de sala/minuto por conta. O alarme de prazo é pontual, não periódico.
+Não existe job por segundo, enumeração contínua de membros, monitoramento de mensagens ou bot ouvindo a call. Limites adicionais: 5 comandos/minuto por pessoa, 30 comandos/10 minutos para o servidor e 5 preparações de sala/minuto por conta. O alarme de prazo é pontual, não periódico.
 
 Custo adicional zero significa operar dentro da folga dos planos gratuitos existentes, sem contratar ou habilitar serviços pagos. Requisições REST, consultas ao banco e operações Cloudflare ainda consomem cotas compartilhadas. Não é garantia de consumo zero ou gratuidade ilimitada.
 

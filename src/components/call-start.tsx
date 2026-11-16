@@ -11,7 +11,7 @@ export function CallStart({ intentId }: { intentId: string }) {
     <h1>Sala pronta</h1><p>Escolha onde continuar.</p>
     <CallEntryActions desktopLink={state.desktopLink!} publicId={state.publicId} />
     {cardStatus !== "published" && <><p role="status">{cardStatus === "failed" ? "A sala está pronta, mas não foi possível publicar o convite no Discord." : "A publicação do convite no Discord ainda não foi confirmada."}</p>
-      <form action={action}><button className="button secondary" type="submit" disabled={pending} aria-busy={pending}>
+      <form action={action}><input type="hidden" name="cardAction" value={cardStatus === "pending" ? "verify" : "publish"} /><button className="button secondary" type="submit" disabled={pending} aria-busy={pending}>
         {pending ? "Verificando…" : cardStatus === "failed" ? "Tentar publicar o convite" : "Verificar convite"}</button></form></>}
   </>;
   return <><h1>Abra a sala da call</h1><p>Compartilhe sua tela ou assista com quem está na call.</p>

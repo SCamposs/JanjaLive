@@ -13,7 +13,7 @@ export default function PrivacyPage() {
       {discordEnabled() && <section>
         <h2>Integração opcional com calls do Discord</h2>
         <p>Ao usar o comando /janja em um servidor habilitado, consultamos sua presença no canal de voz para preparar a entrada na sala. Guardamos os identificadores do servidor, canal, conta, convite temporário e mensagem do bot para vincular essa sessão. O convite de preparação expira em 15 minutos.</p>
-        <p>O bot não entra no áudio da call, não lê suas conversas e não recebe a transmissão. A presença é verificada ao entrar na sala; sair da call do Discord não expulsa automaticamente quem já está na sessão do JanjaLive.</p>
+        <p>O bot não entra no áudio da call, não monitora conversas e não recebe a transmissão. Quando você pede para verificar um convite pendente, ele consulta mensagens recentes do canal para localizar o próprio cartão. O conteúdo das conversas não é guardado. A presença é verificada ao entrar na sala; sair da call do Discord não expulsa automaticamente quem já está na sessão do JanjaLive.</p>
       </section>}
       <section>
         <h2>Sobre esta política</h2>

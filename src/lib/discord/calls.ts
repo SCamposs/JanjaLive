@@ -43,7 +43,27 @@ export function callCard(room: Pick<Room, "publicId">, ended = false) {
 
 export type CallCardStatus = "published" | "pending" | "failed";
 
-export async function publishCallCard(room: Room): Promise<CallCardStatus> {
+async function saveCardReceipt(roomId: string, messageId: string) {
+  try { await getDb().update(rooms).set({ discordMessageId: messageId }).where(eq(rooms.id, roomId)); }
+  catch {
+    try { await getDb().update(rooms).set({ discordMessageId: messageId }).where(eq(rooms.id, roomId)); }
+    catch { console.warn("Published Discord card receipt could not be saved."); }
+  }
+}
+
+type CardMetadata = { id: string; author?: { id: string }; components?: Array<{ components?: Array<{ url?: string }> }> };
+
+async function findPublishedCard(room: Room): Promise<string | null> {
+  const config = discordConfig();
+  const messages = await discordRequest<CardMetadata[]>(`/channels/${room.discordChannelId}/messages?limit=100`);
+  if (!Array.isArray(messages)) return null;
+  const expectedUrl = `${config.origin}/call/${room.publicId}`;
+  // Only metadata from this bot's exact session card is considered or retained.
+  return messages.find(message => message.author?.id === config.appId && /^\d{17,20}$/.test(message.id)
+    && message.components?.some(row => row.components?.some(button => button.url === expectedUrl)))?.id ?? null;
+}
+
+export async function publishCallCard(room: Room, verifyPending = false): Promise<CallCardStatus> {
   if (!room.discordChannelId) return "failed";
   if (room.discordMessageId) return "published";
   const db = getDb();
@@ -53,7 +73,14 @@ export async function publishCallCard(room: Room): Promise<CallCardStatus> {
   if (!claimed) {
     // Another request may have published after this request read the room.
     const [current] = await db.select({ messageId: rooms.discordMessageId }).from(rooms).where(eq(rooms.id, room.id)).limit(1);
-    return current?.messageId ? "published" : "pending";
+    if (current?.messageId) return "published";
+    if (verifyPending) {
+      try {
+        const messageId = await findPublishedCard(room);
+        if (messageId) { await saveCardReceipt(room.id, messageId); return "published"; }
+      } catch { console.warn("Existing Discord card could not be verified."); }
+    }
+    return "pending";
   }
   let message: { id: string };
   try {
@@ -74,15 +101,11 @@ export async function publishCallCard(room: Room): Promise<CallCardStatus> {
   }
   // Discord has acknowledged the message. A persistence failure must not turn
   // that acknowledgement into a false 'not published' result or another POST.
-  try { await db.update(rooms).set({ discordMessageId: message.id }).where(eq(rooms.id, room.id)); }
-  catch {
-    try { await db.update(rooms).set({ discordMessageId: message.id }).where(eq(rooms.id, room.id)); }
-    catch { console.warn("Published Discord card receipt could not be saved."); }
-  }
+  await saveCardReceipt(room.id, message.id);
   return "published";
 }
 
-export async function startCall(id: string, userId: string) {
+export async function startCall(id: string, userId: string, verifyCard = false) {
   const intent = await getCallIntent(id, userId);
   await enforceRateLimit(`discord:start:${userId}`, 5, 60);
   const db = getDb();
@@ -100,7 +123,7 @@ export async function startCall(id: string, userId: string) {
   }
   // Card failure must not turn room creation into a duplicate-creation retry.
   let cardStatus: CallCardStatus = room.discordMessageId ? "published" : "pending";
-  try { cardStatus = await publishCallCard(room); }
+  try { cardStatus = await publishCallCard(room, verifyCard); }
   catch { console.warn("Discord card status could not be read."); }
   return { room, cardStatus, cardPublished: cardStatus === "published" };
 }

@@ -65,3 +65,25 @@ it("releases the claim for a definitive rejection so an explicit retry can succe
   expect(await publishCallCard(room)).toBe("failed");
   expect(mocks.update).toHaveBeenCalledTimes(2);
 });
+
+it("recovers a lost receipt only on explicit verification and only from this bot's exact card", async () => {
+  mocks.update.mockReturnValueOnce(update([])).mockReturnValue(update([]));
+  mocks.select.mockReturnValue(current(null));
+  const url = `https://www.janja.live/call/${room.publicId}`;
+  mocks.request.mockResolvedValue([
+    { id: "100000000000000003", author: { id: "other-author" }, components: [{ components: [{ url }] }] },
+    { id: "100000000000000004", author: { id: "1571911647432413255" }, components: [{ components: [{ url: "https://www.janja.live/call/other-room" }] }] },
+    { id: messageId, author: { id: "1571911647432413255" }, components: [{ components: [{ url }] }] },
+  ]);
+  expect(await publishCallCard(room, true)).toBe("published");
+  expect(mocks.request).toHaveBeenCalledTimes(1);
+  expect(mocks.request.mock.calls[0][0]).toContain("messages?limit=100");
+  expect(mocks.update).toHaveBeenCalledTimes(2);
+});
+it("does not publish again when history is unavailable or contains no matching own card", async () => {
+  mocks.update.mockReturnValue(update([])); mocks.select.mockReturnValue(current(null));
+  mocks.request.mockRejectedValue(new DiscordApiError(403));
+  expect(await publishCallCard(room, true)).toBe("pending");
+  expect(mocks.request).toHaveBeenCalledTimes(1);
+  expect(mocks.update).toHaveBeenCalledTimes(1);
+});
