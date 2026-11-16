@@ -1,8 +1,10 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ after: vi.fn(), intent: vi.fn(), request: vi.fn() }));
+const mocks = vi.hoisted(() => ({ after: vi.fn(), intent: vi.fn(), request: vi.fn(), clean: vi.fn(), delay: vi.fn() }));
+vi.mock("node:timers/promises", () => ({ setTimeout: mocks.delay }));
 vi.mock("next/server", () => ({ after: mocks.after }));
 vi.mock("@/lib/discord/calls", () => ({ createCallIntent: mocks.intent }));
+vi.mock("@/lib/discord/cleanup", async () => ({ ...await vi.importActual("@/lib/discord/cleanup"), cleanDiscordMessages: mocks.clean }));
 vi.mock("@/lib/discord/api", async () => ({ ...await vi.importActual("@/lib/discord/api"), discordRequest: mocks.request }));
 import { POST } from "./route";
 
@@ -58,4 +60,39 @@ it("does not echo secrets or raw errors in a failed deferred response", async ()
   mocks.intent.mockRejectedValue(new Error("fake-secret-private-stack"));
   await POST(request(payload)); await mocks.after.mock.calls[0][0]();
   expect(JSON.stringify(mocks.request.mock.calls[0][1])).not.toContain("fake-secret-private-stack");
+});
+
+const cleanup = { ...payload, channel_id: "100000000000000007", app_permissions: "65536",
+  member: { ...payload.member, permissions: "8192" }, data: { name: "janja-limpar" } };
+it("denies cleanup without effective moderator permissions even if command permissions were overridden", async () => {
+  const response = await POST(request({ ...cleanup, member: { ...cleanup.member, permissions: "0" } }));
+  expect((await response.json()).data.content).toContain("Gerenciar mensagens");
+  expect(mocks.after).not.toHaveBeenCalled(); expect(mocks.clean).not.toHaveBeenCalled();
+});
+it("explains missing bot history permission before scheduling cleanup", async () => {
+  const response = await POST(request({ ...cleanup, app_permissions: "0" }));
+  expect((await response.json()).data.content).toContain("histórico");
+  expect(mocks.after).not.toHaveBeenCalled();
+});
+it("defers cleanup publicly, reports in the same channel and removes the response after six seconds", async () => {
+  mocks.clean.mockResolvedValue({ deleted: 2, complete: true });
+  expect(await (await POST(request(cleanup))).json()).toEqual({ type: 5, data: {} });
+  expect(mocks.clean).not.toHaveBeenCalled();
+  await mocks.after.mock.calls[0][0]();
+  expect(mocks.clean).toHaveBeenCalledWith(payload.guild_id, cleanup.channel_id, payload.member.user.id);
+  expect(mocks.intent).not.toHaveBeenCalled();
+  expect(mocks.request.mock.calls[0][1].body.content).toContain("2 mensagens do JanjaLive apagadas");
+  expect(mocks.delay).toHaveBeenCalledWith(6000);
+  expect(mocks.request.mock.calls[1]).toEqual([
+    `/webhooks/${appId}/${payload.token}/messages/@original`, { method: "DELETE", webhook: true },
+  ]);
+  expect(mocks.request.mock.invocationCallOrder[0]).toBeLessThan(mocks.delay.mock.invocationCallOrder[0]);
+  expect(mocks.delay.mock.invocationCallOrder[0]).toBeLessThan(mocks.request.mock.invocationCallOrder[1]);
+});
+it("does not schedule message removal if publishing the cleanup result failed", async () => {
+  mocks.clean.mockResolvedValue({ deleted: 0, complete: true }); mocks.request.mockRejectedValue(new Error("timeout"));
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  await POST(request(cleanup)); await mocks.after.mock.calls[0][0]();
+  expect(mocks.delay).not.toHaveBeenCalled(); expect(mocks.request).toHaveBeenCalledTimes(1);
+  warn.mockRestore();
 });

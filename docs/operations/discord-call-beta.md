@@ -68,6 +68,22 @@ Encerrar as salas criadas pelo bot antigo e remover seus cards/comando antes da 
 
 ## Evidência local e limites
 
+### Limpar mensagens do bot
+
+`/janja-limpar` apaga apenas mensagens do bot oficial no canal em que foi executado. Requer Gerenciar mensagens (ou Administrador) do usuário, conferido também no backend com as permissões efetivas da interação assinada. O bot precisa de Ver canal e Ler histórico de mensagens; em canal de voz, também Conectar. O bot **não** precisa receber Gerenciar mensagens: são usadas exclusões individuais das próprias mensagens, inclusive antigas, sem bulk delete.
+
+Cada execução consulta no máximo cinco páginas de 100 mensagens e apaga até 20 mensagens, com orçamento de tempo e sem retry automático de HTTP 429. Há limite compartilhado de uma execução por canal a cada 30 segundos e duas por usuário a cada minuto. O resultado é publicado no próprio canal e removido após seis segundos pelo webhook da interação, sem job ou serviço separado. Falta de permissão antes da execução é informada em privado. Se a exclusão da resposta falhar no Discord, ela pode permanecer no canal. O resultado informa progresso parcial; mensagens além das 500 recentes não são alcançadas. Não se trata de uma varredura irrestrita de todo o histórico.
+
+Somente referências de cartões efetivamente apagados são desassociadas no banco, condicionadas a servidor, canal e ID da mensagem. Não são encerradas salas, alterados membros, prazos ou transmissões. O próximo `/janja` pode publicar um novo cartão para a mesma sala ativa. O publicador também detecta HTTP 404/10008 de cartões removidos, recuperando referências antigas inclusive após uma falha de persistência da limpeza. Indisponibilidade/permissão negada não é considerada evidência de exclusão.
+
+Registrar explicitamente com `tools/discord-call/register.mjs`, com as variáveis do bot oficial carregadas localmente; o script mantém `/janja` e adiciona `/janja-limpar` sem substituir outros comandos. Não registrar antes de publicar o backend que reconhece o novo comando. Não há serviço novo, polling ou dependência de npm.
+
+### Próxima expansão: instalação privada em outros servidores
+
+No Developer Portal da aplicação oficial, Bot → Public Bot desativado permite apenas ao proprietário instalar o bot. Isso não limita quem usa os comandos depois de instalado. Manter Guild Install e os escopos bot/applications.commands; usar link de autorização sem guild_id e sem disable_guild_select para escolher servidores em que o proprietário tem permissão de instalação. Caso o portal rejeite um link padrão de instalação de aplicação privada, remover o Install Link público na seção Installation e usar o link OAuth2 explícito.
+
+**O backend atual continua restrito ao servidor beta por código e variável.** Alterar somente DISCORD_CALLS_GUILD_ID ou desativar Public Bot não habilita outro servidor. Antes da expansão, substituir essa fixação por uma lista explícita de servidores permitidos, propagar guildId pelas verificações de presença/preparações e registrar ambos os comandos nos servidores autorizados (ou globalmente com contexto apenas Guild após validação). Recomenda-se manter instalação privada + lista permitida, sem abrir automaticamente a qualquer servidor nem alterar o aplicativo OAuth existente.
+
 Até esta etapa: 314 testes da suíte web/compartilhada/Worker, 78 do desktop e 12 com PostgreSQL local passaram. Builds web/desktop, typechecks e Worker dry-run passaram. Um servidor local com o build de produção também confirmou: início/privacidade com HTTP 200, APIs de sala sem autenticação com HTTP 401 e novas rotas Discord com HTTP 404 enquanto a flag está desligada. A rodada SQL usa PostgreSQL real com presença Discord simulada. A rodada Discord anterior foi real, mas ainda sem OAuth e salas integrados. Nenhum desses resultados equivale à rodada privada acima.
 
 Não publicar como funcionalidade validada ponta a ponta até concluir essa rodada integrada. Não há serviço pago novo; operar gratuitamente continua dependendo das cotas compartilhadas.

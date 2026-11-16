@@ -65,7 +65,17 @@ async function findPublishedCard(room: Room): Promise<string | null> {
 
 export async function publishCallCard(room: Room, verifyPending = false): Promise<CallCardStatus> {
   if (!room.discordChannelId) return "failed";
-  if (room.discordMessageId) return "published";
+  if (room.discordMessageId) {
+    try {
+      await discordRequest(`/channels/${room.discordChannelId}/messages/${room.discordMessageId}`);
+      return "published";
+    } catch (error) {
+      if (!(error instanceof DiscordApiError && error.status === 404 && error.code === 10008)) return "pending";
+      // A deleted card must not leave an active room permanently without a link.
+      await getDb().update(rooms).set({ discordMessageId: null, discordCardClaimedAt: null })
+        .where(and(eq(rooms.id, room.id), eq(rooms.discordMessageId, room.discordMessageId)));
+    }
+  }
   const db = getDb();
   const [claimed] = await db.update(rooms).set({ discordCardClaimedAt: new Date() })
     .where(and(eq(rooms.id, room.id), isNull(rooms.discordMessageId), isNull(rooms.discordCardClaimedAt), isNull(rooms.closedAt)))

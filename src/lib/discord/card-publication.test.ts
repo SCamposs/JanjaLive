@@ -25,9 +25,21 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
-it("recognizes a stored receipt without contacting Discord", async () => {
+it("verifies a stored receipt so manual cleanup cannot leave a stale invitation", async () => {
+  mocks.request.mockResolvedValue({ id: messageId });
   expect(await publishCallCard({ ...room, discordMessageId: messageId })).toBe("published");
-  expect(mocks.request).not.toHaveBeenCalled();
+  expect(mocks.request).toHaveBeenCalledWith(`/channels/${room.discordChannelId}/messages/${messageId}`);
+});
+it("replaces a confirmed deleted card without changing the room", async () => {
+  mocks.update.mockReturnValue(update([{ id: room.id }]));
+  mocks.request.mockRejectedValueOnce(new DiscordApiError(404, 10008)).mockResolvedValue({ id: messageId });
+  expect(await publishCallCard({ ...room, discordMessageId: messageId })).toBe("published");
+  expect(mocks.request.mock.calls[1][1].method).toBe("POST");
+});
+it("does not replace a stored card when its absence cannot be established", async () => {
+  mocks.request.mockRejectedValue(new DiscordApiError(403));
+  expect(await publishCallCard({ ...room, discordMessageId: messageId })).toBe("pending");
+  expect(mocks.update).not.toHaveBeenCalled();
 });
 it("rereads a receipt saved by a concurrent publisher instead of reporting a false failure", async () => {
   mocks.update.mockReturnValue(update([])); mocks.select.mockReturnValue(current(messageId));
