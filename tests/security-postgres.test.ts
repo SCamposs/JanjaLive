@@ -8,7 +8,9 @@ import * as schema from "../src/db/schema";
 
 const holder = vi.hoisted(() => ({ db: undefined as unknown }));
 vi.mock("@/db", () => ({ getDb: () => holder.db }));
-import { activateRoomMember, createRoom } from "../src/lib/rooms";
+const discordMock = vi.hoisted(() => ({ channelId: "100000000000000001" }));
+vi.mock("../src/lib/discord/api", () => ({ getDiscordVoiceChannel: vi.fn(async () => discordMock.channelId) }));
+import { activateRoomMember, createRoom, assertAuthorizedRoom, getRoomSnapshotByPublicId } from "../src/lib/rooms";
 import { generateTurnCredentials } from "../src/lib/turn";
 
 const testUrl = process.env.SECURITY_TEST_POSTGRES_URL;
@@ -52,9 +54,18 @@ async function batch(queries: SQLWrapper[]) {
   return output.trim().split(/\r?\n/).map((line) => ({ rows: JSON.parse(line) as unknown[] }));
 }
 
+async function localQuery(query: string, params: unknown[], options: { arrayMode?: boolean }) {
+  let text = query.replace(/\$(\d+)/g, (_, index) => literal(params[Number(index) - 1]));
+  if (/^(insert|update|delete) /i.test(text) && !/\breturning\b/i.test(text)) text += " returning 1";
+  const projection = options.arrayMode
+    ? "(select json_agg(value) from json_each(row_to_json(result)))" : "row_to_json(result)";
+  const output = await psql(`with result as (${text}) select coalesce(json_agg(${projection}), '[]') from result;`);
+  return { rows: JSON.parse(output.trim()) };
+}
+
 describe("resource limits against real PostgreSQL", () => {
   beforeAll(async () => {
-    const db = drizzle.mock({ schema });
+    const db = drizzle({ client: { query: localQuery } as never, schema });
     Object.assign(db, { batch });
     holder.db = db;
     await psql("drop schema public cascade; create schema public;");
@@ -64,7 +75,8 @@ describe("resource limits against real PostgreSQL", () => {
   });
   beforeEach(async () => {
     delete process.env.ROOM_CREATION_ENABLED;
-    await psql("truncate users cascade; insert into users(id) select 'user-' || n from generate_series(0,30) n;");
+    discordMock.channelId = "100000000000000001";
+    await psql("truncate users cascade; insert into users(id, discord_id) select 'user-' || n, (100000000000000000::bigint + n)::text from generate_series(0,30) n;");
   });
   afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
@@ -95,6 +107,84 @@ describe("resource limits against real PostgreSQL", () => {
     expect(await psql("select count(*) from room_members where revoked_at is null;")).toBe("20\n");
     await expect(activateRoomMember(room.id, "user-0", true)).resolves.toBeUndefined();
     expect(await psql("select role from room_members where user_id = 'user-0';")).toBe("OWNER\n");
+  });
+
+  it("serializes concurrent Discord creation across different owners without spending duplicate quotas", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true");
+    vi.stubEnv("DISCORD_CALLS_GUILD_ID", "1156443434362617927");
+    const input = { guildId: "1156443434362617927", channelId: "100000000000000001" };
+    const created = await Promise.all(Array.from({ length: 8 }, (_, n) => createRoom({ userId: `user-${n}`, accessMode: "APPROVAL", discordCall: input })));
+    expect(new Set(created.map(room => room.id)).size).toBe(1);
+    expect(await psql("select count(*) from rooms;")).toBe("1\n");
+    expect(await psql("select sum(room_creation_count) from users;")).toBe("1\n");
+    expect(await psql("select count(*) from room_members;")).toBe("1\n");
+  });
+
+  it("reuses a Discord session even if the next caller has no remaining creation slots", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true");
+    vi.stubEnv("DISCORD_CALLS_GUILD_ID", "1156443434362617927");
+    const input = { guildId: "1156443434362617927", channelId: "100000000000000001" };
+    const created = await createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: input });
+    await psql("update users set room_creation_count = 20 where id = 'user-1';");
+    expect((await createRoom({ userId: "user-1", accessMode: "APPROVAL", discordCall: input })).id).toBe(created.id);
+    expect(await psql("select room_creation_count from users where id = 'user-1';")).toBe("20\n");
+  });
+
+  it("expires an old Discord session without resurrecting its room or bypassing the daily quota", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true");
+    vi.stubEnv("DISCORD_CALLS_GUILD_ID", "1156443434362617927");
+    const input = { guildId: "1156443434362617927", channelId: "100000000000000001" };
+    const first = await createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: input });
+    await psql(`update rooms set expires_at = now() - interval '1 minute' where id = ${literal(first.id)};`);
+    const second = await createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: input });
+    expect(second.id).not.toBe(first.id);
+    expect(await psql("select count(*) from rooms where closed_at is null;")).toBe("1\n");
+    expect(await psql("select room_creation_count from users where id = 'user-0';")).toBe("2\n");
+    await psql("update users set room_creation_count = 20 where id = 'user-0';");
+    discordMock.channelId = "100000000000000002";
+    await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: { ...input, channelId: "100000000000000002" } }))
+      .rejects.toThrow("DAILY_ROOM_LIMIT_REACHED");
+  });
+
+  it("does not create a Discord session with flag off or wrong guild", async () => {
+    const input = { guildId: "1156443434362617927", channelId: "100000000000000001" };
+    await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: input })).rejects.toThrow("DISCORD_UNAVAILABLE");
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true");
+    vi.stubEnv("DISCORD_CALLS_GUILD_ID", input.guildId);
+    await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: { ...input, guildId: "100000000000000002" } }))
+      .rejects.toThrow("DISCORD_UNAVAILABLE");
+    expect(await psql("select count(*) from rooms;")).toBe("0\n");
+  });
+
+  it("does not reactivate a revoked call grant through public entry or issue access to a banned participant", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true");
+    vi.stubEnv("DISCORD_CALLS_GUILD_ID", "1156443434362617927");
+    const created = await createRoom({ userId: "user-0", accessMode: "APPROVAL",
+      discordCall: { guildId: "1156443434362617927", channelId: "100000000000000001" } });
+    await activateRoomMember(created.id, "user-1", false);
+    await psql("update room_members set revoked_at = now() where user_id = 'user-1'; update users set account_status = 'BANNED' where id = 'user-2';");
+    const publicId = (await psql(`select public_id from rooms where id = ${literal(created.id)};`)).trim();
+    await expect(getRoomSnapshotByPublicId(publicId, "user-1")).rejects.toThrow("ROOM_FORBIDDEN");
+    await expect(assertAuthorizedRoom(created.id, "user-1")).rejects.toThrow("ROOM_FORBIDDEN");
+    await expect(activateRoomMember(created.id, "user-2", false)).rejects.toThrow("ROOM_MEMBER_LIMIT_REACHED");
+    await expect(getRoomSnapshotByPublicId(publicId, "user-2")).rejects.toThrow("ACCOUNT_DISABLED");
+    expect(await psql("select count(*) from room_members where revoked_at is null;")).toBe("1\n");
+  });
+
+  it("admits a verified call participant without approval but keeps outsiders out of realtime", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true");
+    vi.stubEnv("DISCORD_CALLS_GUILD_ID", "1156443434362617927");
+    const created = await createRoom({ userId: "user-0", accessMode: "APPROVAL",
+      discordCall: { guildId: "1156443434362617927", channelId: "100000000000000001" } });
+    const publicId = (await psql(`select public_id from rooms where id = ${literal(created.id)};`)).trim();
+    expect((await getRoomSnapshotByPublicId(publicId, "user-1"))?.access).toBe("authorized");
+    expect(await psql("select count(*) from room_members where revoked_at is null;")).toBe("2\n");
+    expect(await psql("select count(*) from join_requests;")).toBe("0\n");
+    await expect(assertAuthorizedRoom(created.id, "user-3")).rejects.toThrow("ROOM_FORBIDDEN");
+    discordMock.channelId = "100000000000000002";
+    await expect(getRoomSnapshotByPublicId(publicId, "user-1")).rejects.toThrow("DISCORD_CALL_REQUIRED");
+    // Existing session access remains valid until closure/revocation; only a new entry checks voice.
+    await expect(assertAuthorizedRoom(created.id, "user-1")).resolves.toHaveProperty("room");
   });
 
   it("an invite cannot restore a revoked member, and banned accounts cannot join", async () => {

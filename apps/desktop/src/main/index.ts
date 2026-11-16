@@ -19,7 +19,7 @@ import {
 } from "electron";
 import electronUpdater from "electron-updater";
 import { z } from "zod";
-import { isRoomCreationErrorCode } from "@janjalive/realtime-protocol";
+import { isRoomCreationErrorCode, isDiscordCallError } from "@janjalive/realtime-protocol";
 import {
   authExchangeResponseSchema,
   authStatusSchema,
@@ -279,6 +279,10 @@ async function backendRequest(pathname: string, init: RequestInit = {}) {
     updateStatus({ state: "required" });
   }
   if (!response.ok) {
+    if (pathname.startsWith("/api/rooms/") && [403, 410, 503].includes(response.status)) {
+      const data = await response.clone().json().catch(() => null);
+      if (isDiscordCallError(data?.error)) throw new Error(data.error);
+    }
     if (pathname === "/api/rooms" && init.method === "POST") {
       const data = await response.json().catch(() => null);
       if (isRoomCreationErrorCode(data?.error)) throw new Error(data.error);

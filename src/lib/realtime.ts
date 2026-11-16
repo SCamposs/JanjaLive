@@ -72,14 +72,15 @@ async function cloudflareRequest(pathname: string, init: RequestInit = {}) {
   return response;
 }
 
-export async function createRealtimeSession(roomId: string, userId: string): Promise<RealtimeSession> {
+export async function createRealtimeSession(roomId: string, userId: string, roomDeadline?: number): Promise<RealtimeSession> {
+  if (roomDeadline !== undefined && (!Number.isSafeInteger(roomDeadline) || roomDeadline <= Date.now())) throw new Error("ROOM_UNAVAILABLE");
   const provider = getRealtimeProvider();
   if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
   if (provider === "upstash") return { provider };
   const { url, tokenSecret } = getCloudflareRealtimeConfig();
   const expiresAt = new Date(Date.now() + 60_000);
   const issuedAtMs = Date.now();
-  const token = await new SignJWT({ roomId, issuedAtMs })
+  const token = await new SignJWT({ roomId, issuedAtMs, ...(roomDeadline === undefined ? {} : { roomDeadline }) })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(userId)
     .setIssuer("https://www.janja.live")

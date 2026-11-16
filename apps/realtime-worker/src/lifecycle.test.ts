@@ -43,6 +43,27 @@ describe("durable room termination", () => {
     await pending;
     expect(broadcaster.send).not.toHaveBeenCalled();
   });
+
+  it("expires a Discord session through its persisted deadline, closing sockets and notifying peers", async () => {
+    vi.stubGlobal("WebSocket", { OPEN: 1 });
+    const f = fixture();
+    const viewer = f.socket("viewer");
+    f.storage.set("room:deadline", Date.now() - 1);
+    await f.room.alarm();
+    expect(f.storage.get("room:closed")).toBe(true);
+    expect(viewer.close).toHaveBeenCalledWith(4004, "Session ended");
+    const messages = viewer.send.mock.calls.map(([message]) => JSON.parse(message));
+    expect(messages.some(message => message.event?.payload.type === "room:closed")).toBe(true);
+  });
+
+  it("does not change standard-room sockets when there is no Discord deadline", async () => {
+    vi.stubGlobal("WebSocket", { OPEN: 1 });
+    const f = fixture();
+    const viewer = f.socket("viewer");
+    await f.room.alarm();
+    expect(viewer.close).not.toHaveBeenCalled();
+    expect(viewer.send).not.toHaveBeenCalled();
+  });
   it.each(["janjalive-v1", "janjalive-v2"])("notifies honest broadcasters before removing a viewer (%s)", async (protocol) => {
     vi.stubGlobal("WebSocket", { OPEN: 1 });
     const f = fixture();

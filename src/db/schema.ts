@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const accessModeEnum = pgEnum("access_mode", ["APPROVAL", "INVITE"]);
 export const memberRoleEnum = pgEnum("member_role", ["OWNER", "MEMBER"]);
@@ -159,6 +160,11 @@ export const rooms = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name"),
     accessMode: accessModeEnum("access_mode").default("APPROVAL").notNull(),
+    discordGuildId: text("discord_guild_id"),
+    discordChannelId: text("discord_channel_id"),
+    discordMessageId: text("discord_message_id"),
+    discordCardClaimedAt: timestamp("discord_card_claimed_at", { mode: "date", withTimezone: true }),
+    discordSessionEndsAt: timestamp("discord_session_ends_at", { mode: "date", withTimezone: true }),
     inviteVersion: integer("invite_version").default(1).notNull(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
     lastActiveAt: timestamp("last_active_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
@@ -169,8 +175,20 @@ export const rooms = pgTable(
     index("rooms_owner_id_idx").on(table.ownerId),
     index("rooms_code_idx").on(table.code),
     index("rooms_expiration_idx").on(table.expiresAt),
+    uniqueIndex("rooms_active_discord_channel_unique").on(table.discordGuildId, table.discordChannelId)
+      .where(sql`${table.closedAt} is null and ${table.discordGuildId} is not null`),
   ],
 );
+
+export const discordCallIntents = pgTable("discord_call_intents", {
+  id: text("id").primaryKey(),
+  interactionId: text("interaction_id").notNull().unique(),
+  discordUserId: text("discord_user_id").notNull(),
+  guildId: text("guild_id").notNull(),
+  channelId: text("channel_id").notNull(),
+  roomId: uuid("room_id").references(() => rooms.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
+}, (table) => [index("discord_call_intents_expiry_idx").on(table.expiresAt)]);
 
 export const roomMembers = pgTable(
   "room_members",

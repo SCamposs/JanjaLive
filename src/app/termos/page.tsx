@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { LegalPage } from "@/components/legal-page";
 import { ROOM_CREATION_LIMITS } from "@janjalive/realtime-protocol";
+import { discordEnabled } from "@/lib/discord/config";
 
 export const metadata: Metadata = {
   title: "Termos de uso",
@@ -10,7 +11,12 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Termos de uso" updatedAt="10 de novembro de 2026">
+    <LegalPage title="Termos de uso" updatedAt={discordEnabled() ? "16 de novembro de 2026" : "10 de novembro de 2026"}>
+      {discordEnabled() && <section>
+        <h2>Salas de calls do Discord</h2>
+        <p>Em servidores habilitados, o comando /janja prepara uma sala temporária para os participantes da call. O acesso exige autenticação e verificação da presença naquele canal. Banimentos e revogações continuam válidos, assim como os limites de criação e participação.</p>
+        <p>Essas sessões duram no máximo seis horas e podem ser encerradas antes pelo proprietário. Sair do Discord não expulsa automaticamente quem já entrou no JanjaLive. O compartilhamento só começa quando você escolhe a fonte e confirma no JanjaLive.</p>
+      </section>}
       <section>
         <h2>Uso do serviço</h2>
         <p>O JanjaLive permite compartilhar tela e áudio em salas com pessoas escolhidas. O serviço é gratuito e exige uma conta do Discord. Cuide do acesso à sua conta e respeite as regras da sala.</p>

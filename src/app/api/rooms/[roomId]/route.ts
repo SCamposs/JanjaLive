@@ -1,5 +1,6 @@
 import { apiError, requireUser } from "@/lib/api";
 import { deleteRoom, getAuthorizedRoomSnapshot } from "@/lib/rooms";
+import { scheduleClosedCallCard } from "@/lib/discord/notifications";
 
 export async function GET(request: Request, context: { params: Promise<{ roomId: string }> }) {
   try {
@@ -16,7 +17,8 @@ export async function DELETE(request: Request, context: { params: Promise<{ room
   try {
     const owner = await requireUser(request);
     const { roomId } = await context.params;
-    await deleteRoom(roomId, owner.id);
+    const room = await deleteRoom(roomId, owner.id);
+    scheduleClosedCallCard(room);
     return Response.json({ ok: true });
   } catch (error) {
     return apiError(error);

@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     "apps/desktop/out/**",
     "apps/desktop/dist/**",
     ".tooling/**",
+    "coverage/**",
   ]),
   {
     files: ["apps/desktop/scripts/**/*.cjs"],

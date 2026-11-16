@@ -40,6 +40,7 @@ type RealtimeClaims = {
   sub: string;
   issuedAt: number;
   issuedAtMs: number;
+  roomDeadline?: number;
 };
 
 type ConnectionState = SignalingConnectionState & {
@@ -96,7 +97,11 @@ async function verifyRealtimeToken(token: string, env: Env): Promise<RealtimeCla
   if (typeof payload.sub !== "string" || typeof payload.roomId !== "string" || !Number.isInteger(payload.iat)) throw new Error("INVALID_CLAIMS");
   const issuedAtMs = payload.issuedAtMs ?? payload.iat! * 1_000;
   if (!Number.isSafeInteger(issuedAtMs) || Math.floor(Number(issuedAtMs) / 1_000) !== payload.iat) throw new Error("INVALID_CLAIMS");
-  return { roomId: payload.roomId, sub: payload.sub, issuedAt: payload.iat!, issuedAtMs: Number(issuedAtMs) };
+  const roomDeadline = payload.roomDeadline;
+  if (roomDeadline !== undefined && (!Number.isSafeInteger(roomDeadline) || Number(roomDeadline) <= Date.now()
+    || Number(roomDeadline) > Date.now() + 6 * 60 * 60_000)) throw new Error("INVALID_CLAIMS");
+  return { roomId: payload.roomId, sub: payload.sub, issuedAt: payload.iat!, issuedAtMs: Number(issuedAtMs),
+    ...(roomDeadline === undefined ? {} : { roomDeadline: Number(roomDeadline) }) };
 }
 
 function internalRoomRequest(request: Request, roomId: string, pathname: string) {
@@ -129,6 +134,8 @@ export default {
         headers.set("x-janjalive-token-issued-at", String(claims.issuedAt));
         headers.set("x-janjalive-token-issued-ms", String(claims.issuedAtMs));
         headers.set("x-janjalive-protocol", session.protocol);
+        headers.delete("x-janjalive-room-deadline");
+        if (claims.roomDeadline !== undefined) headers.set("x-janjalive-room-deadline", String(claims.roomDeadline));
         const stub = env.ROOMS.getByName(claims.roomId);
         return stub.fetch(new Request("https://room.internal/connect", { headers }));
       } catch {
@@ -168,6 +175,15 @@ export default {
 
 export class RoomDurableObject extends DurableObject<Env> {
   private lastCursor = 0;
+
+  async alarm() {
+    const deadline = await this.ctx.storage.get<number>("room:deadline");
+    if (!deadline) return;
+    if (deadline > Date.now()) { await this.ctx.storage.setAlarm(deadline); return; }
+    await this.ctx.storage.put(ROOM_CLOSED_KEY, true);
+    this.emit("system", { type: "room:closed" });
+    for (const socket of this.sockets()) socket.close(4004, "Session ended");
+  }
 
   private sockets() {
     return this.ctx.getWebSockets().filter((socket) => socket.readyState === WebSocket.OPEN);
@@ -257,6 +273,15 @@ export class RoomDurableObject extends DurableObject<Env> {
       const issuedAtMs = Number(request.headers.get("x-janjalive-token-issued-ms")) || issuedAt * 1_000;
       const protocol = request.headers.get("x-janjalive-protocol") === PROTOCOL ? PROTOCOL : LEGACY_PROTOCOL;
       if (!userId || !Number.isInteger(issuedAt) || request.headers.get("upgrade")?.toLowerCase() !== "websocket") return json({ error: "INVALID_CONNECT" }, 400);
+      const deadlineHeader = request.headers.get("x-janjalive-room-deadline");
+      if (deadlineHeader !== null) {
+        const deadline = Number(deadlineHeader);
+        if (!Number.isSafeInteger(deadline) || deadline <= Date.now()) return json({ error: "ROOM_CLOSED" }, 403);
+        const stored = await this.ctx.storage.get<number>("room:deadline");
+        const effective = Math.min(deadline, stored ?? deadline);
+        await this.ctx.storage.put("room:deadline", effective);
+        await this.ctx.storage.setAlarm(effective);
+      }
       const [accountRevocation, membershipRevocation] = await Promise.all([
         this.ctx.storage.get<RevocationTransitionState | number>(accountRevocationKey(userId)),
         this.ctx.storage.get<RevocationTransitionState | number>(membershipRevocationKey(userId)),

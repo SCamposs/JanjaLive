@@ -50,6 +50,13 @@
       "when": 1793041819313,
       "tag": "0006_unique_grey_gargoyle",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794846841272,
+      "tag": "0007_discord_call_beta",
+      "breakpoints": true
     }
   ]
 }

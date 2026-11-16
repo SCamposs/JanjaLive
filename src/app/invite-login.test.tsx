@@ -61,6 +61,12 @@ it("keeps ordinary login directed to home", async () => {
   expect(mocks.signIn).toHaveBeenCalledWith("discord", { redirectTo: "/" });
 });
 
+it.each(["/discord/creator-intent", "/call/session-id"])("resumes an explicit Discord entry after login: %s", async path => {
+  expect(getLoginDestination(path)).toBe(path);
+  await findForm(await home(path))!.action();
+  expect(mocks.signIn).toHaveBeenCalledWith("discord", { redirectTo: path });
+});
+
 it("does not resume an invitation for a disabled account", async () => {
   mocks.auth.mockResolvedValue({ user: { id: "user" } });
   mocks.activeUser.mockResolvedValue(null);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 export { ROOM_CREATION_LIMITS, isRoomCreationErrorCode, roomCreationErrorMessage } from "./room-creation";
+export { isDiscordCallError, discordCallErrorMessage } from "./discord-errors";
 
 export const qualityPresetSchema = z.enum([
   "720p30",

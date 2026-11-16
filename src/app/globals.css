@@ -73,6 +73,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px 
 .button:disabled { cursor: not-allowed; opacity: .5; }
 .button.primary { border: 1px solid var(--accent-hover); background: var(--accent); color: var(--accent-ink); }
 .button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.call-entry-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 20px; }
 .button.secondary { color: var(--text-soft); background: var(--surface-2); border: 1px solid var(--border); }
 .button.ghost { color: var(--muted); background: transparent; }
 .button.discord { background: var(--accent); color: var(--accent-ink); min-width: 220px; justify-content: space-between; }

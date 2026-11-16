@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LegalPage } from "@/components/legal-page";
+import { discordEnabled } from "@/lib/discord/config";
 
 export const metadata: Metadata = {
   title: "Privacidade",
@@ -8,7 +9,12 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacidade" updatedAt="10 de novembro de 2026">
+    <LegalPage title="Privacidade" updatedAt={discordEnabled() ? "16 de novembro de 2026" : "10 de novembro de 2026"}>
+      {discordEnabled() && <section>
+        <h2>Integração opcional com calls do Discord</h2>
+        <p>Ao usar o comando /janja em um servidor habilitado, consultamos sua presença no canal de voz para preparar a entrada na sala. Guardamos os identificadores do servidor, canal, conta, convite temporário e mensagem do bot para vincular essa sessão. O convite de preparação expira em 15 minutos.</p>
+        <p>O bot não entra no áudio da call, não lê suas conversas e não recebe a transmissão. A presença é verificada ao entrar na sala; sair da call do Discord não expulsa automaticamente quem já está na sessão do JanjaLive.</p>
+      </section>}
       <section>
         <h2>Sobre esta política</h2>
         <p>Esta política vale para o site e o aplicativo JanjaLive para Windows, incluindo a edição da Microsoft Store. Usamos dados para manter sua conta conectada, controlar o acesso às salas, conectar as transmissões e proteger o serviço contra abuso.</p>

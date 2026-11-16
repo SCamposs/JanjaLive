@@ -6,7 +6,9 @@ export function sanitizeAnalyticsEvent(event: BeforeSendEvent): BeforeSendEvent 
   const withoutQueryOrHash = event.url.split(/[?#]/, 1)[0];
   const redactedUrl = withoutQueryOrHash
     .replace(/\/room\/[^/]+$/, "/room/[invite]")
-    .replace(/\/join\/[^/]+$/, "/join/[room]");
+    .replace(/\/join\/[^/]+$/, "/join/[room]")
+    .replace(/\/discord\/[^/]+$/, "/discord/[intent]")
+    .replace(/\/call\/[^/]+$/, "/call/[room]");
 
   return { ...event, url: redactedUrl };
 }

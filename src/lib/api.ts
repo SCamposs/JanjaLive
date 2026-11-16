@@ -28,6 +28,11 @@ export function apiError(error: unknown): Response {
   const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
   const knownErrors: Record<string, number> = {
     INVALID_REQUEST: 400,
+    DISCORD_UNAVAILABLE: 503,
+    DISCORD_CALL_REQUIRED: 403,
+    DISCORD_PERMISSION: 503,
+    DISCORD_EXPIRED: 410,
+    DISCORD_IDENTITY: 403,
     INVALID_DESKTOP_AUTH: 400,
     OWNER_IMMUTABLE: 400,
     RATE_LIMITED: 429,

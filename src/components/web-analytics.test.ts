@@ -13,4 +13,9 @@ describe("sanitizeAnalyticsEvent", () => {
     expect(sanitizeAnalyticsEvent({ type: "pageview", url: "https://janja.live/termos?private=value#section" }).url)
       .toBe("https://janja.live/termos");
   });
+
+  it("redacts Discord intent and session entry identifiers", () => {
+    expect(sanitizeAnalyticsEvent({ type: "pageview", url: "https://janja.live/discord/private-intent" }).url).toBe("https://janja.live/discord/[intent]");
+    expect(sanitizeAnalyticsEvent({ type: "pageview", url: "https://janja.live/call/private-room" }).url).toBe("https://janja.live/call/[room]");
+  });
 });

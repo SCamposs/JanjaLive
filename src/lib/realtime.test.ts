@@ -31,6 +31,20 @@ describe("realtime revocation precision", () => {
     expect(payload.sub).toBe("user-test");
     expect(Number.isSafeInteger(payload.issuedAtMs)).toBe(true);
     expect(Math.floor(Number(payload.issuedAtMs) / 1000)).toBe(payload.iat);
+    expect(payload.roomDeadline).toBeUndefined();
+  });
+
+  it("binds call connections to a signed deadline and refuses expired sessions", async () => {
+    vi.stubEnv("REALTIME_PROVIDER", "cloudflare");
+    vi.stubEnv("CLOUDFLARE_REALTIME_URL", "https://realtime.example.com");
+    vi.stubEnv("REALTIME_TOKEN_SECRET", "test-secret-at-least-32-characters-long");
+    vi.stubEnv("REALTIME_INTERNAL_SECRET", "test-internal-secret");
+    const deadline = Date.now() + 60_000;
+    const session = await createRealtimeSession("room-test", "user-test", deadline);
+    if (session.provider !== "cloudflare") throw new Error("Expected Cloudflare session");
+    const { payload } = await jwtVerify(session.token, new TextEncoder().encode(process.env.REALTIME_TOKEN_SECRET));
+    expect(payload.roomDeadline).toBe(deadline);
+    await expect(createRealtimeSession("room-test", "user-test", Date.now() - 1)).rejects.toThrow("ROOM_UNAVAILABLE");
   });
 });
 

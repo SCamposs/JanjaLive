@@ -1,5 +1,5 @@
 import { DesktopAccessGate as AccessGate } from "./DesktopAccessGate";
-import { roomCreationErrorMessage } from "@janjalive/realtime-protocol";
+import { roomCreationErrorMessage, discordCallErrorMessage } from "@janjalive/realtime-protocol";
 import { DesktopDeleteRoomAction } from "./DesktopDeleteRoomAction";
 import { subscribeAuthStatus } from "./auth-session";
 import { DesktopLogin } from "./DesktopLogin";
@@ -103,8 +103,8 @@ export function App() {
     try {
       setRoom(await window.janja.rooms.openInvite(token));
       pendingInviteRef.current = null;
-    } catch {
-      setError("Este convite não está mais disponível.");
+    } catch (error) {
+      setError(discordCallErrorMessage(error) ?? "Este convite não está mais disponível.");
     }
   }, []);
 
