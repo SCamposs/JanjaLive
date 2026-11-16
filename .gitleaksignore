@@ -1,0 +1,3 @@
+# Historical false positive: public Discord user ID in a test fixture, not a credential.
+# The fixture now uses a synthetic ID; keep detection enabled for all other findings.
+81f501a06d36825f43f887d375bad64eca7fe26c:src/lib/discord/calls.test.ts:discord-client-id:9
