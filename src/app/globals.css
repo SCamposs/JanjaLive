@@ -30,6 +30,10 @@
 .admin-card h1 { margin: 0 0 6px; font-size: 24px; }
 .admin-card p { margin: 0; color: #918b85; }
 .admin-users { margin-top: 24px; }
+.admin-guilds { margin-top: 20px; }
+.admin-guilds h2 { margin: 0 0 6px; font-size: 20px; }
+.admin-guilds > p { max-width: 65ch; line-height: 1.6; }
+.admin-guilds .admin-search { margin-top: 20px; }
 .admin-search { display: flex; gap: 8px; margin-bottom: 16px; }
 .admin-search input { flex: 1; min-width: 0; }
 .admin-search input, .admin-search .jl-select-trigger { min-height: 42px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }

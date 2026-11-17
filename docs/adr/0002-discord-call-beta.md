@@ -2,6 +2,8 @@
 
 Data: 16/11/2026. Estado: beta restrita ativada; fluxo integrado validado com duas contas. A sequência de ativação e rollback está no roteiro de operações.
 
+Registro histórico da beta: a restrição de servidor e o registro local dos comandos descritos abaixo são substituídos pela [ADR 0003](0003-discord-guild-controls.md) na expansão de 17/11/2026. A política de acesso à sala, mídia e inatividade permanece.
+
 ## Decisão e escopo
 
 Integração opcional, desligada por padrão e limitada ao servidor `1156443434362617927`. Reutiliza Vercel, PostgreSQL e Cloudflare existentes. Não adiciona dependências npm, serviços pagos, bot com Gateway permanente, transporte de mídia ou alterações na captura/codificação.

@@ -45,4 +45,18 @@ describe("requireAdmin", () => {
     getDbMock.mockReturnValue(databaseReturning([owner]));
     await expect(requireAdmin()).resolves.toEqual(owner);
   });
+
+  it("ignores a forged owner Discord ID or admin role in an ordinary user's session profile", async () => {
+    authMock.mockResolvedValue({ user: { id: "ordinary-user", discordId: "discord-owner", role: "admin" } });
+    await expect(requireAdmin()).rejects.toThrow("NOT_FOUND");
+    expect(getDbMock).not.toHaveBeenCalled();
+  });
+
+  it("does not let a mutable display identity override the linked provider and refuses a disabled owner", async () => {
+    authMock.mockResolvedValue({ user: { id: "internal-owner", discordId: "discord-owner" } });
+    getDbMock.mockReturnValue(databaseReturning([{ id: "internal-owner", discordId: "discord-owner", providerDiscordId: "other", accountStatus: "ACTIVE" }]));
+    await expect(requireAdmin()).rejects.toThrow("NOT_FOUND");
+    getDbMock.mockReturnValue(databaseReturning([{ id: "internal-owner", providerDiscordId: "discord-owner", accountStatus: "BANNED" }]));
+    await expect(requireAdmin()).rejects.toThrow("NOT_FOUND");
+  });
 });

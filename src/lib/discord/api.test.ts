@@ -1,11 +1,12 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { discordEnabled, discordConfig, DISCORD_BETA_GUILD } from "./config";
+import { discordEnabled, discordConfig } from "./config";
 import { getDiscordVoiceChannel, getDiscordCallName, verifyDiscordSignature } from "./api";
 
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
 const publicHex = publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("hex");
 const userId = "325447679368757249";
+const DISCORD_BETA_GUILD = "1156443434362617927";
 beforeEach(() => {
   vi.stubEnv("DISCORD_CALLS_ENABLED", "true"); vi.stubEnv("DISCORD_CALLS_GUILD_ID", DISCORD_BETA_GUILD);
   vi.stubEnv("DISCORD_BOT_APPLICATION_ID", "1571911647432413255"); vi.stubEnv("DISCORD_BOT_PUBLIC_KEY", publicHex);
@@ -15,9 +16,9 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("Discord beta boundary", () => {
-  it("defaults off and cannot be enabled for another guild", () => {
+  it("defaults off and no longer needs a guild allowlist environment variable", () => {
     expect(discordEnabled({})).toBe(false);
-    expect(discordEnabled({ DISCORD_CALLS_ENABLED: "true", DISCORD_CALLS_GUILD_ID: "other" })).toBe(false);
+    expect(discordEnabled({ DISCORD_CALLS_ENABLED: "true" })).toBe(true);
     expect(discordEnabled()).toBe(true);
     vi.stubEnv("DISCORD_CALLS_ORIGIN", "https://evil.example");
     expect(() => discordConfig()).toThrow("DISCORD_UNAVAILABLE");
@@ -39,32 +40,32 @@ describe("Discord beta boundary", () => {
     const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ user_id: userId, channel_id: "100000000000000001" }))
       .mockResolvedValueOnce(Response.json({ id: "100000000000000001", guild_id: DISCORD_BETA_GUILD, type: 2 }));
     vi.stubGlobal("fetch", fetcher);
-    expect(await getDiscordVoiceChannel(userId)).toBe("100000000000000001");
+    expect(await getDiscordVoiceChannel(userId, DISCORD_BETA_GUILD)).toBe("100000000000000001");
     expect(fetcher.mock.calls[0][0]).toContain(`/voice-states/${userId}`);
   });
   it.each([{ guild_id: "other", type: 2 }, { guild_id: DISCORD_BETA_GUILD, type: 13 }])("rejects wrong guild or Stage", async channel => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(Response.json({ user_id: userId, channel_id: "100000000000000001" }))
       .mockResolvedValueOnce(Response.json({ id: "100000000000000001", ...channel })));
-    expect(await getDiscordVoiceChannel(userId)).toBeNull();
+    expect(await getDiscordVoiceChannel(userId, DISCORD_BETA_GUILD)).toBeNull();
   });
   it.each([403, 429, 500])("fails closed on Discord HTTP %i without retries", async status => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ code: 50001 }, { status }));
     vi.stubGlobal("fetch", fetcher);
-    await expect(getDiscordVoiceChannel(userId)).rejects.toThrow();
+    await expect(getDiscordVoiceChannel(userId, DISCORD_BETA_GUILD)).rejects.toThrow();
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it("handles a disconnected user", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ code: 10065 }, { status: 404 })));
-    expect(await getDiscordVoiceChannel(userId)).toBeNull();
+    expect(await getDiscordVoiceChannel(userId, DISCORD_BETA_GUILD)).toBeNull();
   });
   it("uses the verified voice channel name within the shared web/desktop name limit", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ id: "100000000000000001", guild_id: DISCORD_BETA_GUILD, type: 2, name: " teste-janja " })));
-    expect(await getDiscordCallName("100000000000000001")).toBe("teste-janja");
+    expect(await getDiscordCallName("100000000000000001", DISCORD_BETA_GUILD)).toBe("teste-janja");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ id: "100000000000000001", guild_id: DISCORD_BETA_GUILD, type: 2, name: "x".repeat(59) + "🎮" })));
-    expect(await getDiscordCallName("100000000000000001")).toBe("x".repeat(59));
+    expect(await getDiscordCallName("100000000000000001", DISCORD_BETA_GUILD)).toBe("x".repeat(59));
   });
   it("never takes the name from a different guild or non-voice channel", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ id: "100000000000000001", guild_id: "other", type: 2, name: "not-allowed" })));
-    await expect(getDiscordCallName("100000000000000001")).rejects.toThrow("DISCORD_UNAVAILABLE");
+    await expect(getDiscordCallName("100000000000000001", DISCORD_BETA_GUILD)).rejects.toThrow("DISCORD_UNAVAILABLE");
   });
 });

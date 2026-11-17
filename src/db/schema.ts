@@ -190,6 +190,24 @@ export const discordCallIntents = pgTable("discord_call_intents", {
   expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
 }, (table) => [index("discord_call_intents_expiry_idx").on(table.expiresAt)]);
 
+export const discordGuilds = pgTable("discord_guilds", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  blocked: boolean("blocked").default(false).notNull(),
+  changedAt: timestamp("changed_at", { mode: "date", withTimezone: true }),
+  syncPending: boolean("sync_pending").default(false).notNull(),
+  firstSeenAt: timestamp("first_seen_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp("last_seen_at", { mode: "date", withTimezone: true }).defaultNow().notNull(),
+}, table => [index("discord_guilds_seen_idx").on(table.lastSeenAt, table.id)]);
+
+export const discordGuildAuditLog = pgTable("discord_guild_audit_log", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  guildId: text("guild_id").notNull().references(() => discordGuilds.id, { onDelete: "restrict" }),
+  actorUserId: text("actor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  blocked: boolean("blocked").notNull(),
+  changedAt: timestamp("changed_at", { mode: "date", withTimezone: true }).notNull(),
+}, table => [index("discord_guild_audit_idx").on(table.guildId, table.changedAt)]);
+
 export const roomMembers = pgTable(
   "room_members",
   {

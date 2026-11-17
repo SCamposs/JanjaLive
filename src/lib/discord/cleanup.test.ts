@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({ request: vi.fn(), rate: vi.fn(), set: vi.fn(),
 vi.mock("./api", async () => ({ ...await vi.importActual("./api"), discordRequest: mocks.request }));
 vi.mock("@/lib/realtime", () => ({ enforceRateLimit: mocks.rate }));
 vi.mock("@/db", () => ({ getDb: () => ({ update: () => ({ set: mocks.set }) }) }));
+vi.mock("./guilds", () => ({ assertGuildAdmission: vi.fn() }));
 import { canCleanDiscordMessages, canReadDiscordHistory, cleanDiscordMessages, cleanupMessage } from "./cleanup";
 import { DiscordApiError } from "./api";
 
@@ -44,7 +45,7 @@ it("deletes only exact own-author messages, including older messages, and change
 });
 it("fails closed for another guild or a channel belonging to another guild", async () => {
   await expect(cleanDiscordMessages(user, channel, user)).rejects.toThrow();
-  expect(mocks.request).not.toHaveBeenCalled();
+  expect(mocks.request).toHaveBeenCalledTimes(1);
   mocks.request.mockReset().mockResolvedValue({ id: channel, guild_id: user });
   await expect(cleanDiscordMessages(guild, channel, user)).rejects.toThrow();
   expect(mocks.request).toHaveBeenCalledTimes(1);

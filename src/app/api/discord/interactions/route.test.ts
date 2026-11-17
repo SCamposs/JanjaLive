@@ -45,17 +45,25 @@ it("ACKs without database/network work, then delivers only a creator-bound conti
   expect(await (await POST(request(payload))).json()).toEqual({ type: 5, data: { flags: 64 } });
   expect(mocks.intent).not.toHaveBeenCalled();
   await mocks.after.mock.calls[0][0]();
-  expect(mocks.intent).toHaveBeenCalledWith(payload.id, payload.member.user.id);
+  expect(mocks.intent).toHaveBeenCalledWith(payload.id, payload.member.user.id, guildId);
   const reply = mocks.request.mock.calls[0][1].body;
   expect(reply.components[0].components[0].url).toBe(`https://www.janja.live/discord/${"a".repeat(32)}`);
   expect(reply.allowed_mentions.parse).toEqual([]);
 });
-it.each([{ ...payload, guild_id: "100000000000000099" }, { ...payload, application_id: "100000000000000099" }, null])
+it.each([{ ...payload, guild_id: "invalid" }, { ...payload, context: 1 },
+  { ...payload, authorizing_integration_owners: { "1": payload.member.user.id } },
+  { ...payload, authorizing_integration_owners: { "0": "100000000000000099" } }, { ...payload, application_id: "100000000000000099" }, null])
   ("never schedules unauthorized/malformed interactions", async value => {
     const response = await POST(request(value));
     expect((await response.json()).type).toBe(4);
     expect(mocks.after).not.toHaveBeenCalled();
   });
+it("passes the signed guild to deferred verification without requiring a per-guild allowlist", async () => {
+  const other = "100000000000000099";
+  expect((await (await POST(request({ ...payload, guild_id: other, context: 0, authorizing_integration_owners: { "0": other } }))).json()).type).toBe(5);
+  await mocks.after.mock.calls[0][0]();
+  expect(mocks.intent).toHaveBeenCalledWith(payload.id, payload.member.user.id, other);
+});
 it("does not echo secrets or raw errors in a failed deferred response", async () => {
   mocks.intent.mockRejectedValue(new Error("fake-secret-private-stack"));
   await POST(request(payload)); await mocks.after.mock.calls[0][0]();

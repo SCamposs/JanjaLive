@@ -1,6 +1,6 @@
-# Ativação e validação da beta Discord
+# Ativação e validação da integração Discord
 
-Entrega em 16/11/2026: beta ativada na aplicação oficial, restrita ao servidor de teste. O fluxo integrado foi exercitado com duas contas, incluindo reprodução web, revogação/recuperação, limpeza/republicação de cartão, encerramento e deep link do desktop confirmado pelo usuário. Evidências de deploy e ativação são acompanhadas na issue #17. A sequência abaixo também serve para futuras reativações.
+O fluxo da beta de 16/11/2026 foi exercitado com duas contas no servidor de teste. A expansão preparada em 17/11/2026 usa instalação privada e lista de bloqueio pelo admin, sem aprovação por servidor. A [ADR 0003](../adr/0003-discord-guild-controls.md) descreve a política nova; os passos abaixo são para sua ativação, não uma afirmação de que o rollout já ocorreu.
 
 ## Expiração por inatividade
 
@@ -12,34 +12,33 @@ Ordem de rollout: publicar o Worker compatível com credenciais antigas e com a 
 
 ## Variáveis exatas na Vercel
 
-Em **projeto JanjaLive → Settings → Environment Variables**, somente para o ambiente selecionado para a beta:
+Em **projeto JanjaLive → Settings → Environment Variables**, no ambiente selecionado:
 
 | Variável | Valor |
 | --- | --- |
 | `DISCORD_CALLS_ENABLED` | `false` durante preparação; `true` ao habilitar a beta |
-| `DISCORD_CALLS_GUILD_ID` | `1156443434362617927` |
 | `DISCORD_BOT_APPLICATION_ID` | Application ID da aplicação oficial do JanjaLive |
 | `DISCORD_BOT_PUBLIC_KEY` | Public Key da mesma aplicação, em General Information |
 | `DISCORD_BOT_TOKEN` | Token novo da página Bot, como segredo |
 | `DISCORD_CALLS_ORIGIN` | `https://www.janja.live` |
 
-Não mexer em `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`, callback OAuth, `AUTH_SECRET`, configuração de TURN ou variáveis de tempo real existentes. `REALTIME_PROVIDER` precisa continuar `cloudflare`. Nenhuma variável nova é exigida na Cloudflare para o bot; o Worker precisa receber o código que suporta o prazo opcional das salas temporárias.
+`DISCORD_CALLS_GUILD_ID` não é mais lida: pode ser removida ou mantida sem efeito. Não há variável nova. Não mexer em `AUTH_DISCORD_ID`, `AUTH_DISCORD_SECRET`, callback OAuth, `AUTH_SECRET`, TURN ou segredos de tempo real existentes. `REALTIME_PROVIDER` continua `cloudflare`. O Worker recebe o binding SQLite `GUILD_POLICIES` pela configuração versionada; não é um secret para cadastrar no painel.
 
 Usar o token do bot da aplicação oficial, salvo apenas nos segredos da Vercel/arquivo local ignorado pelo Git. Não copiar para uma issue, print ou comando de terminal. O token divulgado da aplicação de teste não será usado nesta integração: invalidá-lo ou excluir a aplicação de teste ao descontinuá-la, sem precisar regenerá-lo para a migração.
 
 ## Ordem de entrega
 
-1. Concluir os checks locais e revisar a migração aditiva `drizzle/0007_discord_call_beta.sql`. A migração cria a tabela de preparações e campos opcionais; não transforma salas comuns em salas Discord.
-2. Publicar o Worker com suporte ao prazo assinado antes de habilitar a integração no backend. O payload de conexões comuns permanece compatível com as versões atuais.
-3. Entregar a web com a migração e flag `false`, conforme o processo normal de deploy. Não rodar manualmente migrações contra produção como parte de um teste descartável.
-4. Configurar as seis variáveis e fazer redeploy com `true` quando iniciar a rodada privada. A restrição de servidor continua válida. Termos/privacidade são gerados conforme essa flag, portanto redeploy é necessário.
-5. Registrar explicitamente `/janja` apenas no servidor beta, usando um arquivo local com os segredos corretos:
+1. Concluir checks e revisar a migração aditiva `drizzle/0008_discord_guild_controls.sql`. Não transformar salas comuns em salas Discord nem executar fixtures no banco de produção.
+2. No Developer Portal da aplicação oficial, **Bot → Bot público: desligado → Salvar**. Se o portal rejeitar o link padrão, em **Installation → Install Link** escolher **None**. Manter somente **Guild Install**, scopes `bot` e `applications.commands`, sem User Install.
+3. Publicar primeiro o Worker com a migração v2, preservando vars/secrets; depois a web/backend com a migração PostgreSQL pelo prebuild existente. Esperar até 60 segundos para vencerem tokens legados sem guild ID. Não encerrar salas em uso apenas para atualizar o código.
+4. Manter as cinco variáveis da integração e a flag `true`. Login OAuth permanece na aplicação oficial atual. Nenhum upgrade de plano é necessário.
+5. Registrar explicitamente os dois comandos globais, removendo apenas seus registros locais antigos no servidor de teste:
 
 ```powershell
-node --env-file=.tooling/discord-call-beta/.env tools/discord-call/register.mjs
+node --env-file=.tooling/discord-call-beta/.env tools/discord-call/register.mjs --remove-guild-commands=1156443434362617927
 ```
 
-O script não roda em build, não registra globalmente e não substitui outros comandos.
+O script verifica identidade do token e Bot público desligado. Faz upsert individual global, somente para servidor, sem substituir comandos não relacionados. O argumento de limpeza é necessário apenas para a migração dos comandos antigos. Novas instalações não exigem outro registro nem uma aprovação no JanjaLive.
 
 6. No [Developer Portal](https://discord.com/developers/applications), na aplicação escolhida → **General Information → Interactions Endpoint URL**:
 
@@ -49,7 +48,13 @@ https://www.janja.live/api/discord/interactions
 
 Salvar e confirmar o PING. O endpoint anterior `trycloudflare.com` era só da prova local. Não preencher Event Webhooks URL no lugar desse campo.
 
-7. Manter instalação somente de servidor, scopes `bot` e `applications.commands`, permissões View Channels, Connect, Send Messages e Embed Links. Deixar intents privilegiadas desligadas; não conceder Administrator ou Speak.
+7. Permissões do bot: **Ver canais, Conectar, Enviar mensagens, Inserir links e Ler histórico de mensagens**. Deixar intents privilegiadas desligadas; não conceder Administrator, Speak ou Gerenciar mensagens ao bot. Moderadores que executam `/janja-limpar` continuam precisando de Gerenciar mensagens.
+
+Link de instalação privada, usando a conta proprietária da aplicação e escolhendo um servidor onde ela pode instalar apps:
+
+https://discord.com/oauth2/authorize?client_id=1555326263760003112&scope=bot%20applications.commands&permissions=1133568&integration_type=0
+
+Não há `guild_id` ou `disable_guild_select` nesse link. Ele não altera o callback do login. Após o primeiro `/janja`/acesso verificado, o servidor aparece em **/admin → Servidores do Discord**. Ali é possível buscar, bloquear, desbloquear e concluir uma alteração pendente. Não existe etapa de aprovação.
 
 O build atual do desktop já entende convites `janjalive://room/...`; não foi criado um protocolo alternativo. Os ajustes deste código acrescentam mensagens específicas de falha no desktop. Testar a versão instalada e o build novo antes de decidir se a beta exige atualização do instalador.
 
@@ -88,11 +93,15 @@ Para cartões cujo recibo nunca foi persistido, a limpeza reconhece o link exato
 
 Registrar explicitamente com `tools/discord-call/register.mjs`, com as variáveis do bot oficial carregadas localmente; o script mantém `/janja` e adiciona `/janja-limpar` sem substituir outros comandos. Não registrar antes de publicar o backend que reconhece o novo comando. Não há serviço novo, polling ou dependência de npm.
 
-### Próxima expansão: instalação privada em outros servidores
+### Controle de servidores
 
 No Developer Portal da aplicação oficial, Bot → Public Bot desativado permite apenas ao proprietário instalar o bot. Isso não limita quem usa os comandos depois de instalado. Manter Guild Install e os escopos bot/applications.commands; usar link de autorização sem guild_id e sem disable_guild_select para escolher servidores em que o proprietário tem permissão de instalação. Caso o portal rejeite um link padrão de instalação de aplicação privada, remover o Install Link público na seção Installation e usar o link OAuth2 explícito.
 
-**O backend atual continua restrito ao servidor beta por código e variável.** Alterar somente DISCORD_CALLS_GUILD_ID ou desativar Public Bot não habilita outro servidor. Antes da expansão, substituir essa fixação por uma lista explícita de servidores permitidos, propagar guildId pelas verificações de presença/preparações e registrar ambos os comandos nos servidores autorizados (ou globalmente com contexto apenas Guild após validação). Recomenda-se manter instalação privada + lista permitida, sem abrir automaticamente a qualquer servidor nem alterar o aplicativo OAuth existente.
+O backend novo aceita instalações verificadas por padrão. O bloqueio de um servidor não altera outro nem salas comuns. Conexões já abertas ficam preservadas; novos comandos, entradas e reconexões são recusados. A recusa é aplicada tanto na emissão da credencial quanto no Worker, usando guild ID assinado. Uma falha de envio da política aparece como confirmação pendente; repetir é seguro e mantém registro da ação. Não marcar uma entrega pendente como bloqueio durável confirmado.
+
+Na aceitação após rollout: instalar o bot privado em um segundo servidor, executar `/janja` sem cadastrar ID algum no JanjaLive, conferir seu aparecimento no admin, bloquear e testar novos comandos/entradas/reconexões. Uma conexão já aberta deve continuar ativa. Conferir em paralelo uma sala comum e uma do primeiro servidor. Desbloquear e confirmar nova entrada, preservando o dono e a sessão reutilizada. O registro global e a nova instalação não foram executados pelos testes locais.
+
+Validação local da expansão em 17/11/2026: 387 testes web/compartilhados/Worker, 78 do desktop e 17 com PostgreSQL real passaram. Lint, typechecks, builds web/desktop e Worker dry-run passaram. HTTP Discord/Worker e registro global são simulados; as transações e a migração PostgreSQL são reais no banco descartável. Interface exercitada por testes de componentes, sem controle do PC do usuário. O servidor descartável foi encerrado ao terminar. Não confundir essa validação com publicação ou instalação real em outro servidor.
 
 Na rodada integrada de 16/11/2026, a conta principal foi operada pelo usuário e a secundária pelo navegador de testes. Aprovação na call errada foi recusada; na correta, aceita. Revogação retirou o acesso e não houve readmissão automática. `/janja-limpar` apagou o cartão sem encerrar a sala/transmissão e seu aviso sumiu após seis segundos; cartões do bot antigo foram apagados manualmente pelo usuário. Uma nova execução recuperou o cartão da mesma sessão. O encerramento da sala retirou o acesso e desativou o cartão. A sala seguinte recebeu nome `teste-janja` e o usuário confirmou abertura com nome/código corretos no desktop.
 

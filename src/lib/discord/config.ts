@@ -1,10 +1,9 @@
 import { discordCallErrorMessage, DISCORD_CALL_IDLE_TIMEOUT_MS } from "@janjalive/realtime-protocol";
 
-export const DISCORD_BETA_GUILD = "1156443434362617927";
 export const CALL_IDLE_MS = DISCORD_CALL_IDLE_TIMEOUT_MS;
 
 export function discordEnabled(env: Readonly<Record<string, string | undefined>> = process.env) {
-  return env.DISCORD_CALLS_ENABLED === "true" && env.DISCORD_CALLS_GUILD_ID === DISCORD_BETA_GUILD;
+  return env.DISCORD_CALLS_ENABLED === "true";
 }
 
 export function discordConfig() {
@@ -15,11 +14,11 @@ export function discordConfig() {
     || !origin || !["https://janja.live", "https://www.janja.live"].includes(origin)) {
     throw new Error("DISCORD_UNAVAILABLE");
   }
-  return { appId: appId!, publicKey: publicKey!, token, origin, guildId: DISCORD_BETA_GUILD };
+  return { appId: appId!, publicKey: publicKey!, token, origin };
 }
 
 export function assertDiscordGuild(guildId: string) {
-  if (!discordEnabled() || guildId !== DISCORD_BETA_GUILD) throw new Error("DISCORD_UNAVAILABLE");
+  if (!discordEnabled() || !/^\d{17,20}$/.test(guildId)) throw new Error("DISCORD_UNAVAILABLE");
 }
 
 export function discordMessage(error: unknown) {

@@ -11,10 +11,11 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <LegalPage title="Termos de uso" updatedAt={discordEnabled() ? "16 de novembro de 2026" : "10 de novembro de 2026"}>
+    <LegalPage title="Termos de uso" updatedAt={discordEnabled() ? "17 de novembro de 2026" : "10 de novembro de 2026"}>
       {discordEnabled() && <section>
         <h2>Salas de calls do Discord</h2>
         <p>Em servidores habilitados, o comando /janja prepara uma sala temporária para os participantes da call. O acesso exige autenticação e verificação da presença naquele canal. Banimentos e revogações continuam válidos, assim como os limites de criação e participação.</p>
+        <p>O responsável pelo serviço pode bloquear a integração em um servidor. O bloqueio impede novos comandos e conexões, preservando as sessões já conectadas.</p>
         <p>Essas salas permanecem disponíveis enquanto houver alguém conectado ao JanjaLive e expiram após uma hora vazias. O proprietário também pode encerrá-las antes. Sair do Discord não expulsa automaticamente quem já entrou no JanjaLive. O compartilhamento só começa quando você escolhe a fonte e confirma no JanjaLive.</p>
       </section>}
       <section>

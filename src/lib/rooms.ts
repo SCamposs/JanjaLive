@@ -12,6 +12,7 @@ import { shareableInviteRoomId, verifyShareableInvite } from "./shareable-invite
 import { assertDiscordGuild, discordEnabled, CALL_IDLE_MS } from "./discord/config";
 import { assertCallEntry } from "./discord/access";
 import { scheduleClosedCallCard } from "./discord/notifications";
+import { assertGuildAdmission } from "./discord/guilds";
 
 export const ROOM_INACTIVITY_MS = 3 * 24 * 60 * 60 * 1_000;
 export const ROOM_PURGE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -101,7 +102,8 @@ export async function createRoom(input: {
         and exists (select 1 from users where id = ${input.userId} and
           (room_creation_window_at <= ${new Date(now.getTime() - 86_400_000)} or room_creation_count < ${RESOURCE_LIMITS.roomCreationsPerDay}))
         ${call ? sql`and not exists (select 1 from rooms where discord_guild_id = ${call.guildId}
-          and discord_channel_id = ${call.channelId} and closed_at is null)` : sql``}
+          and discord_channel_id = ${call.channelId} and closed_at is null)
+          and not exists (select 1 from discord_guilds where id = ${call.guildId} and blocked = true)` : sql``}
       returning id`),
     db.execute(sql`update users set
       room_creation_count = case when room_creation_window_at <= ${new Date(now.getTime() - 86_400_000)} then 1 else room_creation_count + 1 end,
@@ -121,6 +123,7 @@ export async function createRoom(input: {
     }
   }
   if (!inserted.rows.length) {
+    if (call) await assertGuildAdmission(call.guildId);
     // This snapshot was taken after the owner lock, before changing the counters.
     const policy = limits.rows[0];
     if (!policy || policy.account_status !== "ACTIVE") throw new Error("ACCOUNT_DISABLED");

@@ -8,17 +8,19 @@ import { enforceRateLimit } from "@/lib/realtime";
 import { assertCallEntry, discordIdentity } from "./access";
 import { DiscordApiError, discordRequest, getDiscordVoiceChannel, getDiscordCallName } from "./api";
 import { assertDiscordGuild, discordConfig } from "./config";
+import { assertGuildAdmission } from "./guilds";
 
-export async function createCallIntent(interactionId: string, discordUserId: string) {
-  const config = discordConfig();
+export async function createCallIntent(interactionId: string, discordUserId: string, guildId: string) {
+  assertDiscordGuild(guildId);
   await enforceRateLimit(`discord:command:${discordUserId}`, 5, 60);
-  await enforceRateLimit(`discord:guild:${config.guildId}`, 30, 600);
-  const channelId = await getDiscordVoiceChannel(discordUserId);
+  await enforceRateLimit(`discord:guild:${guildId}`, 30, 600);
+  await assertGuildAdmission(guildId);
+  const channelId = await getDiscordVoiceChannel(discordUserId, guildId);
   if (!channelId) throw new Error("DISCORD_CALL_REQUIRED");
   const db = getDb();
   await db.delete(discordCallIntents).where(lte(discordCallIntents.expiresAt, new Date()));
   const [intent] = await db.insert(discordCallIntents).values({ id: nanoid(32), interactionId,
-    discordUserId, guildId: config.guildId, channelId, expiresAt: new Date(Date.now() + 15 * 60_000) })
+    discordUserId, guildId, channelId, expiresAt: new Date(Date.now() + 15 * 60_000) })
     .onConflictDoUpdate({ target: discordCallIntents.interactionId, set: { interactionId } }).returning();
   return intent;
 }
@@ -125,7 +127,7 @@ export async function startCall(id: string, userId: string, verifyCard = false) 
     if (!room || !await isAvailableRoom(room)) throw new Error("DISCORD_EXPIRED");
     await assertCallEntry(room, userId);
   } else {
-    const created = await createRoom({ userId, name: await getDiscordCallName(intent.channelId), accessMode: "APPROVAL",
+    const created = await createRoom({ userId, name: await getDiscordCallName(intent.channelId, intent.guildId), accessMode: "APPROVAL",
       discordCall: { guildId: intent.guildId, channelId: intent.channelId } });
     [room] = await db.select().from(rooms).where(eq(rooms.id, created.id)).limit(1);
     if (!room) throw new Error("DISCORD_UNAVAILABLE");

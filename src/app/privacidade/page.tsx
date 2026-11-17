@@ -9,10 +9,11 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacidade" updatedAt={discordEnabled() ? "16 de novembro de 2026" : "10 de novembro de 2026"}>
+    <LegalPage title="Privacidade" updatedAt={discordEnabled() ? "17 de novembro de 2026" : "10 de novembro de 2026"}>
       {discordEnabled() && <section>
         <h2>Integração opcional com calls do Discord</h2>
         <p>Ao usar o comando /janja em um servidor habilitado, consultamos sua presença no canal de voz para preparar a entrada na sala. Guardamos os identificadores do servidor, canal, conta, convite temporário e mensagem do bot para vincular essa sessão. O convite de preparação expira em 15 minutos.</p>
+        <p>Para administrar a integração, também guardamos o nome e o identificador dos servidores que usam o bot, as datas de uso e seu estado de bloqueio. Alterações de bloqueio registram a conta responsável e a data, sem incluir conteúdo de mensagens ou transmissões.</p>
         <p>O bot não entra no áudio da call, não monitora conversas e não recebe a transmissão. Quando você pede para verificar um convite pendente ou limpar mensagens do bot, ele consulta o histórico recente do canal para localizar as próprias mensagens. A limpeza apaga apenas mensagens do JanjaLive e preserva salas e transmissões. O conteúdo das conversas não é guardado. A presença é verificada ao entrar na sala; sair da call do Discord não expulsa automaticamente quem já está na sessão do JanjaLive.</p>
       </section>}
       <section>

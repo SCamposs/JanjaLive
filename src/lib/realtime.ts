@@ -73,7 +73,8 @@ async function cloudflareRequest(pathname: string, init: RequestInit = {}) {
   return response;
 }
 
-export async function createRealtimeSession(roomId: string, userId: string, roomDeadline?: number, callIdle = false): Promise<RealtimeSession> {
+export async function createRealtimeSession(roomId: string, userId: string, roomDeadline?: number, callIdle = false, discordGuildId?: string): Promise<RealtimeSession> {
+  if (discordGuildId !== undefined && (!callIdle || !/^\d{17,20}$/.test(discordGuildId))) throw new Error("INVALID_REQUEST");
   if (roomDeadline !== undefined && (!Number.isSafeInteger(roomDeadline) || roomDeadline <= Date.now())) throw new Error("ROOM_UNAVAILABLE");
   const provider = getRealtimeProvider();
   if (provider === "disabled") throw new Error("REALTIME_NOT_CONFIGURED");
@@ -82,7 +83,7 @@ export async function createRealtimeSession(roomId: string, userId: string, room
   const expiresAt = new Date(Date.now() + 60_000);
   const issuedAtMs = Date.now();
   const token = await new SignJWT({ roomId, issuedAtMs, ...(roomDeadline === undefined ? {} : { roomDeadline }),
-    ...(callIdle ? { roomIdleTimeoutMs: DISCORD_CALL_IDLE_TIMEOUT_MS } : {}) })
+    ...(callIdle ? { roomIdleTimeoutMs: DISCORD_CALL_IDLE_TIMEOUT_MS } : {}), ...(discordGuildId ? { discordGuildId } : {}) })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(userId)
     .setIssuer("https://www.janja.live")
@@ -92,6 +93,14 @@ export async function createRealtimeSession(roomId: string, userId: string, room
     .setExpirationTime(Math.floor(expiresAt.getTime() / 1_000))
     .sign(new TextEncoder().encode(tokenSecret));
   return { provider, url, token, expiresAt: expiresAt.toISOString() };
+}
+
+export async function setRealtimeGuildAccess(guildId: string, blocked: boolean, changedAt: number) {
+  if (getRealtimeProvider() !== "cloudflare") throw new Error("REALTIME_NOT_CONFIGURED");
+  await cloudflareRequest(`/internal/guilds/${encodeURIComponent(guildId)}/access`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(7000),
+    body: JSON.stringify({ blocked, changedAt }),
+  });
 }
 
 export async function getCallRoomLifecycle(roomId: string, initialExpiresAt: number) {

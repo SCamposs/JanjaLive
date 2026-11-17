@@ -3,7 +3,8 @@ import { getDb } from "@/db";
 import { rooms } from "@/db/schema";
 import { enforceRateLimit } from "@/lib/realtime";
 import { DiscordApiError, discordRequest } from "./api";
-import { assertDiscordGuild, discordConfig } from "./config";
+import { discordConfig } from "./config";
+import { assertGuildAdmission } from "./guilds";
 
 const snowflake = /^\d{17,20}$/;
 const MANAGE_MESSAGES = BigInt(8192);
@@ -37,7 +38,7 @@ function cardPublicId(message: Message, origin: string) {
 
 /** Explicit, bounded cleanup; no room deletion, membership or media operations. */
 export async function cleanDiscordMessages(guildId: string, channelId: string, userId: string) {
-  assertDiscordGuild(guildId);
+  await assertGuildAdmission(guildId);
   if (!snowflake.test(channelId) || !snowflake.test(userId)) throw new Error("DISCORD_UNAVAILABLE");
   const config = discordConfig();
   const staleReservationBefore = new Date(Date.now() - 60_000);

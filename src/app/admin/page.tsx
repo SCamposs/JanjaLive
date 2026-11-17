@@ -4,6 +4,8 @@ import { listAdminUsers } from "@/lib/account-access";
 import { requireAdmin } from "@/lib/admin";
 import { AdminUsers } from "./admin-users";
 import { getOperationalStatus } from "@/lib/operational-status";
+import { listDiscordGuilds } from "@/lib/discord/guilds";
+import { AdminDiscordGuilds } from "./admin-discord-guilds";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Controle | JanjaLive", robots: { index: false, follow: false } };
@@ -11,8 +13,8 @@ export const metadata = { title: "Controle | JanjaLive", robots: { index: false,
 async function loadAdminPage() {
   try {
     const admin = await requireAdmin();
-    const [usersPage, operations] = await Promise.all([listAdminUsers(), getOperationalStatus()]);
-    return { admin, usersPage, operations };
+    const [usersPage, operations, guildsPage] = await Promise.all([listAdminUsers(), getOperationalStatus(), listDiscordGuilds()]);
+    return { admin, usersPage, operations, guildsPage };
   } catch {
     return null;
   }
@@ -30,6 +32,7 @@ export default async function AdminPage() {
         <div><h1>Usuários</h1><p>Banimento de acesso e revogação imediata de sessões.</p></div>
         <AdminUsers initialData={data.usersPage} ownerUserId={data.admin.id} />
       </section>
+      <AdminDiscordGuilds initialData={data.guildsPage} />
     </main>
   );
 }

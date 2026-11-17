@@ -1,5 +1,5 @@
 import { createPublicKey, verify } from "node:crypto";
-import { discordConfig } from "./config";
+import { assertDiscordGuild, discordConfig } from "./config";
 
 export function verifyDiscordSignature(body: Buffer, timestamp: string | null, signature: string | null, now = Date.now()) {
   if (!/^\d{10,12}$/.test(timestamp ?? "") || !/^[a-f\d]{128}$/i.test(signature ?? "")
@@ -29,8 +29,8 @@ export async function discordRequest<T>(path: string, options: { method?: string
   return result as T;
 }
 
-export async function getDiscordVoiceChannel(discordId: string): Promise<string | null> {
-  const { guildId } = discordConfig();
+export async function getDiscordVoiceChannel(discordId: string, guildId: string): Promise<string | null> {
+  assertDiscordGuild(guildId);
   if (!/^\d{17,20}$/.test(discordId)) throw new Error("DISCORD_IDENTITY");
   let voice;
   try { voice = await discordRequest<{ user_id: string; channel_id: string | null }>(`/guilds/${guildId}/voice-states/${discordId}`); }
@@ -38,11 +38,11 @@ export async function getDiscordVoiceChannel(discordId: string): Promise<string 
   if (!voice.channel_id) return null;
   if (voice.user_id !== discordId || !/^\d{17,20}$/.test(voice.channel_id)) throw new Error("DISCORD_UNAVAILABLE");
   const channel = await discordRequest<{ id: string; guild_id: string; type: number }>(`/channels/${voice.channel_id}`);
-  return channel.guild_id === guildId && channel.type === 2 ? channel.id : null;
+  return channel.id === voice.channel_id && channel.guild_id === guildId && channel.type === 2 ? channel.id : null;
 }
 
-export async function getDiscordCallName(channelId: string): Promise<string> {
-  const { guildId } = discordConfig();
+export async function getDiscordCallName(channelId: string, guildId: string): Promise<string> {
+  assertDiscordGuild(guildId);
   if (!/^\d{17,20}$/.test(channelId)) throw new Error("DISCORD_UNAVAILABLE");
   const channel = await discordRequest<{ id: string; guild_id: string; type: number; name?: string }>(`/channels/${channelId}`);
   if (channel.id !== channelId || channel.guild_id !== guildId || channel.type !== 2) throw new Error("DISCORD_UNAVAILABLE");

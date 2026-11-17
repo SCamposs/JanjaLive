@@ -10,6 +10,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 const snowflake = z.string().regex(/^\d{17,20}$/);
 const commandSchema = z.object({ type: z.literal(2), id: snowflake, application_id: snowflake, guild_id: snowflake,
+  context: z.literal(0).optional(), authorizing_integration_owners: z.record(z.string(), z.string()).optional(),
   token: z.string().regex(/^[\w.-]{1,512}$/), channel_id: snowflake.optional(), app_permissions: z.string().optional(),
   member: z.object({ user: z.object({ id: snowflake }), permissions: z.string().optional() }),
   data: z.object({ name: z.enum(["janja", "janja-limpar"]) }) });
@@ -37,7 +38,8 @@ export async function POST(request: Request) {
   try { payload = JSON.parse(raw.toString("utf8")); } catch { return new Response(null, { status: 400 }); }
   if (payload?.type === 1) return Response.json({ type: 1 });
   const parsed = commandSchema.safeParse(payload);
-  if (!parsed.success || parsed.data.application_id !== config.appId || parsed.data.guild_id !== config.guildId) {
+  if (!parsed.success || parsed.data.application_id !== config.appId
+    || (parsed.data.authorizing_integration_owners && parsed.data.authorizing_integration_owners["0"] !== parsed.data.guild_id)) {
     return Response.json({ type: 4, data: { flags: 64, content: "Esta integração não está disponível neste servidor." } });
   }
   const interaction = parsed.data;
@@ -55,7 +57,7 @@ export async function POST(request: Request) {
       if (interaction.data.name === "janja-limpar") {
         content = cleanupMessage(await cleanDiscordMessages(interaction.guild_id, interaction.channel_id!, interaction.member.user.id));
       } else {
-        const intent = await createCallIntent(interaction.id, interaction.member.user.id);
+        const intent = await createCallIntent(interaction.id, interaction.member.user.id, interaction.guild_id);
         content = "Continue no JanjaLive para abrir a sala da call.";
         components = [{ type: 1, components: [{ type: 2, style: 5, label: "Continuar no JanjaLive", url: `${config.origin}/discord/${intent.id}` }] }];
       }

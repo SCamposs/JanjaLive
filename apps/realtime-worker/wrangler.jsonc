@@ -12,14 +12,16 @@
   "durable_objects": {
     "bindings": [
       { "name": "ROOMS", "class_name": "RoomDurableObject" },
-      { "name": "RATE_LIMITS", "class_name": "RateLimitDurableObject" }
+      { "name": "RATE_LIMITS", "class_name": "RateLimitDurableObject" },
+      { "name": "GUILD_POLICIES", "class_name": "GuildPolicyDurableObject" }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["RoomDurableObject", "RateLimitDurableObject"]
-    }
+    },
+    { "tag": "v2", "new_sqlite_classes": ["GuildPolicyDurableObject"] }
   ],
   "observability": { "enabled": true }
 }

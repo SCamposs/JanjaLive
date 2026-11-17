@@ -9,10 +9,14 @@ import * as schema from "../src/db/schema";
 const holder = vi.hoisted(() => ({ db: undefined as unknown }));
 vi.mock("@/db", () => ({ getDb: () => holder.db }));
 const discordMock = vi.hoisted(() => ({ channelId: "100000000000000001", expired: new Set<string>() }));
-vi.mock("../src/lib/discord/api", () => ({ getDiscordVoiceChannel: vi.fn(async () => discordMock.channelId) }));
+vi.mock("../src/lib/discord/api", () => ({ getDiscordVoiceChannel: vi.fn(async () => discordMock.channelId),
+  discordRequest: vi.fn(async (path: string) => ({ id: path.split("/").at(-1), name: "Servidor de teste" })) }));
 vi.mock("../src/lib/discord/notifications", () => ({ scheduleClosedCallCard: vi.fn() }));
 vi.mock("../src/lib/realtime", async original => ({ ...await original<object>(),
-  getCallRoomLifecycle: vi.fn(async (id: string) => ({ active: !discordMock.expired.has(id), closed: discordMock.expired.has(id), idleExpiresAt: null })) }));
+  getCallRoomLifecycle: vi.fn(async (id: string) => ({ active: !discordMock.expired.has(id), closed: discordMock.expired.has(id), idleExpiresAt: null })),
+  setRealtimeGuildAccess: vi.fn(async () => {}) }));
+import { assertGuildAdmission, setDiscordGuildAccess, listDiscordGuilds } from "../src/lib/discord/guilds";
+import { setRealtimeGuildAccess } from "../src/lib/realtime";
 import { activateRoomMember, createRoom, assertAuthorizedRoom, getRoomSnapshotByPublicId, requestRoomAccess, manageRoomMember, listAvailableRooms } from "../src/lib/rooms";
 import { generateTurnCredentials } from "../src/lib/turn";
 
@@ -47,14 +51,18 @@ function literal(value: unknown): string {
 // instead of Neon HTTP. Each batch runs in one READ COMMITTED transaction.
 async function batch(queries: SQLWrapper[]) {
   const dialect = new PgDialect();
-  const statements = queries.map((query) => {
+  type Prepared = { isResponseInArrayMode(): boolean; mapResult(result: { rows: unknown[] }): unknown };
+  const preparedQueries = queries.map(query => (query as SQLWrapper & { _prepare(): Prepared })._prepare());
+  const statements = queries.map((query, index) => {
     const prepared = dialect.sqlToQuery(query.getSQL());
     let text = prepared.sql.replace(/\$(\d+)/g, (_, index) => literal(prepared.params[Number(index) - 1]));
     if (/^(insert|update|delete) /i.test(text) && !/\breturning\b/i.test(text)) text += " returning 1";
-    return `with result as (${text}) select coalesce(json_agg(result), '[]') from result;`;
+    const projection = preparedQueries[index].isResponseInArrayMode()
+      ? "(select json_agg(value) from json_each(row_to_json(result)))" : "row_to_json(result)";
+    return `with result as (${text}) select coalesce(json_agg(${projection}), '[]') from result;`;
   });
   const output = await psql(`begin;\n${statements.join("\n")}\ncommit;`);
-  return output.trim().split(/\r?\n/).map((line) => ({ rows: JSON.parse(line) as unknown[] }));
+  return output.trim().split(/\r?\n/).map((line, index) => preparedQueries[index].mapResult({ rows: JSON.parse(line) as unknown[] }));
 }
 
 async function localQuery(query: string, params: unknown[], options: { arrayMode?: boolean }) {
@@ -80,7 +88,7 @@ describe("resource limits against real PostgreSQL", () => {
     delete process.env.ROOM_CREATION_ENABLED;
     discordMock.channelId = "100000000000000001";
     discordMock.expired.clear();
-    await psql("truncate users cascade; insert into users(id, discord_id) select 'user-' || n, (100000000000000000::bigint + n)::text from generate_series(0,30) n;");
+    await psql("truncate discord_guilds cascade; truncate users cascade; insert into users(id, discord_id) select 'user-' || n, (100000000000000000::bigint + n)::text from generate_series(0,30) n;");
   });
   afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
@@ -169,14 +177,61 @@ describe("resource limits against real PostgreSQL", () => {
     expect(await psql("select sum(room_creation_count) from users;")).toBe("2\n");
   });
 
-  it("does not create a Discord session with flag off or wrong guild", async () => {
+  it("does not create a Discord session with flag off or malformed guild", async () => {
     const input = { guildId: "1156443434362617927", channelId: "100000000000000001" };
     await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: input })).rejects.toThrow("DISCORD_UNAVAILABLE");
     vi.stubEnv("DISCORD_CALLS_ENABLED", "true");
     vi.stubEnv("DISCORD_CALLS_GUILD_ID", input.guildId);
-    await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: { ...input, guildId: "100000000000000002" } }))
+    await expect(createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: { ...input, guildId: "invalid" } }))
       .rejects.toThrow("DISCORD_UNAVAILABLE");
     expect(await psql("select count(*) from rooms;")).toBe("0\n");
+  });
+
+  it("admits independently installed guilds automatically and isolates a guild block from normal rooms and other guilds", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true"); vi.stubEnv("ADMIN_USER_ID", "user-0"); vi.stubEnv("ADMIN_DISCORD_USER_ID", "100000000000000000");
+    const guild = "100000000000000080"; const other = "100000000000000081";
+    const normal = await createRoom({ userId: "user-0", accessMode: "APPROVAL" });
+    const first = await createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: { guildId: guild, channelId: discordMock.channelId } });
+    const second = await createRoom({ userId: "user-0", accessMode: "APPROVAL", discordCall: { guildId: other, channelId: discordMock.channelId } });
+    expect(first.id).not.toBe(second.id);
+    await setDiscordGuildAccess("user-0", guild, true);
+    await expect(assertGuildAdmission(guild)).rejects.toThrow("DISCORD_GUILD_BLOCKED");
+    await expect(createRoom({ userId: "user-1", accessMode: "APPROVAL", discordCall: { guildId: guild, channelId: discordMock.channelId } })).rejects.toThrow("DISCORD_GUILD_BLOCKED");
+    const publicId = (await assertAuthorizedRoom(first.id, "user-0")).room.publicId;
+    await expect(getRoomSnapshotByPublicId(publicId, "user-1")).rejects.toThrow("DISCORD_GUILD_BLOCKED");
+    // Already authorized room operations remain possible; the transport gate
+    // stops new connections without evicting those already connected.
+    await expect(assertAuthorizedRoom(first.id, "user-0")).resolves.toHaveProperty("room");
+    await expect(assertAuthorizedRoom(normal.id, "user-0")).resolves.toHaveProperty("room");
+    await expect(assertGuildAdmission(other)).resolves.toBeUndefined();
+    await setDiscordGuildAccess("user-0", guild, false);
+    expect((await createRoom({ userId: "user-1", accessMode: "APPROVAL", discordCall: { guildId: guild, channelId: discordMock.channelId } })).id).toBe(first.id);
+    expect(await psql("select count(*) from discord_guild_audit_log;")).toBe("2\n");
+    expect((await listDiscordGuilds()).total).toBe(2);
+  });
+
+  it("persists a failed block delivery, denies admission and retries idempotently without duplicating the audit", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true"); vi.stubEnv("ADMIN_USER_ID", "user-0"); vi.stubEnv("ADMIN_DISCORD_USER_ID", "100000000000000000");
+    const guild = "100000000000000080"; await assertGuildAdmission(guild);
+    vi.mocked(setRealtimeGuildAccess).mockRejectedValueOnce(new Error("offline"));
+    await expect(setDiscordGuildAccess("user-0", guild, true)).rejects.toThrow("DISCORD_GUILD_SYNC_PENDING");
+    await expect(assertGuildAdmission(guild)).rejects.toThrow("DISCORD_GUILD_BLOCKED");
+    expect(await psql("select sync_pending from discord_guilds;")).toBe("t\n");
+    await setDiscordGuildAccess("user-0", guild, true);
+    expect(await psql("select sync_pending from discord_guilds;")).toBe("f\n");
+    expect(await psql("select count(*) from discord_guild_audit_log;")).toBe("1\n");
+  });
+
+  it("orders concurrent guild changes durably and paginates registered guilds with a fixed maximum", async () => {
+    vi.stubEnv("DISCORD_CALLS_ENABLED", "true"); vi.stubEnv("ADMIN_USER_ID", "user-0"); vi.stubEnv("ADMIN_DISCORD_USER_ID", "100000000000000000");
+    const guild = "100000000000000080"; await assertGuildAdmission(guild);
+    await Promise.all([setDiscordGuildAccess("user-0", guild, true), setDiscordGuildAccess("user-0", guild, false)]);
+    expect(await psql("select count(*) = count(distinct changed_at) from discord_guild_audit_log;")).toBe("t\n");
+    await expect(setDiscordGuildAccess("user-1", guild, true)).rejects.toThrow("NOT_FOUND");
+    await psql("insert into discord_guilds(id,name) select (200000000000000000::bigint+n)::text,'Servidor '||n from generate_series(1,25) n;");
+    expect((await listDiscordGuilds()).guilds).toHaveLength(20);
+    expect((await listDiscordGuilds("", 2)).guilds).toHaveLength(6);
+    expect((await listDiscordGuilds("Servidor 25")).total).toBe(1);
   });
 
   it("does not reactivate a revoked call grant through public entry or issue access to a banned participant", async () => {

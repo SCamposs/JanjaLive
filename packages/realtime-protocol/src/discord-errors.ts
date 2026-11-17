@@ -4,6 +4,7 @@ const discordErrors = {
   DISCORD_PERMISSION: "O JanjaLive não tem acesso à call. Peça a um administrador para revisar as permissões do bot.",
   DISCORD_EXPIRED: "Esta sessão foi encerrada. Use /janja no Discord para continuar.",
   DISCORD_IDENTITY: "Entre com a mesma conta do Discord que usou o comando.",
+  DISCORD_GUILD_BLOCKED: "A integração do JanjaLive está bloqueada neste servidor.",
 } as const;
 
 export function isDiscordCallError(value: unknown): value is keyof typeof discordErrors {

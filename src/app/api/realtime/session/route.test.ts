@@ -10,6 +10,7 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("@/lib/rooms", () => ({ assertAuthorizedRoom: mocks.assertAuthorizedRoom, refreshRoomActivity: mocks.refreshRoomActivity }));
 vi.mock("@/lib/realtime", () => ({ createRealtimeSession: mocks.createRealtimeSession, enforceRateLimit: mocks.enforceRateLimit }));
+vi.mock("@/lib/discord/guilds", () => ({ assertGuildAdmission: vi.fn() }));
 
 import { GET } from "./route";
 
@@ -21,7 +22,7 @@ describe("GET /api/realtime/session", () => {
     mocks.assertAuthorizedRoom.mockResolvedValue({ room: { discordGuildId: call ? "guild" : null } });
     mocks.createRealtimeSession.mockResolvedValue({ provider: "cloudflare" });
     expect((await GET(new Request("https://www.janja.live/api/realtime/session?roomId=room"))).status).toBe(200);
-    expect(mocks.createRealtimeSession).toHaveBeenCalledWith(...(call ? ["room", "user", undefined, true] : ["room", "user"]));
+    expect(mocks.createRealtimeSession).toHaveBeenCalledWith(...(call ? ["room", "user", undefined, true, "guild"] : ["room", "user"]));
   });
 
   it("does not issue a new realtime credential to a banned account", async () => {

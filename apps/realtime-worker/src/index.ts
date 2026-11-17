@@ -31,6 +31,7 @@ import { CallIdleSession } from "./call-idle";
 type Env = {
   ROOMS: DurableObjectNamespace<RoomDurableObject>;
   RATE_LIMITS: DurableObjectNamespace<RateLimitDurableObject>;
+  GUILD_POLICIES: DurableObjectNamespace<GuildPolicyDurableObject>;
   ALLOWED_ORIGINS: string;
   REALTIME_TOKEN_SECRET: string;
   REALTIME_INTERNAL_SECRET: string;
@@ -44,6 +45,7 @@ type RealtimeClaims = {
   issuedAtMs: number;
   roomDeadline?: number;
   callIdle?: boolean;
+  discordGuildId?: string;
 };
 
 type ConnectionState = SignalingConnectionState & {
@@ -102,12 +104,15 @@ async function verifyRealtimeToken(token: string, env: Env): Promise<RealtimeCla
   const issuedAtMs = payload.issuedAtMs ?? payload.iat! * 1_000;
   if (!Number.isSafeInteger(issuedAtMs) || Math.floor(Number(issuedAtMs) / 1_000) !== payload.iat) throw new Error("INVALID_CLAIMS");
   const roomDeadline = payload.roomDeadline;
+  if (payload.discordGuildId !== undefined && (typeof payload.discordGuildId !== "string" || !/^\d{17,20}$/.test(payload.discordGuildId)
+    || payload.roomIdleTimeoutMs !== DISCORD_CALL_IDLE_TIMEOUT_MS)) throw new Error("INVALID_CLAIMS");
   if (payload.roomIdleTimeoutMs !== undefined && payload.roomIdleTimeoutMs !== DISCORD_CALL_IDLE_TIMEOUT_MS) throw new Error("INVALID_CLAIMS");
   if (roomDeadline !== undefined && (!Number.isSafeInteger(roomDeadline) || Number(roomDeadline) <= Date.now()
     || Number(roomDeadline) > Date.now() + 6 * 60 * 60_000)) throw new Error("INVALID_CLAIMS");
   return { roomId: payload.roomId, sub: payload.sub, issuedAt: payload.iat!, issuedAtMs: Number(issuedAtMs),
     ...(roomDeadline === undefined ? {} : { roomDeadline: Number(roomDeadline) }),
-    ...(payload.roomIdleTimeoutMs === DISCORD_CALL_IDLE_TIMEOUT_MS ? { callIdle: true } : {}) };
+    ...(payload.roomIdleTimeoutMs === DISCORD_CALL_IDLE_TIMEOUT_MS ? { callIdle: true } : {}),
+    ...(typeof payload.discordGuildId === "string" ? { discordGuildId: payload.discordGuildId } : {}) };
 }
 
 function internalRoomRequest(request: Request, roomId: string, pathname: string) {
@@ -134,6 +139,15 @@ export default {
       if (!session) return json({ error: "TOKEN_REQUIRED" }, 401);
       try {
         const claims = await verifyRealtimeToken(session.token, env);
+        if (claims.discordGuildId) {
+          try {
+            const policy = await env.GUILD_POLICIES.getByName(claims.discordGuildId).fetch(new Request("https://guild.internal/access"));
+            if (!policy.ok) return json({ error: "GUILD_POLICY_UNAVAILABLE" }, 503);
+            const value = await policy.json() as { blocked?: unknown };
+            if (typeof value.blocked !== "boolean") return json({ error: "GUILD_POLICY_UNAVAILABLE" }, 503);
+            if (value.blocked) return json({ error: "DISCORD_GUILD_BLOCKED" }, 403);
+          } catch { return json({ error: "GUILD_POLICY_UNAVAILABLE" }, 503); }
+        }
         const headers = new Headers(request.headers);
         headers.set("x-janjalive-user-id", claims.sub);
         headers.set("x-janjalive-room-id", claims.roomId);
@@ -142,6 +156,7 @@ export default {
         headers.set("x-janjalive-protocol", session.protocol);
         headers.delete("x-janjalive-room-deadline");
         headers.delete("x-janjalive-call-idle");
+        headers.delete("x-janjalive-discord-guild-id");
         if (claims.callIdle) headers.set("x-janjalive-call-idle", "true");
         if (claims.roomDeadline !== undefined) headers.set("x-janjalive-room-deadline", String(claims.roomDeadline));
         const stub = env.ROOMS.getByName(claims.roomId);
@@ -160,6 +175,13 @@ export default {
       const [, roomId, action] = roomMatch;
       const stub = env.ROOMS.getByName(roomId!);
       return stub.fetch(internalRoomRequest(request, roomId!, `/${action}`));
+    }
+
+    const guildMatch = /^\/internal\/guilds\/(\d{17,20})\/access$/.exec(url.pathname);
+    if (guildMatch && request.method === "POST") {
+      return env.GUILD_POLICIES.getByName(guildMatch[1]!).fetch(new Request("https://guild.internal/access", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: await request.text(),
+      }));
     }
 
     if (url.pathname === "/internal/rate-limit" && request.method === "POST") {
@@ -529,5 +551,21 @@ export class RateLimitDurableObject extends DurableObject<Env> {
       : { count: current.count + 1, resetAt: current.resetAt };
     await this.ctx.storage.put("window", next);
     return json({ allowed: next.count <= limit, remaining: Math.max(0, limit - next.count), resetAt: next.resetAt });
+  }
+}
+
+/** Admission only: existing room sockets and media are never touched here. */
+export class GuildPolicyDurableObject extends DurableObject<Env> {
+  async fetch(request: Request): Promise<Response> {
+    if (request.method === "GET") {
+      const state = await this.ctx.storage.get<RevocationTransitionState>("access");
+      return json({ blocked: state?.revoked ?? false });
+    }
+    if (request.method !== "POST") return json({ error: "METHOD_NOT_ALLOWED" }, 405);
+    const body = await request.json().catch(() => null) as { blocked?: unknown; changedAt?: unknown } | null;
+    if (!body || typeof body.blocked !== "boolean" || !Number.isSafeInteger(body.changedAt) || Number(body.changedAt) <= 0) return json({ error: "INVALID_REQUEST" }, 400);
+    const current = await this.ctx.storage.get<RevocationTransitionState>("access");
+    await this.ctx.storage.put("access", applyRevocationTransition(current, body.blocked ? "REVOKE" : "RESTORE", Number(body.changedAt)));
+    return json({ ok: true });
   }
 }
