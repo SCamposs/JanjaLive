@@ -7,6 +7,19 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const initialData = { users: [], page: 1, pageSize: 25, total: 30, totalPages: 2, order: "newest" as const };
 
 describe("admin search and ordering", () => {
+  it("preserves account identifiers and protects the owner in the compact list", () => {
+    render(<AdminUsers ownerUserId="owner-id" initialData={{ ...initialData, users: [{
+      id: "owner-id", discordId: "325447679368757249", username: "SCamposs", displayName: null, name: null,
+      avatar: null, image: null, accountStatus: "ACTIVE", createdAt: "2026-11-17T12:00:00Z", accessChangedAt: null,
+    }] }} />);
+    expect(screen.getByText("SCamposs")).toBeTruthy();
+    expect(screen.getByText("owner-id")).toBeTruthy();
+    expect(screen.getByText("325447679368757249")).toBeTruthy();
+    expect(screen.getByText("17/11/2026")).toBeTruthy();
+    expect(screen.getByText("Proprietário")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Banir" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("submits the Base UI search field and preserves the filter during pagination", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => initialData });
     vi.stubGlobal("fetch", fetchMock);

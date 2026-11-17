@@ -105,13 +105,16 @@ export function AdminUsers({ initialData, ownerUserId }: { initialData: AdminUse
         <button className="button secondary" type="submit" disabled={loading}>Buscar</button>
       </form>
       {error && <p className="admin-error" role="alert">{error}</p>}
-      <div className="admin-user-list" aria-busy={loading}>
+      <div className="admin-user-list admin-account-list" aria-busy={loading}>
+        {data.users.length > 0 && <div className="admin-account-columns" aria-hidden="true"><span>Usuário</span><span>Discord ID</span><span>Cadastro</span><span>Acesso</span></div>}
         {data.users.map((user) => {
           const name = user.displayName || user.username || user.name || "Usuário";
           const image = user.avatar || user.image;
           const owner = user.id === ownerUserId;
-          return <article className="admin-user" key={user.id}>
-            <div className="admin-user-identity"><UserAvatar name={name} image={image} size={38} /><div><strong>{name}</strong><small>{user.id}</small><small>Discord: {user.discordId || "não disponível"}</small><small>Criado em {new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(user.createdAt))}</small></div></div>
+          return <article className="admin-user admin-account-row" key={user.id}>
+            <div className="admin-user-identity"><UserAvatar name={name} image={image} size={34} /><div><strong>{name}</strong><small>{user.id}</small></div></div>
+            <div className="admin-account-detail"><span className="admin-detail-label">Discord: </span>{user.discordId || "Não disponível"}</div>
+            <div className="admin-account-detail"><span className="admin-detail-label">Cadastro: </span><time dateTime={new Date(user.createdAt).toISOString()}>{new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(new Date(user.createdAt))}</time></div>
             <div className="admin-user-action"><span className={user.accountStatus === "BANNED" ? "banned" : "active"}>{owner ? "Proprietário" : user.accountStatus === "BANNED" ? "Banido" : "Ativo"}</span>{user.accountStatus === "BANNED" && !owner && <button className="button secondary compact" type="button" disabled={busy === user.id} onClick={() => void changeAccess(user, "BAN")}>Repetir revogação</button>}<button className={user.accountStatus === "BANNED" ? "button secondary compact" : "button danger compact"} type="button" disabled={owner || busy === user.id} onClick={() => void changeAccess(user)}>{user.accountStatus === "BANNED" ? "Desbanir" : "Banir"}</button></div>
           </article>;
         })}

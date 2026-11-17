@@ -7,6 +7,7 @@ import { getOperationalStatus } from "@/lib/operational-status";
 import { listDiscordGuilds } from "@/lib/discord/guilds";
 import { AdminDiscordGuilds } from "./admin-discord-guilds";
 import { discordInstallUrl } from "@/lib/discord/config";
+import { AdminSections } from "./admin-sections";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Controle | JanjaLive", robots: { index: false, follow: false } };
@@ -27,13 +28,22 @@ export default async function AdminPage() {
   return (
     <main className="admin-shell">
       <header className="admin-header"><Brand /><span>Controle de acesso</span></header>
-      <section className="admin-card">
-        <p role="status">{data.operations.activeRooms} salas ativas · {data.operations.bannedUsers} contas banidas · {data.operations.activeTurnCredentials} credenciais TURN válidas · {data.operations.pendingDisconnects} revogações pendentes</p>
-        <p>Novas salas: {process.env.ROOM_CREATION_ENABLED === "false" ? "pausadas" : "habilitadas"}. Emissão TURN: {process.env.TURN_ENABLED === "false" ? "pausada" : "habilitada"}.</p>
-        <div><h1>Usuários</h1><p>Banimento de acesso e revogação imediata de sessões.</p></div>
-        <AdminUsers initialData={data.usersPage} ownerUserId={data.admin.id} />
+      <section className="admin-overview" aria-label="Estado do serviço">
+        <dl className="admin-metrics">
+          <div><dt>Salas ativas</dt><dd>{data.operations.activeRooms}</dd></div>
+          <div><dt>Contas banidas</dt><dd>{data.operations.bannedUsers}</dd></div>
+          <div><dt>Credenciais TURN válidas</dt><dd>{data.operations.activeTurnCredentials}</dd></div>
+          <div><dt>Revogações pendentes</dt><dd>{data.operations.pendingDisconnects}</dd></div>
+        </dl>
+        <p>Novas salas: {process.env.ROOM_CREATION_ENABLED === "false" ? "pausadas" : "habilitadas"} · Emissão TURN: {process.env.TURN_ENABLED === "false" ? "pausada" : "habilitada"}</p>
       </section>
-      <AdminDiscordGuilds initialData={data.guildsPage} installUrl={discordInstallUrl(process.env.DISCORD_BOT_APPLICATION_ID)} />
+      <AdminSections users={
+        <section className="admin-card" aria-labelledby="admin-users-title">
+          <h1 id="admin-users-title">Usuários</h1>
+          <p>Banimento de acesso e revogação imediata de sessões.</p>
+          <AdminUsers initialData={data.usersPage} ownerUserId={data.admin.id} />
+        </section>
+      } guilds={<AdminDiscordGuilds initialData={data.guildsPage} installUrl={discordInstallUrl(process.env.DISCORD_BOT_APPLICATION_ID)} />} />
     </main>
   );
 }
