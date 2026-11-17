@@ -9,12 +9,12 @@ const initialData = { users: [], page: 1, pageSize: 25, total: 30, totalPages: 2
 describe("admin search and ordering", () => {
   it("preserves account identifiers and protects the owner in the compact list", () => {
     render(<AdminUsers ownerUserId="owner-id" initialData={{ ...initialData, users: [{
-      id: "owner-id", discordId: "325447679368757249", username: "SCamposs", displayName: null, name: null,
+      id: "owner-id", discordId: "discord-owner", username: "Proprietário de teste", displayName: null, name: null,
       avatar: null, image: null, accountStatus: "ACTIVE", createdAt: "2026-11-17T12:00:00Z", accessChangedAt: null,
     }] }} />);
-    expect(screen.getByText("SCamposs")).toBeTruthy();
+    expect(screen.getByText("Proprietário de teste")).toBeTruthy();
     expect(screen.getByText("owner-id")).toBeTruthy();
-    expect(screen.getByText("325447679368757249")).toBeTruthy();
+    expect(screen.getByText("discord-owner")).toBeTruthy();
     expect(screen.getByText("17/11/2026")).toBeTruthy();
     expect(screen.getByText("Proprietário")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Banir" }) as HTMLButtonElement).disabled).toBe(true);
