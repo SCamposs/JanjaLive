@@ -4,6 +4,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import { AdminDiscordGuilds } from "./admin-discord-guilds";
 const initial = { guilds: [{ id: "100000000000000080", name: "Meu servidor", blocked: false, syncPending: false }], page: 1, total: 1, totalPages: 1 };
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it("offers the owner an installation link in a separate tab without registering or installing anything automatically", () => {
+  const installUrl = "https://discord.com/oauth2/authorize?client_id=100000000000000080&scope=bot+applications.commands&integration_type=0";
+  render(<AdminDiscordGuilds initialData={initial} installUrl={installUrl} />);
+  const link = screen.getByRole("link", { name: "Adicionar bot" });
+  expect(link.getAttribute("href")).toBe(installUrl); expect(link.getAttribute("target")).toBe("_blank");
+  expect(link.getAttribute("rel")).toContain("noopener");
+});
 it("requires confirmation, prevents duplicate mutations while pending and shows the new block state", async () => {
   let finish!: (response: Response) => void;
   const fetcher = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; })); vi.stubGlobal("fetch", fetcher);

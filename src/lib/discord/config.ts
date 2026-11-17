@@ -2,6 +2,12 @@ import { discordCallErrorMessage, DISCORD_CALL_IDLE_TIMEOUT_MS } from "@janjaliv
 
 export const CALL_IDLE_MS = DISCORD_CALL_IDLE_TIMEOUT_MS;
 
+export function discordInstallUrl(appId: string | undefined) {
+  if (!appId || !/^\d{17,20}$/.test(appId)) return null;
+  const query = new URLSearchParams({ client_id: appId, scope: "bot applications.commands", permissions: "1133568", integration_type: "0" });
+  return `https://discord.com/oauth2/authorize?${query}`;
+}
+
 export function discordEnabled(env: Readonly<Record<string, string | undefined>> = process.env) {
   return env.DISCORD_CALLS_ENABLED === "true";
 }

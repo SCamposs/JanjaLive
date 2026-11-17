@@ -6,6 +6,7 @@ import { AdminUsers } from "./admin-users";
 import { getOperationalStatus } from "@/lib/operational-status";
 import { listDiscordGuilds } from "@/lib/discord/guilds";
 import { AdminDiscordGuilds } from "./admin-discord-guilds";
+import { discordInstallUrl } from "@/lib/discord/config";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Controle | JanjaLive", robots: { index: false, follow: false } };
@@ -32,7 +33,7 @@ export default async function AdminPage() {
         <div><h1>Usuários</h1><p>Banimento de acesso e revogação imediata de sessões.</p></div>
         <AdminUsers initialData={data.usersPage} ownerUserId={data.admin.id} />
       </section>
-      <AdminDiscordGuilds initialData={data.guildsPage} />
+      <AdminDiscordGuilds initialData={data.guildsPage} installUrl={discordInstallUrl(process.env.DISCORD_BOT_APPLICATION_ID)} />
     </main>
   );
 }

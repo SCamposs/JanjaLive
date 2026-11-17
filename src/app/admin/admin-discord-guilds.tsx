@@ -3,11 +3,12 @@
 import { useRef, useState } from "react";
 import { TextInput } from "@janjalive/ui";
 import { Dialog } from "@janjalive/ui/dialog";
+import { ExternalLink } from "lucide-react";
 
 type Guild = { id: string; name: string; blocked: boolean; syncPending: boolean };
 type GuildPage = { guilds: Guild[]; page: number; total: number; totalPages: number };
 
-export function AdminDiscordGuilds({ initialData }: { initialData: GuildPage }) {
+export function AdminDiscordGuilds({ initialData, installUrl }: { initialData: GuildPage; installUrl?: string | null }) {
   const [data, setData] = useState(initialData);
   const [query, setQuery] = useState("");
   const [appliedQuery, setAppliedQuery] = useState("");
@@ -46,7 +47,9 @@ export function AdminDiscordGuilds({ initialData }: { initialData: GuildPage }) 
   }
 
   return <section className="admin-card admin-guilds" aria-labelledby="admin-guilds-title">
-    <h2 id="admin-guilds-title">Servidores do Discord</h2>
+    <div className="admin-guilds-heading"><h2 id="admin-guilds-title">Servidores do Discord</h2>
+      {installUrl && <a className="button secondary compact" href={installUrl} target="_blank" rel="noopener noreferrer">Adicionar bot <ExternalLink size={14} aria-hidden="true" /></a>}
+    </div>
     <p>Servidores com o bot instalado funcionam automaticamente. O bloqueio impede novos comandos e entradas; salas em uso continuam ativas.</p>
     <form className="admin-search" onSubmit={event => { event.preventDefault(); if (lock.current) return;
       const search = query.trim(); setAppliedQuery(search); void load(1, search); }}>

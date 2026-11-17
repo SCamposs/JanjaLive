@@ -32,6 +32,8 @@
 .admin-users { margin-top: 24px; }
 .admin-guilds { margin-top: 20px; }
 .admin-guilds h2 { margin: 0 0 6px; font-size: 20px; }
+.admin-guilds-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.admin-guilds-heading h2 { margin: 0; }
 .admin-guilds > p { max-width: 65ch; line-height: 1.6; }
 .admin-guilds .admin-search { margin-top: 20px; }
 .admin-search { display: flex; gap: 8px; margin-bottom: 16px; }

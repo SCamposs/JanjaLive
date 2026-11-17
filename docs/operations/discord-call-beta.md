@@ -54,7 +54,7 @@ Link de instalação privada, usando a conta proprietária da aplicação e esco
 
 https://discord.com/oauth2/authorize?client_id=1555326263760003112&scope=bot%20applications.commands&permissions=1133568&integration_type=0
 
-Não há `guild_id` ou `disable_guild_select` nesse link. Ele não altera o callback do login. Após o primeiro `/janja`/acesso verificado, o servidor aparece em **/admin → Servidores do Discord**. Ali é possível buscar, bloquear, desbloquear e concluir uma alteração pendente. Não existe etapa de aprovação.
+Não há `guild_id` ou `disable_guild_select` nesse link. Ele não altera o callback do login. O mesmo link está no botão **Adicionar bot**, em **/admin → Servidores do Discord**, abrindo em nova aba; só a área autenticada do proprietário exibe esse atalho. Após o primeiro `/janja`/acesso verificado, o servidor aparece nessa listagem. Ali é possível buscar, bloquear, desbloquear e concluir uma alteração pendente. Não existe etapa de aprovação.
 
 O build atual do desktop já entende convites `janjalive://room/...`; não foi criado um protocolo alternativo. Os ajustes deste código acrescentam mensagens específicas de falha no desktop. Testar a versão instalada e o build novo antes de decidir se a beta exige atualização do instalador.
 

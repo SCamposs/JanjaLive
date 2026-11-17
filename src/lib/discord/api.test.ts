@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { discordEnabled, discordConfig } from "./config";
+import { discordEnabled, discordConfig, discordInstallUrl } from "./config";
 import { getDiscordVoiceChannel, getDiscordCallName, verifyDiscordSignature } from "./api";
 
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -16,6 +16,14 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("Discord beta boundary", () => {
+  it("builds a server-only explicit installation link without a fixed guild or OAuth login redirect", () => {
+    expect(discordInstallUrl(undefined)).toBeNull(); expect(discordInstallUrl("invalid")).toBeNull();
+    const link = new URL(discordInstallUrl("100000000000000080")!);
+    expect(link.searchParams.get("scope")).toBe("bot applications.commands");
+    expect(link.searchParams.get("integration_type")).toBe("0");
+    expect(link.searchParams.get("permissions")).toBe("1133568");
+    expect(link.searchParams.has("guild_id")).toBe(false); expect(link.searchParams.has("redirect_uri")).toBe(false);
+  });
   it("defaults off and no longer needs a guild allowlist environment variable", () => {
     expect(discordEnabled({})).toBe(false);
     expect(discordEnabled({ DISCORD_CALLS_ENABLED: "true" })).toBe(true);
